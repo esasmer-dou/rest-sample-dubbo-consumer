@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.reactor.sample</groupId>
+    <artifactId>rest-sample-dubbo-consumer</artifactId>
+    <version>0.1.0</version>
+    <packaging>jar</packaging>
+
+    <name>rest-sample-dubbo-consumer</name>
+    <description>Minimal Rust-Java REST application that consumes a Dubbo provider.</description>
+
+    <properties>
+        <maven.compiler.release>21</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <rust-java-rest.version>3.1.0-rc4</rust-java-rest.version>
+        <java-rust-dubbo.version>0.1.0-rc1</java-rust-dubbo.version>
+        <zookeeper.version>3.7.2</zookeeper.version>
+    </properties>
+
+    <repositories>
+        <repository>
+            <id>github-rust-java-rest</id>
+            <name>GitHub Packages - rust-java-rest</name>
+            <url>https://maven.pkg.github.com/esasmer-dou/rust-java-rest</url>
+        </repository>
+        <repository>
+            <id>github-java-rust-dubbo</id>
+            <name>GitHub Packages - java-rust-dubbo</name>
+            <url>https://maven.pkg.github.com/esasmer-dou/java-rust-dubbo</url>
+        </repository>
+    </repositories>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.reactor</groupId>
+            <artifactId>rust-java-rest</artifactId>
+            <version>${rust-java-rest.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.reactor</groupId>
+            <artifactId>java-rust-dubbo</artifactId>
+            <version>${java-rust-dubbo.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+                <configuration>
+                    <release>${maven.compiler.release}</release>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <configuration>
+                    <mainClass>com.reactor.sample.dubbo.consumer.app.RestSampleDubboConsumerApplication</mainClass>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <profile>
+            <id>zookeeper-discovery</id>
+            <dependencies>
+                <dependency>
+                    <groupId>org.apache.zookeeper</groupId>
+                    <artifactId>zookeeper</artifactId>
+                    <version>${zookeeper.version}</version>
+                    <exclusions>
+                        <exclusion>
+                            <groupId>io.netty</groupId>
+                            <artifactId>netty-handler</artifactId>
+                        </exclusion>
+                        <exclusion>
+                            <groupId>io.netty</groupId>
+                            <artifactId>netty-transport-native-epoll</artifactId>
+                        </exclusion>
+                    </exclusions>
+                </dependency>
+            </dependencies>
+        </profile>
+    </profiles>
+</project>
