@@ -16,6 +16,7 @@ Bu örnek şu konuları göstermek için hazırlandı:
 - `rust-java-rest` uygulamasına `java-rust-dubbo` nasıl eklenir.
 - Java REST handler içinden Dubbo provider nasıl çağrılır.
 - Provider'ın ürettiği JSON `RawResponse` ile DTO graph kurulmadan nasıl HTTP response yapılır.
+- Tek REST process içinde birden fazla Dubbo interface full Dubbo stack yüklenmeden nasıl consume edilir.
 - Static provider listesi ile consumer process nasıl küçük tutulur.
 - ZooKeeper discovery sadece ihtiyaç olduğunda nasıl devreye alınır.
 - Handler, config, RPC adapter ve runtime class'ları DTO record'lardan nasıl ayrılır.
@@ -58,10 +59,10 @@ consumer -> ZooKeeper -> provider URL -> Dubbo provider
 ```text
 HTTP client
   -> rust-java-rest içindeki Rust Hyper server
-  -> Java CatalogHandler
-  -> NestedCatalogClient adapter
+  -> Java handler
+  -> küçük interface-specific client adapter
   -> java-rust-dubbo native consumer
-  -> Dubbo provider
+  -> seçilen Dubbo interface
   -> JSON byte[]
   -> RawResponse.json(...)
   -> Rust HTTP response
@@ -69,6 +70,16 @@ HTTP client
 
 Kritik nokta: consumer provider JSON'unu DTO'ya parse edip tekrar serialize etmez. Provider JSON
 bytes üretiyorsa consumer bu bytes'ı direkt HTTP body olarak taşır.
+
+Bu sample artık iki Dubbo interface consume eder:
+
+| REST alanı | Dubbo interface | Method | Neden ayrı? |
+|------------|-----------------|--------|-------------|
+| Catalog read | `NestedCatalogService` | `getNestedCatalogJson()` | Catalog payload DB-backed customer read'den bağımsızdır. |
+| Customer read | `CustomerQueryService` | `getDatabaseCustomersJson()` | DB-backed customer query'nin lifecycle, repository ve scaling profili ayrıdır. |
+
+Bunları ayrı interface olarak tutmak "god RPC interface" oluşmasını engeller. Ayrıca her provider
+contract'ı ayrı test edilebilir, tune edilebilir ve değiştirilebilir.
 
 ## Paket Yapısı
 
@@ -86,7 +97,7 @@ com.reactor.sample.dubbo.consumer.dubbo
   Native Dubbo client adapter ve metrics erişimi.
 
 com.reactor.rust.dubbo.sample
-  Ortak Dubbo interface örneği. Production'da shared API jar'a taşınmalı.
+  Ortak Dubbo interface örnekleri. Production'da shared API jar'a taşınmalı.
 ```
 
 Main class:
@@ -113,9 +124,12 @@ Bu örnekteki class'lar response DTO değildir:
 | `ConsumerProperties` | Runtime property okur ve validate eder. | Hayır |
 | `DubboConsumerConfiguration` | Dubbo client bean'lerini oluşturur/kapatır. | Hayır |
 | `NestedCatalogClient` | Native Dubbo method invoker adapter'ıdır. | Hayır |
+| `CustomerQueryClient` | Customer Dubbo interface adapter'ıdır. | Hayır |
 | `CatalogHandler` | REST endpoint davranışını taşır. | Hayır |
+| `CustomerHandler` | Customer REST endpoint davranışını taşır. | Hayır |
 | `HealthHandler` | Health endpoint davranışını taşır. | Hayır |
 | `NestedCatalogService` | Dubbo interface kontratıdır. | HTTP JSON DTO değil |
+| `CustomerQueryService` | İkinci Dubbo interface kontratıdır. | HTTP JSON DTO değil |
 
 ### Use Case: Normal REST DTO
 
@@ -273,19 +287,22 @@ Büyük Dubbo object graph'ı consumer JVM'e çekip tekrar JSON'a çevirmek bu f
 </dependency>
 ```
 
-Demo kendi içinde Dubbo interface source'u taşır:
+Demo kendi içinde Dubbo interface source'larını taşır:
 
 ```java
 package com.reactor.rust.dubbo.sample;
 
 public interface NestedCatalogService {
     byte[] getNestedCatalogJson();
+}
+
+public interface CustomerQueryService {
     byte[] getDatabaseCustomersJson();
 }
 ```
 
-Gerçek sistemde bu interface provider ve consumer tarafından kullanılan ortak bir `*-api` jar içinden
-gelmelidir.
+Gerçek sistemde bu interface'ler provider ve consumer tarafından kullanılan ortak bir `*-api` jar
+içinden gelmelidir. Ayrı servislerde küçük farklarla copy/paste contract üretmeyin.
 
 ## GitHub Packages
 
@@ -390,6 +407,7 @@ Test:
 ```powershell
 curl http://127.0.0.1:8080/app/health
 curl http://127.0.0.1:8080/api/v1/catalog/nested
+curl http://127.0.0.1:8080/api/v1/customers/db
 curl http://127.0.0.1:8080/api/v1/catalog/db/customers
 curl http://127.0.0.1:8080/api/v1/catalog/dubbo-metrics
 ```
@@ -425,8 +443,9 @@ Bu modda `reactor.dubbo.providers` yok sayılır, provider URL'leri ZooKeeper'da
 | Endpoint | Açıklama |
 |----------|----------|
 | `GET /app/health` | Consumer application health endpoint'i. |
-| `GET /api/v1/catalog/nested` | Provider'ı çağırır ve nested JSON'u forward eder. |
-| `GET /api/v1/catalog/db/customers` | Provider'ı çağırır ve PostgreSQL-backed customer JSON'u forward eder. |
+| `GET /api/v1/catalog/nested` | `NestedCatalogService` çağırır ve nested catalog JSON'u forward eder. |
+| `GET /api/v1/customers/db` | `CustomerQueryService` çağırır ve PostgreSQL-backed customer JSON'u forward eder. |
+| `GET /api/v1/catalog/db/customers` | Compatibility alias; yine `CustomerQueryService` çağırır. |
 | `GET /api/v1/catalog/dubbo-metrics` | Native Dubbo client metrics çıktısı. |
 
 ## Neden Küçük?
@@ -458,5 +477,5 @@ Kubernetes Service DNS veya sidecar-generated provider list daha doğru başlang
 - JSON zaten serialize edilmişse `RawResponse` kullanın.
 - Timeout ve in-flight limitlerini açık tutun.
 - Runtime default'ları kodun içine saklamayın.
-- Shared Dubbo interface'i production'da gerçek bir API jar'a taşıyın.
+- Shared Dubbo interface'leri production'da gerçek bir API jar'a taşıyın.
 - Metrics endpoint'lerini gerçek deployment'ta koruyun.

@@ -7,6 +7,7 @@ import com.reactor.rust.config.PropertiesLoader;
 import com.reactor.rust.di.BeanContainer;
 import com.reactor.sample.dubbo.consumer.config.ConsumerProperties;
 import com.reactor.sample.dubbo.consumer.handler.CatalogHandler;
+import com.reactor.sample.dubbo.consumer.handler.CustomerHandler;
 import com.reactor.sample.dubbo.consumer.handler.HealthHandler;
 
 public final class RestSampleDubboConsumerApplication {
@@ -25,6 +26,7 @@ public final class RestSampleDubboConsumerApplication {
         HandlerRegistry registry = HandlerRegistry.getInstance();
         registry.registerBean(container.getBean(HealthHandler.class));
         registry.registerBean(container.getBean(CatalogHandler.class));
+        registry.registerBean(container.getBean(CustomerHandler.class));
 
         RouteScanner.scanAndRegister();
         NativeBridge.configureRuntimeFromProperties();

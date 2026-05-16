@@ -12,10 +12,4 @@ public interface NestedCatalogService {
      * Fast native path: no arguments, response is already JSON bytes.
      */
     byte[] getNestedCatalogJson();
-
-    /**
-     * Database-backed provider path. The provider owns JDBC/Hikari/ActiveJDBC;
-     * the REST consumer only receives JSON bytes over Dubbo.
-     */
-    byte[] getDatabaseCustomersJson();
 }

@@ -8,7 +8,9 @@ import com.reactor.rust.dubbo.DubboReferenceSpec;
 import com.reactor.rust.dubbo.NativeDubboConsumerClient;
 import com.reactor.rust.dubbo.NativeDubboConsumers;
 import com.reactor.rust.dubbo.NativeDubboMethodInvoker;
+import com.reactor.rust.dubbo.sample.CustomerQueryService;
 import com.reactor.rust.dubbo.sample.NestedCatalogService;
+import com.reactor.sample.dubbo.consumer.dubbo.CustomerQueryClient;
 import com.reactor.sample.dubbo.consumer.dubbo.NestedCatalogClient;
 
 import java.util.Locale;
@@ -30,10 +32,24 @@ public final class DubboConsumerConfiguration {
 
         NativeDubboMethodInvoker<byte[]> invoker =
                 client.method(spec, "getNestedCatalogJson", byte[].class);
+
+        return new NestedCatalogClient(invoker, client);
+    }
+
+    @Bean
+    public CustomerQueryClient customerQueryClient() {
+        DubboReferenceSpec<CustomerQueryService> spec = DubboReferenceSpec
+                .builder(CustomerQueryService.class)
+                .timeoutMs(ConsumerProperties.getInt("reactor.dubbo.timeout-ms"))
+                .retries(ConsumerProperties.getInt("reactor.dubbo.retries"))
+                .check(ConsumerProperties.getBoolean("reactor.dubbo.check"))
+                .lazy(ConsumerProperties.getBoolean("reactor.dubbo.lazy"))
+                .build();
+
         NativeDubboMethodInvoker<byte[]> databaseInvoker =
                 client.method(spec, "getDatabaseCustomersJson", byte[].class);
 
-        return new NestedCatalogClient(invoker, databaseInvoker, client);
+        return new CustomerQueryClient(databaseInvoker);
     }
 
     @PreDestroy

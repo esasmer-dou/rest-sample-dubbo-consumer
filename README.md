@@ -16,6 +16,7 @@ Use this sample when you want to understand:
 - How to add `java-rust-dubbo` to a Rust-Java REST application.
 - How a Java REST handler can call a Dubbo provider.
 - How provider JSON can be forwarded with `RawResponse` without building a Java DTO graph.
+- How one REST process can consume more than one Dubbo interface without loading a full Dubbo stack.
 - How to keep the consumer process small with a static provider list.
 - How to switch to ZooKeeper discovery only when you need it.
 - How to structure handler, config, RPC adapter, and runtime classes without confusing them with DTOs.
@@ -60,10 +61,10 @@ Runtime flow:
 ```text
 HTTP client
   -> Rust Hyper server from rust-java-rest
-  -> Java CatalogHandler
-  -> NestedCatalogClient adapter
+  -> Java handler
+  -> small interface-specific client adapter
   -> java-rust-dubbo native consumer
-  -> Dubbo provider
+  -> selected Dubbo interface
   -> JSON byte[]
   -> RawResponse.json(...)
   -> Rust HTTP response
@@ -71,6 +72,16 @@ HTTP client
 
 The important part is that the consumer does not parse the provider JSON into a DTO and serialize it
 again. If the provider already returns JSON bytes, the consumer forwards those bytes as the HTTP body.
+
+This sample now consumes two Dubbo interfaces:
+
+| REST area | Dubbo interface | Method | Why it is separate |
+|-----------|-----------------|--------|--------------------|
+| Catalog read | `NestedCatalogService` | `getNestedCatalogJson()` | Catalog payload is independent from database-backed customer reads. |
+| Customer read | `CustomerQueryService` | `getDatabaseCustomersJson()` | DB-backed customer query has its own lifecycle, repository, and scaling profile. |
+
+Keeping these as separate interfaces avoids a "god RPC interface". It also lets you tune, test, and
+replace each provider contract independently.
 
 ## Package Structure
 
@@ -88,7 +99,7 @@ com.reactor.sample.dubbo.consumer.dubbo
   Native Dubbo client adapter and metrics access.
 
 com.reactor.rust.dubbo.sample
-  Shared Dubbo interface example. In production, move this to a shared API jar.
+  Shared Dubbo interface examples. In production, move these to a shared API jar.
 ```
 
 Main class:
@@ -115,9 +126,12 @@ Classes in this sample are not response DTOs:
 | `ConsumerProperties` | Reads and validates runtime properties. | No |
 | `DubboConsumerConfiguration` | Creates and closes Dubbo client beans. | No |
 | `NestedCatalogClient` | Adapter around native Dubbo method invokers. | No |
+| `CustomerQueryClient` | Adapter around the customer Dubbo interface. | No |
 | `CatalogHandler` | REST endpoint behavior. | No |
+| `CustomerHandler` | Customer REST endpoint behavior. | No |
 | `HealthHandler` | Health endpoint behavior. | No |
 | `NestedCatalogService` | Dubbo interface contract. | Not an HTTP JSON DTO |
+| `CustomerQueryService` | Second Dubbo interface contract. | Not an HTTP JSON DTO |
 
 ### Use Case: Normal REST DTO
 
@@ -274,18 +288,22 @@ into the consumer JVM and serializing it again is an anti-pattern for this frame
 </dependency>
 ```
 
-The sample contains the Dubbo interface source only to keep the demo self-contained:
+The sample contains the Dubbo interface sources only to keep the demo self-contained:
 
 ```java
 package com.reactor.rust.dubbo.sample;
 
 public interface NestedCatalogService {
     byte[] getNestedCatalogJson();
+}
+
+public interface CustomerQueryService {
     byte[] getDatabaseCustomersJson();
 }
 ```
 
-In a real system, publish the interface from a shared `*-api` jar used by both provider and consumer.
+In a real system, publish these interfaces from a shared `*-api` jar used by both provider and
+consumer. Do not copy/paste slightly different versions into separate services.
 
 ## GitHub Packages
 
@@ -391,6 +409,7 @@ Test:
 ```powershell
 curl http://127.0.0.1:8080/app/health
 curl http://127.0.0.1:8080/api/v1/catalog/nested
+curl http://127.0.0.1:8080/api/v1/customers/db
 curl http://127.0.0.1:8080/api/v1/catalog/db/customers
 curl http://127.0.0.1:8080/api/v1/catalog/dubbo-metrics
 ```
@@ -426,8 +445,9 @@ In this mode, `reactor.dubbo.providers` is ignored and provider URLs are read fr
 | Endpoint | Description |
 |----------|-------------|
 | `GET /app/health` | Consumer application health endpoint. |
-| `GET /api/v1/catalog/nested` | Calls provider and forwards nested JSON. |
-| `GET /api/v1/catalog/db/customers` | Calls provider and forwards PostgreSQL-backed customer JSON. |
+| `GET /api/v1/catalog/nested` | Calls `NestedCatalogService` and forwards nested catalog JSON. |
+| `GET /api/v1/customers/db` | Calls `CustomerQueryService` and forwards PostgreSQL-backed customer JSON. |
+| `GET /api/v1/catalog/db/customers` | Compatibility alias that also calls `CustomerQueryService`. |
 | `GET /api/v1/catalog/dubbo-metrics` | Shows native Dubbo client metrics. |
 
 ## Why This Consumer Is Small
@@ -459,5 +479,5 @@ for low RSS services, Kubernetes Service DNS, or sidecar-generated provider list
 - Use `RawResponse` only when JSON is already serialized or intentionally precomputed.
 - Keep timeouts and in-flight limits explicit.
 - Do not hide runtime defaults in code.
-- Move the shared Dubbo interface into a real API jar before using this pattern in production.
+- Move the shared Dubbo interfaces into a real API jar before using this pattern in production.
 - Protect metrics endpoints in real deployments.

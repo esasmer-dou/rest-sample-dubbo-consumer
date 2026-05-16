@@ -8,43 +8,23 @@ import com.reactor.rust.http.HttpStatus;
 import com.reactor.rust.http.RawResponse;
 import com.reactor.rust.http.ResponseEntity;
 import com.reactor.sample.dubbo.consumer.dubbo.CustomerQueryClient;
-import com.reactor.sample.dubbo.consumer.dubbo.NestedCatalogClient;
 
 import java.util.concurrent.CompletableFuture;
 
 @Component
-@RequestMapping("/api/v1/catalog")
-public final class CatalogHandler {
-
-    @Autowired
-    private NestedCatalogClient catalogClient;
+@RequestMapping("/api/v1/customers")
+public final class CustomerHandler {
 
     @Autowired
     private CustomerQueryClient customerQueryClient;
 
-    @GetMapping(value = "/nested", responseType = RawResponse.class)
-    public CompletableFuture<ResponseEntity<RawResponse>> nestedCatalog() {
-        return catalogClient.nestedCatalogJsonAsync()
-                .thenApply(json -> ResponseEntity.ok(RawResponse.json(json)))
-                .exceptionally(error -> ResponseEntity
-                        .status(HttpStatus.SERVICE_UNAVAILABLE)
-                        .body(error("dubbo_provider_unavailable", rootMessage(error))));
-    }
-
-    @GetMapping(value = "/db/customers", responseType = RawResponse.class)
+    @GetMapping(value = "/db", responseType = RawResponse.class)
     public CompletableFuture<ResponseEntity<RawResponse>> databaseCustomers() {
         return customerQueryClient.databaseCustomersJsonAsync()
                 .thenApply(json -> ResponseEntity.ok(RawResponse.json(json)))
                 .exceptionally(error -> ResponseEntity
                         .status(HttpStatus.SERVICE_UNAVAILABLE)
-                        .body(error("dubbo_database_provider_unavailable", rootMessage(error))));
-    }
-
-    @GetMapping(value = "/dubbo-metrics", responseType = RawResponse.class)
-    public ResponseEntity<RawResponse> dubboMetrics() {
-        return ResponseEntity.ok(RawResponse.text(
-                catalogClient.nativeMetricsJson(),
-                "application/json; charset=utf-8"));
+                        .body(error("dubbo_customer_provider_unavailable", rootMessage(error))));
     }
 
     private static RawResponse error(String code, String message) {
