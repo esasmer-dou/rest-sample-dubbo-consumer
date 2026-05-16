@@ -165,6 +165,99 @@ public interface CatalogService {
 This is easier to read for normal business APIs, but it creates object graph and serialization cost on
 the consumer side. For low-RSS, read-heavy JSON forwarding, `byte[] + RawResponse` is the better path.
 
+### Does a Dubbo Method Return a Record Directly?
+
+At the Java API level, yes:
+
+```java
+public interface CatalogService {
+    CatalogResponse getCatalog();
+}
+```
+
+The consumer can declare the method invoker with the record return type:
+
+```java
+DubboReferenceSpec<CatalogService> spec = DubboReferenceSpec.of(CatalogService.class);
+
+NativeDubboMethodInvoker<CatalogResponse> invoker =
+        client.method(spec, "getCatalog", CatalogResponse.class);
+
+CompletableFuture<CatalogResponse> response = invoker.invokeAsync();
+```
+
+But the runtime path is not "zero-copy record transfer". The record is serialized by the provider and
+deserialized again by the consumer:
+
+```text
+provider CatalogResponse record
+  -> Hessian2 serialization
+  -> Dubbo TCP frame
+  -> Rust native transport
+  -> response bytes
+  -> Java Hessian2 decode
+  -> new CatalogResponse record instance
+  -> rust-java-rest JSON serialization if returned as HTTP JSON
+```
+
+This is correct when the consumer actually needs to inspect or transform the object. It is not the
+lowest-overhead path when the consumer only forwards the provider response to an HTTP client.
+
+Current adapter behavior:
+
+| Dubbo method shape | Runtime path | Main overhead |
+|--------------------|--------------|---------------|
+| `byte[] method()` | Native fast path for no-arg byte-array calls. | Lowest allocation; Java receives ready bytes. |
+| `record method()` | Java Hessian2 decode after Rust transport. | Record object graph allocation plus optional HTTP JSON serialization. |
+| `record method(args...)` | Java Hessian2 encode and decode. | Request object allocation, response graph allocation, codec CPU. |
+| `String method()` | Works as an object return path. | String allocation and possible charset/JSON escaping if wrapped later. |
+| Large nested object graph | Avoid unless business logic needs it. | Heap pressure, GC, p99 latency, RSS growth. |
+
+Hessian Lite 4.0.3 can serialize and deserialize simple Java 21 records in this project environment.
+Still, production APIs must have a contract test with the real nested fields, collection types, enum
+types, dates, null values, and version changes. Do not assume every future DTO shape is safe just
+because a small record works.
+
+### Use Case Decision Examples
+
+Use `record` when the REST consumer applies business logic to the result:
+
+```java
+public record CatalogSummary(String source, int itemCount) {}
+
+@GetMapping(value = "/catalog/summary", responseType = CatalogSummary.class)
+public CompletableFuture<ResponseEntity<CatalogSummary>> summary() {
+    return catalogRecordInvoker.invokeAsync()
+            .thenApply(catalog -> ResponseEntity.ok(
+                    new CatalogSummary(catalog.source(), catalog.items().size())));
+}
+```
+
+Use `byte[] + RawResponse` when the provider already owns the response JSON:
+
+```java
+@GetMapping(value = "/catalog", responseType = RawResponse.class)
+public CompletableFuture<ResponseEntity<RawResponse>> catalog() {
+    return catalogJsonInvoker.invokeAsync()
+            .thenApply(json -> ResponseEntity.ok(RawResponse.json(json)));
+}
+```
+
+Use a normal Java class only for runtime behavior or resource ownership:
+
+```java
+public final class CatalogClient {
+    private final NativeDubboMethodInvoker<byte[]> catalogJson;
+
+    public CompletableFuture<byte[]> catalogJsonAsync() {
+        return catalogJson.invokeAsync();
+    }
+}
+```
+
+Use streaming or a file/native response design for large exports. Pulling a large Dubbo object graph
+into the consumer JVM and serializing it again is an anti-pattern for this framework.
+
 ## Dependencies
 
 ```xml

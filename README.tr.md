@@ -164,6 +164,99 @@ Bu model normal business API için okunabilir olabilir; ancak consumer tarafınd
 serialization maliyeti oluşturur. Low-RSS/read-heavy JSON forwarding için `byte[] + RawResponse`
 daha doğru yoldur.
 
+### Dubbo Metodu Direkt Record Döner mi?
+
+Java API seviyesinde evet:
+
+```java
+public interface CatalogService {
+    CatalogResponse getCatalog();
+}
+```
+
+Consumer tarafında invoker record dönüş tipiyle tanımlanabilir:
+
+```java
+DubboReferenceSpec<CatalogService> spec = DubboReferenceSpec.of(CatalogService.class);
+
+NativeDubboMethodInvoker<CatalogResponse> invoker =
+        client.method(spec, "getCatalog", CatalogResponse.class);
+
+CompletableFuture<CatalogResponse> response = invoker.invokeAsync();
+```
+
+Ama runtime açısından bu "zero-copy record transfer" değildir. Provider record'u serialize eder,
+consumer tekrar deserialize eder:
+
+```text
+provider CatalogResponse record
+  -> Hessian2 serialization
+  -> Dubbo TCP frame
+  -> Rust native transport
+  -> response bytes
+  -> Java Hessian2 decode
+  -> yeni CatalogResponse record instance
+  -> HTTP JSON olarak dönülecekse rust-java-rest JSON serialization
+```
+
+Consumer bu objeyi okuyacak, filtreleyecek veya business karar verecekse bu yol doğrudur. Consumer
+sadece provider cevabını HTTP client'a taşıyorsa en düşük overhead yol değildir.
+
+Mevcut adapter davranışı:
+
+| Dubbo method şekli | Runtime path | Ana overhead |
+|--------------------|--------------|--------------|
+| `byte[] method()` | No-arg byte-array çağrılar için native fast path. | En düşük allocation; Java hazır bytes alır. |
+| `record method()` | Rust transport sonrası Java Hessian2 decode. | Record object graph allocation ve opsiyonel HTTP JSON serialization. |
+| `record method(args...)` | Java Hessian2 encode ve decode. | Request object allocation, response graph allocation, codec CPU. |
+| `String method()` | Object return path üzerinden çalışır. | String allocation ve sonradan JSON yapılırsa escaping/charset maliyeti. |
+| Büyük nested object graph | Business logic gerçekten ihtiyaç duymuyorsa kaçının. | Heap pressure, GC, p99 latency, RSS artışı. |
+
+Bu ortamda Hessian Lite 4.0.3 basit Java 21 record'ları serialize/deserialize edebiliyor. Yine de
+production API için gerçek nested field'lar, collection tipleri, enum'lar, tarih alanları, null
+değerler ve version değişimleriyle contract test yazılmalıdır. Küçük bir record çalıştı diye tüm DTO
+şekillerinin risksiz olduğunu varsaymayın.
+
+### Use Case Karar Örnekleri
+
+REST consumer Dubbo sonucunun üzerinde business logic çalıştıracaksa `record` kullanın:
+
+```java
+public record CatalogSummary(String source, int itemCount) {}
+
+@GetMapping(value = "/catalog/summary", responseType = CatalogSummary.class)
+public CompletableFuture<ResponseEntity<CatalogSummary>> summary() {
+    return catalogRecordInvoker.invokeAsync()
+            .thenApply(catalog -> ResponseEntity.ok(
+                    new CatalogSummary(catalog.source(), catalog.items().size())));
+}
+```
+
+Provider cevabı zaten JSON ise `byte[] + RawResponse` kullanın:
+
+```java
+@GetMapping(value = "/catalog", responseType = RawResponse.class)
+public CompletableFuture<ResponseEntity<RawResponse>> catalog() {
+    return catalogJsonInvoker.invokeAsync()
+            .thenApply(json -> ResponseEntity.ok(RawResponse.json(json)));
+}
+```
+
+Runtime davranış veya resource ownership için normal Java class kullanın:
+
+```java
+public final class CatalogClient {
+    private final NativeDubboMethodInvoker<byte[]> catalogJson;
+
+    public CompletableFuture<byte[]> catalogJsonAsync() {
+        return catalogJson.invokeAsync();
+    }
+}
+```
+
+Büyük export veya büyük response için streaming/file/native response tasarımı tercih edilmelidir.
+Büyük Dubbo object graph'ı consumer JVM'e çekip tekrar JSON'a çevirmek bu framework için anti-pattern'dir.
+
 ## Bağımlılıklar
 
 ```xml
