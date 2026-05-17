@@ -16,7 +16,7 @@
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <rust-java-rest.version>3.1.0-rc4</rust-java-rest.version>
-        <java-rust-dubbo.version>0.1.0-rc1</java-rust-dubbo.version>
+        <java-rust-dubbo.version>0.1.0-rc2</java-rust-dubbo.version>
         <zookeeper.version>3.7.2</zookeeper.version>
     </properties>
 

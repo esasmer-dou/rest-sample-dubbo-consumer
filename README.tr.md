@@ -283,7 +283,7 @@ Büyük Dubbo object graph'ı consumer JVM'e çekip tekrar JSON'a çevirmek bu f
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>java-rust-dubbo</artifactId>
-    <version>0.1.0-rc1</version>
+    <version>0.1.0-rc2</version>
 </dependency>
 ```
 
