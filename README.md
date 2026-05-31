@@ -25,6 +25,35 @@ This sample is not a full Dubbo governance platform. It does not try to demonstr
 feature. The goal is a minimum-overhead consumer path that fits the Rust-Java framework philosophy:
 Java owns business logic, Rust owns HTTP I/O and selected low-level transport work.
 
+## What `rust-java-rest` 3.1.0-rc5 Changes Here
+
+This sample now targets `rust-java-rest` `3.1.0-rc5`. The application code model does not change:
+handlers, service adapters, configuration classes, and business decisions still live in Java. The
+change is mostly about the runtime path underneath those handlers.
+
+| rc5 change | What it means in this sample |
+|------------|------------------------------|
+| Lower-retention response pools | The consumer keeps fewer native response buffers when traffic is low. |
+| Bounded in-flight response bytes | Large or slow responses cannot grow memory usage without a hard cap. |
+| UTF-8 response/path/query fixes | Turkish characters are safe when request values and response bytes are UTF-8. |
+| Raw/precomputed response path maturity | Provider JSON `byte[]` can be returned as `RawResponse.json(bytes)` without DTO parse/serialize work. |
+| Clearer low-RSS tuning | The sample properties now use explicit low-RSS rc5 values instead of relying on hidden defaults. |
+
+For this sample, the best path is still simple:
+
+```text
+Provider returns UTF-8 JSON byte[]
+Consumer returns RawResponse.json(bytes)
+Rust-Java runtime writes the HTTP response
+```
+
+Use native cache only when the response is intentionally cacheable and you have a clear key, TTL, and
+invalidation rule. This sample does not enable response caching by default because provider responses
+can be database-backed.
+
+Use direct JSON writer only when the consumer itself builds a hot, fixed-shape JSON response. It is
+not needed for the normal Dubbo forwarding path because the provider already returns ready JSON.
+
 ## Relationship With Other Projects
 
 This repository depends on:
@@ -278,7 +307,7 @@ into the consumer JVM and serializing it again is an anti-pattern for this frame
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.1.0-rc4</version>
+    <version>3.1.0-rc5</version>
 </dependency>
 
 <dependency>
@@ -361,7 +390,8 @@ system property > environment variable > classpath properties
 ```
 
 The sample does not keep runtime defaults in code. Missing or invalid properties fail fast during
-startup.
+startup. The checked-in values are intentionally low-RSS oriented; increase them only after measuring
+throughput, p99 latency, 503 rate, and RSS together.
 
 Important properties:
 
@@ -371,12 +401,31 @@ Important properties:
 | `reactor.rust.jni.workers` | Number of JNI worker threads. Kept small for low RSS. |
 | `reactor.rust.http.max-response-body-bytes` | Per-response body size limit. |
 | `reactor.rust.http.max-inflight-response-bytes` | Total in-flight response byte cap. |
+| `reactor.rust.http.max-connections` | Upper bound for accepted HTTP connections. Keep bounded in Kubernetes. |
+| `reactor.rust.response-pool.small-capacity` / `medium-capacity` / `large-capacity` | Native response buffer retention caps. Lower values reduce idle RSS; higher values reduce allocation churn under steady load. |
+| `reactor.rust.json.writer-retain-max-bytes` | Maximum retained JSON writer buffer size. Keeps occasional larger responses from permanently increasing retained memory. |
+| `reactor.rust.native-cache.max-bytes` | Hard cap for optional native response cache. Leave small or unused unless the endpoint is explicitly cacheable. |
 | `sample.dubbo.discovery` | `static` or `zookeeper`. |
 | `reactor.dubbo.providers` | Static provider list, e.g. `127.0.0.1:20880`. |
 | `reactor.dubbo.registry-address` | ZooKeeper address used in discovery mode. |
 | `reactor.dubbo.timeout-ms` | Per-RPC timeout. |
 | `reactor.dubbo.max-inflight` | Bounded RPC concurrency. |
 | `reactor.dubbo.native-connections-per-endpoint` | Native Dubbo TCP connection pool size per provider. |
+
+## Recommended Local Run Order
+
+For the smallest consumer process, start with static provider mode:
+
+```text
+1. Start PostgreSQL if you want to test the DB-backed endpoint.
+2. Start ZooKeeper because the provider sample registers itself there.
+3. Start rest-sample-dubbo-provider.
+4. Start this consumer with sample.dubbo.discovery=static.
+5. Call the REST endpoints and check /api/v1/catalog/dubbo-metrics.
+```
+
+Static consumer mode does not load a Java ZooKeeper client inside the consumer. ZooKeeper is still
+useful for the provider sample because it demonstrates provider registration and discovery mode.
 
 ## Quick Start: Static Provider Mode
 

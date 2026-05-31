@@ -25,6 +25,35 @@ Bu örnek tam kapsamlı bir Dubbo governance platformu değildir. Tüm Dubbo öz
 yerine Rust-Java framework felsefesine uygun minimum-overhead consumer yolunu gösterir: business
 logic Java'da kalır, HTTP I/O ve seçilmiş low-level transport işleri Rust/native tarafta yürür.
 
+## `rust-java-rest` 3.1.0-rc5 Bu Örnekte Ne Değiştiriyor?
+
+Bu örnek artık `rust-java-rest` `3.1.0-rc5` kullanır. Uygulama kodu modeli değişmez: handler'lar,
+service adapter'ları, configuration class'ları ve business kararlar Java'da kalır. Değişiklik daha
+çok handler'ların altında çalışan runtime yolundadır.
+
+| rc5 değişikliği | Bu örnekte etkisi |
+|-----------------|-------------------|
+| Daha düşük retention yapan response pool'lar | Trafik düşükken consumer daha az native response buffer tutar. |
+| Bounded in-flight response byte limiti | Büyük veya yavaş response'lar memory kullanımını limitsiz büyütemez. |
+| UTF-8 response/path/query düzeltmeleri | Request değerleri ve response bytes UTF-8 ise Türkçe karakterler güvenli taşınır. |
+| Raw/precomputed response yolunun olgunlaşması | Provider JSON `byte[]` döner, consumer `RawResponse.json(bytes)` ile DTO parse/serialize yapmadan döner. |
+| Daha açık low-RSS tuning | Sample properties artık gizli default'a değil, açık rc5 low-RSS değerlere dayanır. |
+
+Bu örnek için en doğru akış hâlâ basittir:
+
+```text
+Provider UTF-8 JSON byte[] döner
+Consumer RawResponse.json(bytes) döner
+Rust-Java runtime HTTP response'u yazar
+```
+
+Native cache'i sadece response bilinçli şekilde cache edilebilir olduğunda ve key, TTL, invalidation
+kuralınız netse kullanın. Bu sample default olarak response cache kullanmaz çünkü provider cevapları
+database-backed olabilir.
+
+Direct JSON writer, consumer kendi içinde hot ve sabit şekilli JSON üretiyorsa anlamlıdır. Normal
+Dubbo forwarding yolunda gerekli değildir; çünkü provider zaten hazır JSON döner.
+
 ## Diğer Projelerle İlişkisi
 
 Bu repo şunlara bağlıdır:
@@ -277,7 +306,7 @@ Büyük Dubbo object graph'ı consumer JVM'e çekip tekrar JSON'a çevirmek bu f
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.1.0-rc4</version>
+    <version>3.1.0-rc5</version>
 </dependency>
 
 <dependency>
@@ -360,6 +389,8 @@ system property > environment variable > classpath properties
 ```
 
 Runtime default değerleri kodda tutulmaz. Eksik veya hatalı property startup sırasında fail-fast olur.
+Repo içindeki değerler bilinçli olarak low-RSS yönlüdür; bu değerleri ancak throughput, p99 latency,
+503 oranı ve RSS'i birlikte ölçtükten sonra büyütün.
 
 Önemli property'ler:
 
@@ -369,12 +400,31 @@ Runtime default değerleri kodda tutulmaz. Eksik veya hatalı property startup s
 | `reactor.rust.jni.workers` | JNI worker sayısı. Low RSS için küçük tutulur. |
 | `reactor.rust.http.max-response-body-bytes` | Tek response body limiti. |
 | `reactor.rust.http.max-inflight-response-bytes` | Toplam in-flight response byte limiti. |
+| `reactor.rust.http.max-connections` | Kabul edilecek HTTP connection üst limiti. Kubernetes içinde bounded kalmalı. |
+| `reactor.rust.response-pool.small-capacity` / `medium-capacity` / `large-capacity` | Native response buffer retention limitleri. Küçük değer idle RSS'i düşürür; büyük değer steady load altında allocation churn azaltır. |
+| `reactor.rust.json.writer-retain-max-bytes` | Retain edilecek maksimum JSON writer buffer boyutu. Ara sıra gelen büyük response'ların kalıcı retained memory büyütmesini engeller. |
+| `reactor.rust.native-cache.max-bytes` | Opsiyonel native response cache için hard limit. Endpoint bilinçli cache edilebilir değilse küçük veya kullanılmamış kalmalı. |
 | `sample.dubbo.discovery` | `static` veya `zookeeper`. |
 | `reactor.dubbo.providers` | Static provider listesi, örn. `127.0.0.1:20880`. |
 | `reactor.dubbo.registry-address` | Discovery modunda ZooKeeper adresi. |
 | `reactor.dubbo.timeout-ms` | RPC timeout. |
 | `reactor.dubbo.max-inflight` | Bounded RPC concurrency. |
 | `reactor.dubbo.native-connections-per-endpoint` | Provider başına native Dubbo TCP connection pool boyutu. |
+
+## Önerilen Lokal Çalıştırma Sırası
+
+En küçük consumer process için static provider modu ile başlayın:
+
+```text
+1. DB-backed endpoint'i test edecekseniz PostgreSQL'i başlatın.
+2. Provider sample kendisini register ettiği için ZooKeeper'ı başlatın.
+3. rest-sample-dubbo-provider'ı başlatın.
+4. Bu consumer'ı sample.dubbo.discovery=static ile başlatın.
+5. REST endpoint'leri çağırın ve /api/v1/catalog/dubbo-metrics çıktısını kontrol edin.
+```
+
+Static consumer modu consumer JVM içinde Java ZooKeeper client yüklemez. ZooKeeper provider sample
+için hâlâ faydalıdır; çünkü provider registration ve discovery modunu gösterir.
 
 ## Hızlı Başlangıç: Static Provider Modu
 
