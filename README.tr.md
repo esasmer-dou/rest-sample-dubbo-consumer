@@ -25,19 +25,19 @@ Bu örnek tam kapsamlı bir Dubbo governance platformu değildir. Tüm Dubbo öz
 yerine Rust-Java framework felsefesine uygun minimum-overhead consumer yolunu gösterir: business
 logic Java'da kalır, HTTP I/O ve seçilmiş low-level transport işleri Rust/native tarafta yürür.
 
-## `rust-java-rest` 3.1.0-rc5 Bu Örnekte Ne Değiştiriyor?
+## `rust-java-rest` 3.1.0 Bu Örnekte Ne Değiştiriyor?
 
-Bu örnek artık `rust-java-rest` `3.1.0-rc5` kullanır. Uygulama kodu modeli değişmez: handler'lar,
+Bu örnek artık `rust-java-rest` `3.1.0` kullanır. Uygulama kodu modeli değişmez: handler'lar,
 service adapter'ları, configuration class'ları ve business kararlar Java'da kalır. Değişiklik daha
 çok handler'ların altında çalışan runtime yolundadır.
 
-| rc5 değişikliği | Bu örnekte etkisi |
+| v3.1 değişikliği | Bu örnekte etkisi |
 |-----------------|-------------------|
 | Daha düşük retention yapan response pool'lar | Trafik düşükken consumer daha az native response buffer tutar. |
 | Bounded in-flight response byte limiti | Büyük veya yavaş response'lar memory kullanımını limitsiz büyütemez. |
 | UTF-8 response/path/query düzeltmeleri | Request değerleri ve response bytes UTF-8 ise Türkçe karakterler güvenli taşınır. |
 | Raw/precomputed response yolunun olgunlaşması | Provider JSON `byte[]` döner, consumer `RawResponse.json(bytes)` ile DTO parse/serialize yapmadan döner. |
-| Daha açık low-RSS tuning | Sample properties artık gizli default'a değil, açık rc5 low-RSS değerlere dayanır. |
+| Daha açık low-RSS tuning | Sample properties artık gizli default'a değil, açık v3.1 low-RSS değerlere dayanır. |
 
 Bu örnek için en doğru akış hâlâ basittir:
 
@@ -306,7 +306,7 @@ Büyük Dubbo object graph'ı consumer JVM'e çekip tekrar JSON'a çevirmek bu f
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.1.0-rc5</version>
+    <version>3.1.0</version>
 </dependency>
 
 <dependency>

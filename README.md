@@ -25,19 +25,19 @@ This sample is not a full Dubbo governance platform. It does not try to demonstr
 feature. The goal is a minimum-overhead consumer path that fits the Rust-Java framework philosophy:
 Java owns business logic, Rust owns HTTP I/O and selected low-level transport work.
 
-## What `rust-java-rest` 3.1.0-rc5 Changes Here
+## What `rust-java-rest` 3.1.0 Changes Here
 
-This sample now targets `rust-java-rest` `3.1.0-rc5`. The application code model does not change:
+This sample now targets `rust-java-rest` `3.1.0`. The application code model does not change:
 handlers, service adapters, configuration classes, and business decisions still live in Java. The
 change is mostly about the runtime path underneath those handlers.
 
-| rc5 change | What it means in this sample |
+| v3.1 change | What it means in this sample |
 |------------|------------------------------|
 | Lower-retention response pools | The consumer keeps fewer native response buffers when traffic is low. |
 | Bounded in-flight response bytes | Large or slow responses cannot grow memory usage without a hard cap. |
 | UTF-8 response/path/query fixes | Turkish characters are safe when request values and response bytes are UTF-8. |
 | Raw/precomputed response path maturity | Provider JSON `byte[]` can be returned as `RawResponse.json(bytes)` without DTO parse/serialize work. |
-| Clearer low-RSS tuning | The sample properties now use explicit low-RSS rc5 values instead of relying on hidden defaults. |
+| Clearer low-RSS tuning | The sample properties now use explicit low-RSS v3.1 values instead of relying on hidden defaults. |
 
 For this sample, the best path is still simple:
 
@@ -307,7 +307,7 @@ into the consumer JVM and serializing it again is an anti-pattern for this frame
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.1.0-rc5</version>
+    <version>3.1.0</version>
 </dependency>
 
 <dependency>
