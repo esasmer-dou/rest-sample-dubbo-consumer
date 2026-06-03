@@ -25,19 +25,21 @@ Bu örnek tam kapsamlı bir Dubbo governance platformu değildir. Tüm Dubbo öz
 yerine Rust-Java framework felsefesine uygun minimum-overhead consumer yolunu gösterir: business
 logic Java'da kalır, HTTP I/O ve seçilmiş low-level transport işleri Rust/native tarafta yürür.
 
-## `rust-java-rest` 3.1.0 Bu Örnekte Ne Değiştiriyor?
+## `rust-java-rest` 3.2.0 Bu Örnekte Ne Değiştiriyor?
 
-Bu örnek artık `rust-java-rest` `3.1.0` kullanır. Uygulama kodu modeli değişmez: handler'lar,
+Bu örnek artık `rust-java-rest` `3.2.0` kullanır. Uygulama kodu modeli değişmez: handler'lar,
 service adapter'ları, configuration class'ları ve business kararlar Java'da kalır. Değişiklik daha
 çok handler'ların altında çalışan runtime yolundadır.
 
-| v3.1 değişikliği | Bu örnekte etkisi |
+| v3.2 değişikliği | Bu örnekte etkisi |
 |-----------------|-------------------|
 | Daha düşük retention yapan response pool'lar | Trafik düşükken consumer daha az native response buffer tutar. |
 | Bounded in-flight response byte limiti | Büyük veya yavaş response'lar memory kullanımını limitsiz büyütemez. |
 | UTF-8 response/path/query düzeltmeleri | Request değerleri ve response bytes UTF-8 ise Türkçe karakterler güvenli taşınır. |
 | Raw/precomputed response yolunun olgunlaşması | Provider JSON `byte[]` döner, consumer `RawResponse.json(bytes)` ile DTO parse/serialize yapmadan döner. |
-| Daha açık low-RSS tuning | Sample properties artık gizli default'a değil, açık v3.1 low-RSS değerlere dayanır. |
+| Startup component/route index'leri | Sample broad classpath scan fallback yapmadan açılabilir; index eskiyse startup erken fail eder. |
+| Route-level admission | Dubbo çağıran route'lar global JNI kuyruğunu doldurmadan önce bounded in-flight limit kullanır. |
+| Daha açık low-RSS tuning | Sample properties `micro-dubbo` kullanır: REST dar kalır, Dubbo native/static-provider ayarlarıyla çalışır. |
 
 Bu örnek için en doğru akış hâlâ basittir:
 
@@ -77,11 +79,86 @@ Varsayılan mod static provider modudur:
 consumer -> 127.0.0.1:20880
 ```
 
+Bu path şu ayarlarla küçük tutulur:
+
+```properties
+reactor.runtime.profile=micro-dubbo
+reactor.dubbo.enabled=true
+reactor.dubbo.transport=native
+reactor.dubbo.runtime-profile=micro-dubbo
+reactor.dubbo.providers=127.0.0.1:20880
+reactor.dubbo.native-connections-per-endpoint=1
+reactor.dubbo.native-async-workers=1
+reactor.dubbo.native-async-queue-capacity=32
+```
+
+Küçük pod'larda bu properties değerlerini OpenJ9 micro-RSS JVM opsiyonlarıyla birlikte kullanın:
+
+```bash
+-Xms8m -Xmx48m -Xss256k -Xquickstart -Xtune:virtualized -Xshareclasses:none -XX:ActiveProcessorCount=1
+```
+
+`-Xnojit` sadece çok düşük trafik alan ve memory'nin Java CPU throughput'tan daha önemli olduğu
+servislerde düşünülmelidir. RPC-heavy route'larda benchmark yapmadan default kullanmayın.
+
+### Pratik Pod Memory Başlangıç Noktaları
+
+Bu değerler garanti değildir; bu sample'ın şekli için güvenli başlangıç limitleridir. RSS; JVM,
+container image, CPU limit, trafik, response boyutu ve ZooKeeper discovery'nin açık olup olmamasına
+göre değişir.
+
+| Servis şekli | Başlangıç limiti | Neden |
+|--------------|-----------------:|-------|
+| Static provider, düşük trafik, sadece JSON pass-through | `128Mi` | Rust-Java REST küçük kalır; consumer Java ZooKeeper/Dubbo Netty runtime yüklemez. |
+| Static provider ve DB-backed Dubbo route, orta yük | `160Mi` | DB çağrıları spike anında queue ve retained buffer baskısını artırır. |
+| Consumer içinde ZooKeeper discovery açık | `160Mi` veya üstü | Java ZooKeeper client thread/class/session state ekler. Sadece gerekiyorsa kullanın. |
+| Daha yüksek concurrency Dubbo workload | `192Mi` seviyesinden ölçün | Route admission ve native connection birlikte artırılmalı; p99, 503 oranı ve RSS birlikte izlenmeli. |
+
+Servis günde az sayıda çağrı alıyorsa c1000 benchmark'a göre pod limiti seçmeyin. Static provider
+moduyla başlayın, route admission bounded kalsın ve 30-60 saniye idle sonrası RSS'i kontrol edin.
+
 ZooKeeper discovery modu:
 
 ```text
 consumer -> ZooKeeper -> provider URL -> Dubbo provider
 ```
+
+ZooKeeper modunu sadece discovery gerçekten gerekiyorsa kullanın. `reactor.dubbo.providers` boş
+bırakılırsa ZooKeeper devreye girer; bu durumda Java ZooKeeper client'i REST process içinde yüklenir.
+
+## Dubbo Çağrıları İçin Route Admission
+
+Sample, Dubbo-backed route'larda `@RouteAdmission` kullanır:
+
+```java
+@GetMapping(value = "/nested", responseType = RawResponse.class)
+@RouteAdmission(maxConcurrent = 16, queueTimeoutMs = 100)
+public CompletableFuture<ResponseEntity<RawResponse>> nestedCatalog() {
+    return catalogClient.nestedCatalogJsonAsync()
+            .thenApply(json -> ResponseEntity.ok(RawResponse.json(json)));
+}
+```
+
+Aynı değerler `rust-spring.properties` içinde de vardır. Böylece kodu değiştirmeden tune
+edebilirsiniz:
+
+```properties
+reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=16
+reactor.rust.route-admission.get.api.v1.catalog.nested.queue-timeout-ms=100
+reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=8
+reactor.rust.route-admission.get.api.v1.catalog.db.customers.queue-timeout-ms=150
+```
+
+Bu özelliği RPC, DB veya HTTP server'dan daha yavaşlayabilecek başka bir dependency çağıran
+route'larda kullanın. Amaç trafiği agresif şekilde reddetmek değildir; amaç tek bir yavaş route'un
+tüm worker'ları doldurmasını ve deep queue yüzünden RSS/p99 büyümesini engellemektir.
+
+| Workload | İlk yapılacak ayar |
+|----------|--------------------|
+| Düşük trafik, memory-first servis | Checked-in limitleri koruyun. |
+| c256 altında daha fazla 200 response gerekiyor | Önce route `max-concurrent` artırın, sonra RSS ve p99 ölçün. |
+| RPS kabul edilebilir ama p99 büyüyor | `queue-timeout-ms` veya provider-side concurrency düşürün; sadece worker artırmayın. |
+| DB route yavaşlıyor | Consumer route limitini provider service limiti ve Hikari max pool ile hizalayın. |
 
 ## Mimari Akış
 
@@ -306,7 +383,7 @@ Büyük Dubbo object graph'ı consumer JVM'e çekip tekrar JSON'a çevirmek bu f
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.1.0</version>
+    <version>3.2.0</version>
 </dependency>
 
 <dependency>
@@ -397,6 +474,9 @@ Repo içindeki değerler bilinçli olarak low-RSS yönlüdür; bu değerleri anc
 | Property | Açıklama |
 |----------|----------|
 | `server.port` | Rust-Java REST HTTP portu. |
+| `reactor.runtime.profile` | Runtime preset'i. Bu sample düşük RSS ve native Dubbo için `micro-dubbo` kullanır. |
+| `reactor.startup.component-index.*` | Component index zorunlu tutulur; startup broad classpath scan'e sessizce dönmez. |
+| `reactor.startup.route-index.*` | Route index doğrulanır; route metadata eskiyse startup fail-fast olur. |
 | `reactor.rust.jni.workers` | JNI worker sayısı. Low RSS için küçük tutulur. |
 | `reactor.rust.http.max-response-body-bytes` | Tek response body limiti. |
 | `reactor.rust.http.max-inflight-response-bytes` | Toplam in-flight response byte limiti. |
@@ -404,12 +484,13 @@ Repo içindeki değerler bilinçli olarak low-RSS yönlüdür; bu değerleri anc
 | `reactor.rust.response-pool.small-capacity` / `medium-capacity` / `large-capacity` | Native response buffer retention limitleri. Küçük değer idle RSS'i düşürür; büyük değer steady load altında allocation churn azaltır. |
 | `reactor.rust.json.writer-retain-max-bytes` | Retain edilecek maksimum JSON writer buffer boyutu. Ara sıra gelen büyük response'ların kalıcı retained memory büyütmesini engeller. |
 | `reactor.rust.native-cache.max-bytes` | Opsiyonel native response cache için hard limit. Endpoint bilinçli cache edilebilir değilse küçük veya kullanılmamış kalmalı. |
+| `reactor.rust.route-admission.*` | Global JNI queue öncesinde route bazlı in-flight ve queue timeout limiti. |
 | `sample.dubbo.discovery` | `static` veya `zookeeper`. |
 | `reactor.dubbo.providers` | Static provider listesi, örn. `127.0.0.1:20880`. |
 | `reactor.dubbo.registry-address` | Discovery modunda ZooKeeper adresi. |
 | `reactor.dubbo.timeout-ms` | RPC timeout. |
 | `reactor.dubbo.max-inflight` | Bounded RPC concurrency. |
-| `reactor.dubbo.native-connections-per-endpoint` | Provider başına native Dubbo TCP connection pool boyutu. |
+| `reactor.dubbo.native-connections-per-endpoint` | Provider başına native Dubbo TCP connection pool boyutu. Memory-first servislerde düşük tutun; sadece p99/RSS ölçümüyle artırın. |
 
 ## Önerilen Lokal Çalıştırma Sırası
 
@@ -432,10 +513,23 @@ Gereksinimler:
 
 - Java 21
 - Maven 3.9+
+- Sample ZooKeeper/PostgreSQL servisleri için Docker Desktop veya eşdeğer lokal container runtime
 - Private dependency kullanıyorsanız GitHub Packages erişimi
 - `127.0.0.1:20880` üzerinde çalışan Dubbo provider
 
-Önce provider'ı başlatın:
+Lokal altyapıyı başlatın. Consumer static provider modunda çalışabilir; ancak provider sample
+kendisini ZooKeeper'a register eder ve PostgreSQL warmup yapar:
+
+```powershell
+docker run -d --name rust-java-dubbo-zookeeper -p 2181:2181 zookeeper:3.7.2
+docker run -d --name rest-sample-postgres `
+  -e POSTGRES_DB=reactor_sample `
+  -e POSTGRES_USER=reactor `
+  -e POSTGRES_PASSWORD=reactor `
+  -p 15432:5432 postgres:16-alpine
+```
+
+Provider repo'sunu başlatın:
 
 ```powershell
 git clone git@github.com:esasmer-dou/rest-sample-dubbo-provider.git
@@ -461,6 +555,10 @@ curl http://127.0.0.1:8080/api/v1/customers/db
 curl http://127.0.0.1:8080/api/v1/catalog/db/customers
 curl http://127.0.0.1:8080/api/v1/catalog/dubbo-metrics
 ```
+
+Beklenen sonuç: yukarıdaki endpoint'lerin tamamı HTTP `200` dönmelidir. Customer endpoint'leri
+provider'ın PostgreSQL-backed service'inden okur; PostgreSQL çalışmıyorsa bu endpoint'ler asılı
+kalmak yerine kontrollü `503` dönmelidir.
 
 ## Hızlı Başlangıç: ZooKeeper Discovery Modu
 

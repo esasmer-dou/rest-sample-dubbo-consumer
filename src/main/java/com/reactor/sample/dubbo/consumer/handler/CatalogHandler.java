@@ -2,6 +2,7 @@ package com.reactor.sample.dubbo.consumer.handler;
 
 import com.reactor.rust.annotations.GetMapping;
 import com.reactor.rust.annotations.RequestMapping;
+import com.reactor.rust.annotations.RouteAdmission;
 import com.reactor.rust.di.annotation.Autowired;
 import com.reactor.rust.di.annotation.Component;
 import com.reactor.rust.http.HttpStatus;
@@ -23,6 +24,7 @@ public final class CatalogHandler {
     private CustomerQueryClient customerQueryClient;
 
     @GetMapping(value = "/nested", responseType = RawResponse.class)
+    @RouteAdmission(maxConcurrent = 16, queueTimeoutMs = 100)
     public CompletableFuture<ResponseEntity<RawResponse>> nestedCatalog() {
         return catalogClient.nestedCatalogJsonAsync()
                 .thenApply(json -> ResponseEntity.ok(RawResponse.json(json)))
@@ -32,6 +34,7 @@ public final class CatalogHandler {
     }
 
     @GetMapping(value = "/db/customers", responseType = RawResponse.class)
+    @RouteAdmission(maxConcurrent = 8, queueTimeoutMs = 150)
     public CompletableFuture<ResponseEntity<RawResponse>> databaseCustomers() {
         return customerQueryClient.databaseCustomersJsonAsync()
                 .thenApply(json -> ResponseEntity.ok(RawResponse.json(json)))

@@ -25,19 +25,21 @@ This sample is not a full Dubbo governance platform. It does not try to demonstr
 feature. The goal is a minimum-overhead consumer path that fits the Rust-Java framework philosophy:
 Java owns business logic, Rust owns HTTP I/O and selected low-level transport work.
 
-## What `rust-java-rest` 3.1.0 Changes Here
+## What `rust-java-rest` 3.2.0 Changes Here
 
-This sample now targets `rust-java-rest` `3.1.0`. The application code model does not change:
+This sample now targets `rust-java-rest` `3.2.0`. The application code model does not change:
 handlers, service adapters, configuration classes, and business decisions still live in Java. The
 change is mostly about the runtime path underneath those handlers.
 
-| v3.1 change | What it means in this sample |
+| v3.2 change | What it means in this sample |
 |------------|------------------------------|
 | Lower-retention response pools | The consumer keeps fewer native response buffers when traffic is low. |
 | Bounded in-flight response bytes | Large or slow responses cannot grow memory usage without a hard cap. |
 | UTF-8 response/path/query fixes | Turkish characters are safe when request values and response bytes are UTF-8. |
 | Raw/precomputed response path maturity | Provider JSON `byte[]` can be returned as `RawResponse.json(bytes)` without DTO parse/serialize work. |
-| Clearer low-RSS tuning | The sample properties now use explicit low-RSS v3.1 values instead of relying on hidden defaults. |
+| Startup component/route indexes | The sample can start without classpath scanning fallback; if an index is stale, startup fails early. |
+| Route-level admission | Dubbo-backed routes have bounded in-flight limits before they can fill the global JNI queue. |
+| Clearer low-RSS tuning | The sample properties use `micro-dubbo`: REST stays narrow and Dubbo uses native/static-provider settings. |
 
 For this sample, the best path is still simple:
 
@@ -77,11 +79,87 @@ Default mode is static provider:
 consumer -> 127.0.0.1:20880
 ```
 
+The sample keeps this path small with:
+
+```properties
+reactor.runtime.profile=micro-dubbo
+reactor.dubbo.enabled=true
+reactor.dubbo.transport=native
+reactor.dubbo.runtime-profile=micro-dubbo
+reactor.dubbo.providers=127.0.0.1:20880
+reactor.dubbo.native-connections-per-endpoint=1
+reactor.dubbo.native-async-workers=1
+reactor.dubbo.native-async-queue-capacity=32
+```
+
+For small pods, pair those properties with OpenJ9 micro-RSS JVM options:
+
+```bash
+-Xms8m -Xmx48m -Xss256k -Xquickstart -Xtune:virtualized -Xshareclasses:none -XX:ActiveProcessorCount=1
+```
+
+Use `-Xnojit` only for very low traffic services where memory is more important than Java CPU
+throughput. Do not use it as the default for RPC-heavy routes without a benchmark.
+
+### Practical Pod Memory Starting Points
+
+These values are not promises; they are safe starting limits for this exact sample shape. RSS changes
+with JVM, container base image, CPU limit, traffic, response size, and whether ZooKeeper discovery is
+enabled.
+
+| Service shape | Start with | Why |
+|---------------|-----------:|-----|
+| Static provider, low traffic, JSON pass-through only | `128Mi` | Rust-Java REST stays small and the consumer avoids Java ZooKeeper/Dubbo Netty runtime. |
+| Static provider with DB-backed Dubbo route under moderate load | `160Mi` | DB calls increase queue pressure and retained buffers during spikes. |
+| ZooKeeper discovery enabled inside the consumer process | `160Mi` or more | Java ZooKeeper client adds threads/classes/session state. Use only when discovery is required. |
+| Higher concurrency Dubbo workload | Measure from `192Mi` | Increase route admission and native connections together, then check p99, 503 rate, and RSS. |
+
+If the service receives only occasional calls, do not size it from a c1000 benchmark. Start with the
+static provider mode, keep route admission bounded, and verify idle RSS after a 30-60 second quiet
+period.
+
 ZooKeeper discovery mode:
 
 ```text
 consumer -> ZooKeeper -> provider URL -> Dubbo provider
 ```
+
+Use ZooKeeper mode only when discovery is required. Leaving `reactor.dubbo.providers` empty enables
+it, but that also means the Java ZooKeeper client is loaded in the REST process.
+
+## Route Admission For Dubbo Calls
+
+The sample uses `@RouteAdmission` on Dubbo-backed routes:
+
+```java
+@GetMapping(value = "/nested", responseType = RawResponse.class)
+@RouteAdmission(maxConcurrent = 16, queueTimeoutMs = 100)
+public CompletableFuture<ResponseEntity<RawResponse>> nestedCatalog() {
+    return catalogClient.nestedCatalogJsonAsync()
+            .thenApply(json -> ResponseEntity.ok(RawResponse.json(json)));
+}
+```
+
+The same values are also present in `rust-spring.properties`, so you can tune them without changing
+code:
+
+```properties
+reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=16
+reactor.rust.route-admission.get.api.v1.catalog.nested.queue-timeout-ms=100
+reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=8
+reactor.rust.route-admission.get.api.v1.catalog.db.customers.queue-timeout-ms=150
+```
+
+Use this feature when a route calls RPC, DB, or another dependency that can become slower than the
+HTTP server. The goal is not to reject traffic aggressively; the goal is to prevent one slow route
+from occupying every worker and increasing RSS through deep queues.
+
+| Workload | Suggested first action |
+|----------|------------------------|
+| Low traffic, memory-first service | Keep the checked-in limits. |
+| More valid 200 responses needed at c256 | Increase route `max-concurrent` first, then measure RSS and p99. |
+| p99 grows while RPS is acceptable | Lower `queue-timeout-ms` or provider-side concurrency; do not only add workers. |
+| DB route gets slow | Align consumer route limit with provider service limit and Hikari max pool. |
 
 ## Architecture
 
@@ -307,7 +385,7 @@ into the consumer JVM and serializing it again is an anti-pattern for this frame
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.1.0</version>
+    <version>3.2.0</version>
 </dependency>
 
 <dependency>
@@ -398,6 +476,9 @@ Important properties:
 | Property | Purpose |
 |----------|---------|
 | `server.port` | HTTP port for the Rust-Java REST server. |
+| `reactor.runtime.profile` | Runtime preset. This sample uses `micro-dubbo` for low RSS with native Dubbo enabled. |
+| `reactor.startup.component-index.*` | Requires checked-in component indexes so startup does not silently fall back to broad classpath scanning. |
+| `reactor.startup.route-index.*` | Validates checked-in route indexes and fails fast if route metadata is stale. |
 | `reactor.rust.jni.workers` | Number of JNI worker threads. Kept small for low RSS. |
 | `reactor.rust.http.max-response-body-bytes` | Per-response body size limit. |
 | `reactor.rust.http.max-inflight-response-bytes` | Total in-flight response byte cap. |
@@ -405,12 +486,13 @@ Important properties:
 | `reactor.rust.response-pool.small-capacity` / `medium-capacity` / `large-capacity` | Native response buffer retention caps. Lower values reduce idle RSS; higher values reduce allocation churn under steady load. |
 | `reactor.rust.json.writer-retain-max-bytes` | Maximum retained JSON writer buffer size. Keeps occasional larger responses from permanently increasing retained memory. |
 | `reactor.rust.native-cache.max-bytes` | Hard cap for optional native response cache. Leave small or unused unless the endpoint is explicitly cacheable. |
+| `reactor.rust.route-admission.*` | Per-route in-flight and queue timeout limits enforced before the global JNI queue. |
 | `sample.dubbo.discovery` | `static` or `zookeeper`. |
 | `reactor.dubbo.providers` | Static provider list, e.g. `127.0.0.1:20880`. |
 | `reactor.dubbo.registry-address` | ZooKeeper address used in discovery mode. |
 | `reactor.dubbo.timeout-ms` | Per-RPC timeout. |
 | `reactor.dubbo.max-inflight` | Bounded RPC concurrency. |
-| `reactor.dubbo.native-connections-per-endpoint` | Native Dubbo TCP connection pool size per provider. |
+| `reactor.dubbo.native-connections-per-endpoint` | Native Dubbo TCP connection pool size per provider. Keep it low for memory-first services; increase only with p99/RSS measurements. |
 
 ## Recommended Local Run Order
 
@@ -433,10 +515,23 @@ Prerequisites:
 
 - Java 21
 - Maven 3.9+
+- Docker Desktop or another local container runtime for the sample ZooKeeper/PostgreSQL services
 - Access to GitHub Packages if the dependencies are private
 - A running Dubbo provider on `127.0.0.1:20880`
 
-Start the provider from the provider repository first:
+Start local infrastructure. The consumer can use static provider mode, but the provider sample still
+registers itself in ZooKeeper and warms up PostgreSQL:
+
+```powershell
+docker run -d --name rust-java-dubbo-zookeeper -p 2181:2181 zookeeper:3.7.2
+docker run -d --name rest-sample-postgres `
+  -e POSTGRES_DB=reactor_sample `
+  -e POSTGRES_USER=reactor `
+  -e POSTGRES_PASSWORD=reactor `
+  -p 15432:5432 postgres:16-alpine
+```
+
+Start the provider from the provider repository:
 
 ```powershell
 git clone git@github.com:esasmer-dou/rest-sample-dubbo-provider.git
@@ -462,6 +557,10 @@ curl http://127.0.0.1:8080/api/v1/customers/db
 curl http://127.0.0.1:8080/api/v1/catalog/db/customers
 curl http://127.0.0.1:8080/api/v1/catalog/dubbo-metrics
 ```
+
+Expected result: all endpoints above should return HTTP `200`. The customer endpoints read from the
+provider's PostgreSQL-backed service; if PostgreSQL is not running, those endpoints should return a
+controlled `503` instead of hanging.
 
 ## Quick Start: ZooKeeper Discovery Mode
 

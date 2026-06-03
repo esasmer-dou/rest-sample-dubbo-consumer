@@ -1,0 +1,5 @@
+GET /app/health com.reactor.sample.dubbo.consumer.handler.HealthHandler#health
+GET /api/v1/catalog/nested com.reactor.sample.dubbo.consumer.handler.CatalogHandler#nestedCatalog
+GET /api/v1/catalog/db/customers com.reactor.sample.dubbo.consumer.handler.CatalogHandler#databaseCustomers
+GET /api/v1/catalog/dubbo-metrics com.reactor.sample.dubbo.consumer.handler.CatalogHandler#dubboMetrics
+GET /api/v1/customers/db com.reactor.sample.dubbo.consumer.handler.CustomerHandler#databaseCustomers

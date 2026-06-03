@@ -4,6 +4,7 @@ import com.reactor.rust.bridge.HandlerRegistry;
 import com.reactor.rust.bridge.NativeBridge;
 import com.reactor.rust.bridge.RouteScanner;
 import com.reactor.rust.config.PropertiesLoader;
+import com.reactor.rust.config.RuntimeProfiles;
 import com.reactor.rust.di.BeanContainer;
 import com.reactor.sample.dubbo.consumer.config.ConsumerProperties;
 import com.reactor.sample.dubbo.consumer.handler.CatalogHandler;
@@ -18,6 +19,7 @@ public final class RestSampleDubboConsumerApplication {
 
     public static void main(String[] args) {
         PropertiesLoader.load();
+        RuntimeProfiles.apply();
 
         BeanContainer container = BeanContainer.getInstance();
         container.scan(BASE_PACKAGE);

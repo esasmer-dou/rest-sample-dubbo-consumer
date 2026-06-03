@@ -2,6 +2,7 @@ package com.reactor.sample.dubbo.consumer.handler;
 
 import com.reactor.rust.annotations.GetMapping;
 import com.reactor.rust.annotations.RequestMapping;
+import com.reactor.rust.annotations.RouteAdmission;
 import com.reactor.rust.di.annotation.Autowired;
 import com.reactor.rust.di.annotation.Component;
 import com.reactor.rust.http.HttpStatus;
@@ -19,6 +20,7 @@ public final class CustomerHandler {
     private CustomerQueryClient customerQueryClient;
 
     @GetMapping(value = "/db", responseType = RawResponse.class)
+    @RouteAdmission(maxConcurrent = 8, queueTimeoutMs = 150)
     public CompletableFuture<ResponseEntity<RawResponse>> databaseCustomers() {
         return customerQueryClient.databaseCustomersJsonAsync()
                 .thenApply(json -> ResponseEntity.ok(RawResponse.json(json)))

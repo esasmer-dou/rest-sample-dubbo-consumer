@@ -1,0 +1,4 @@
+com.reactor.sample.dubbo.consumer.config.DubboConsumerConfiguration
+com.reactor.sample.dubbo.consumer.handler.CatalogHandler
+com.reactor.sample.dubbo.consumer.handler.CustomerHandler
+com.reactor.sample.dubbo.consumer.handler.HealthHandler
