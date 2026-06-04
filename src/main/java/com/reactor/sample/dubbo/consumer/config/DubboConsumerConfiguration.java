@@ -8,8 +8,10 @@ import com.reactor.rust.dubbo.DubboReferenceSpec;
 import com.reactor.rust.dubbo.NativeDubboConsumerClient;
 import com.reactor.rust.dubbo.NativeDubboConsumers;
 import com.reactor.rust.dubbo.NativeDubboMethodInvoker;
+import com.reactor.rust.dubbo.sample.CustomerCommandService;
 import com.reactor.rust.dubbo.sample.CustomerQueryService;
 import com.reactor.rust.dubbo.sample.NestedCatalogService;
+import com.reactor.sample.dubbo.consumer.dubbo.CustomerCommandClient;
 import com.reactor.sample.dubbo.consumer.dubbo.CustomerQueryClient;
 import com.reactor.sample.dubbo.consumer.dubbo.NestedCatalogClient;
 
@@ -50,6 +52,24 @@ public final class DubboConsumerConfiguration {
                 client.method(spec, "getDatabaseCustomersJson", byte[].class);
 
         return new CustomerQueryClient(databaseInvoker);
+    }
+
+    @Bean
+    public CustomerCommandClient customerCommandClient() {
+        DubboReferenceSpec<CustomerCommandService> spec = DubboReferenceSpec
+                .builder(CustomerCommandService.class)
+                .timeoutMs(ConsumerProperties.getInt("reactor.dubbo.timeout-ms"))
+                .retries(ConsumerProperties.getInt("reactor.dubbo.retries"))
+                .check(ConsumerProperties.getBoolean("reactor.dubbo.check"))
+                .lazy(ConsumerProperties.getBoolean("reactor.dubbo.lazy"))
+                .build();
+
+        return new CustomerCommandClient(
+                client.method(spec, "createCustomer", byte[].class, byte[].class),
+                client.method(spec, "patchCustomerSegment", byte[].class, long.class, byte[].class),
+                client.method(spec, "patchCustomerStatus", byte[].class, long.class, byte[].class),
+                client.method(spec, "deleteCustomer", byte[].class, long.class, byte[].class)
+        );
     }
 
     @PreDestroy

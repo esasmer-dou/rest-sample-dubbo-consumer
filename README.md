@@ -17,6 +17,7 @@ Use this sample when you want to understand:
 - How a Java REST handler can call a Dubbo provider.
 - How provider JSON can be forwarded with `RawResponse` without building a Java DTO graph.
 - How one REST process can consume more than one Dubbo interface without loading a full Dubbo stack.
+- How to expose real GET/POST/PATCH/DELETE REST verbs over a minimal Dubbo consumer.
 - How to keep the consumer process small with a static provider list.
 - How to switch to ZooKeeper discovery only when you need it.
 - How to structure handler, config, RPC adapter, and runtime classes without confusing them with DTOs.
@@ -64,6 +65,7 @@ This repository depends on:
 |------------|------------------|
 | `rust-java-rest` | Provides the Rust Hyper HTTP server, Java handler model, DI, `RawResponse`, and runtime config. |
 | `java-rust-dubbo` | Provides the lightweight Dubbo consumer adapter used by this sample. |
+| `hessian-lite` | Needed only for argument-carrying Dubbo methods such as POST/PATCH/DELETE command examples. |
 | `rest-sample-dubbo-provider` | Example Dubbo provider used for local end-to-end testing. |
 | ZooKeeper | Optional. Needed only when running discovery mode instead of static provider mode. |
 
@@ -180,12 +182,13 @@ HTTP client
 The important part is that the consumer does not parse the provider JSON into a DTO and serialize it
 again. If the provider already returns JSON bytes, the consumer forwards those bytes as the HTTP body.
 
-This sample now consumes two Dubbo interfaces:
+This sample now consumes three Dubbo interfaces:
 
 | REST area | Dubbo interface | Method | Why it is separate |
 |-----------|-----------------|--------|--------------------|
 | Catalog read | `NestedCatalogService` | `getNestedCatalogJson()` | Catalog payload is independent from database-backed customer reads. |
 | Customer read | `CustomerQueryService` | `getDatabaseCustomersJson()` | DB-backed customer query has its own lifecycle, repository, and scaling profile. |
+| Customer write | `CustomerCommandService` | `createCustomer(...)`, `patchCustomer*`, `deleteCustomer(...)` | Write commands have different concurrency, idempotency, and DB mutation risks than reads. |
 
 Keeping these as separate interfaces avoids a "god RPC interface". It also lets you tune, test, and
 replace each provider contract independently.
@@ -393,7 +396,17 @@ into the consumer JVM and serializing it again is an anti-pattern for this frame
     <artifactId>java-rust-dubbo</artifactId>
     <version>0.1.0-rc2</version>
 </dependency>
+
+<dependency>
+    <groupId>org.apache.dubbo</groupId>
+    <artifactId>hessian-lite</artifactId>
+    <version>4.0.3</version>
+</dependency>
 ```
+
+`hessian-lite` is needed by the POST/PATCH/DELETE command examples because those Dubbo methods carry
+arguments. The no-argument read path can use the native byte-array fast path without Hessian request
+encoding.
 
 The sample contains the Dubbo interface sources only to keep the demo self-contained:
 
@@ -556,6 +569,10 @@ curl http://127.0.0.1:8080/api/v1/catalog/nested
 curl http://127.0.0.1:8080/api/v1/customers/db
 curl http://127.0.0.1:8080/api/v1/catalog/db/customers
 curl http://127.0.0.1:8080/api/v1/catalog/dubbo-metrics
+curl -X POST http://127.0.0.1:8080/api/v1/customers -H "Content-Type: application/json" -d "{\"requestId\":\"req-1001\",\"customerNo\":\"CUST-9001\",\"fullName\":\"Zeynep Şahin\",\"segment\":\"pilot\",\"email\":\"zeynep.sahin@example.com\"}"
+curl -X PATCH http://127.0.0.1:8080/api/v1/customers/1/segment -H "Content-Type: application/json" -d "{\"requestId\":\"req-1002\",\"segment\":\"enterprise\"}"
+curl -X PATCH http://127.0.0.1:8080/api/v1/customers/1/status -H "Content-Type: application/json" -d "{\"requestId\":\"req-1003\",\"status\":\"passive\"}"
+curl -X DELETE http://127.0.0.1:8080/api/v1/customers/3 -H "Content-Type: application/json" -d "{\"requestId\":\"req-1004\",\"reason\":\"sample cleanup\"}"
 ```
 
 Expected result: all endpoints above should return HTTP `200`. The customer endpoints read from the
@@ -596,7 +613,150 @@ In this mode, `reactor.dubbo.providers` is ignored and provider URLs are read fr
 | `GET /api/v1/catalog/nested` | Calls `NestedCatalogService` and forwards nested catalog JSON. |
 | `GET /api/v1/customers/db` | Calls `CustomerQueryService` and forwards PostgreSQL-backed customer JSON. |
 | `GET /api/v1/catalog/db/customers` | Compatibility alias that also calls `CustomerQueryService`. |
+| `POST /api/v1/customers` | Creates or upserts a customer through `CustomerCommandService`. |
+| `PATCH /api/v1/customers/{id}/segment` | Changes customer segment through a bounded DB command method. |
+| `PATCH /api/v1/customers/{id}/status` | Changes customer lifecycle status through a bounded DB command method. |
+| `DELETE /api/v1/customers/{id}` | Deletes a customer through a bounded DB command method. |
 | `GET /api/v1/catalog/dubbo-metrics` | Shows native Dubbo client metrics. |
+
+## Copy/Paste Use Case Cookbook
+
+This section is intentionally practical. If you are performance-first, start from the property
+tables. If you are looking for a coding pattern, copy the Java snippets and keep the same boundaries:
+REST handler in Java, Dubbo adapter in Java, HTTP I/O in Rust, DB mutation in the provider.
+
+| Real-world need | Use this pattern | Why |
+|-----------------|------------------|-----|
+| Product catalog, dashboard config, branch list | `GET` + provider returns JSON `byte[]` + `RawResponse.json(bytes)` | Lowest allocation path for read-heavy pass-through JSON. |
+| Customer list from DB provider | `GET` + provider owns Hikari/SQL + consumer forwards bytes | REST process stays small; DB pool stays outside the Rust-Java HTTP process. |
+| Create customer/order/payment command | `POST` + compact JSON command bytes | Write command reaches provider without building a large consumer DTO graph. |
+| Partial update such as segment/status/address | `PATCH` + path id + command body | Small payload, clear command intent, bounded route admission. |
+| Delete/deactivate request | `DELETE` + path id + optional reason body | Explicit destructive operation with audit-friendly reason/requestId. |
+| Provider discovery required | ZooKeeper profile | Works, but adds Java ZooKeeper client overhead to the consumer process. |
+| Lowest memory service | Static provider list + `micro-dubbo` | Avoids ZooKeeper client and official Dubbo runtime in the hot REST JVM. |
+
+### Use Case 1: Read-Heavy Catalog Pass-Through
+
+When the provider already knows how to build the JSON, do not parse it in the consumer.
+
+```java
+@GetMapping(value = "/nested", responseType = RawResponse.class)
+@RouteAdmission(maxConcurrent = 16, queueTimeoutMs = 100)
+public CompletableFuture<ResponseEntity<RawResponse>> nestedCatalog() {
+    return catalogClient.nestedCatalogJsonAsync()
+            .thenApply(json -> ResponseEntity.ok(RawResponse.json(json)));
+}
+```
+
+Properties to keep:
+
+```properties
+reactor.runtime.profile=micro-dubbo
+reactor.dubbo.transport=native
+reactor.dubbo.providers=127.0.0.1:20880
+reactor.rust.native-cache.max-bytes=0
+reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=16
+```
+
+Use native cache only when this catalog is intentionally cacheable and you have a TTL/invalidation
+rule. Otherwise, keep it off as this sample does.
+
+### Use Case 2: DB-Backed Customer Query
+
+The provider owns PostgreSQL/Hikari. The consumer should not open its own JDBC pool just to expose a
+REST endpoint.
+
+```powershell
+curl http://127.0.0.1:8080/api/v1/customers/db
+```
+
+Tune these values together:
+
+```properties
+# consumer
+reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=8
+reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms=150
+
+# provider
+sample.db.maximum-pool-size=2
+dubbo.provider.service.CustomerQueryService.max-concurrent=2
+dubbo.provider.service.CustomerQueryService.method.getDatabaseCustomersJson.max-concurrent=1
+```
+
+BEST: if p99 grows, first check DB pool wait and provider method limits. ANTI-PATTERN: increasing
+consumer JNI workers while the provider DB pool is already saturated.
+
+### Use Case 3: POST Create Customer
+
+PowerShell:
+
+```powershell
+curl -X POST http://127.0.0.1:8080/api/v1/customers `
+  -H "Content-Type: application/json" `
+  -d "{\"requestId\":\"req-1001\",\"customerNo\":\"CUST-9001\",\"fullName\":\"Zeynep Şahin\",\"segment\":\"pilot\",\"email\":\"zeynep.sahin@example.com\"}"
+```
+
+Consumer handler:
+
+```java
+@PostMapping(value = "", requestType = byte[].class, responseType = RawResponse.class)
+@MaxRequestBodySize(32768)
+@RouteAdmission(maxConcurrent = 8, queueTimeoutMs = 150)
+public CompletableFuture<ResponseEntity<RawResponse>> createCustomer(@RequestBody byte[] body) {
+    return customerCommandClient.createCustomerAsync(body)
+            .thenApply(json -> ResponseEntity.created(RawResponse.json(json)));
+}
+```
+
+Use `@RequestBody byte[]` for pass-through command JSON. Use record DTOs only when the consumer must
+make a typed business decision before calling Dubbo.
+
+### Use Case 4: PATCH Customer Segment
+
+```powershell
+curl -X PATCH http://127.0.0.1:8080/api/v1/customers/1/segment `
+  -H "Content-Type: application/json" `
+  -d "{\"requestId\":\"req-1002\",\"segment\":\"enterprise\"}"
+```
+
+Use this for business classification changes, tenant moves, pricing segment changes, or pilot to
+enterprise transitions.
+
+### Use Case 5: PATCH Customer Status
+
+```powershell
+curl -X PATCH http://127.0.0.1:8080/api/v1/customers/1/status `
+  -H "Content-Type: application/json" `
+  -d "{\"requestId\":\"req-1003\",\"status\":\"passive\"}"
+```
+
+Use this for lifecycle changes such as `active`, `passive`, `blocked`, or `pending-review`. Keep the
+payload small and prefer an explicit route over a generic "update everything" endpoint.
+
+### Use Case 6: DELETE Customer
+
+```powershell
+curl -X DELETE http://127.0.0.1:8080/api/v1/customers/3 `
+  -H "Content-Type: application/json" `
+  -d "{\"requestId\":\"req-1004\",\"reason\":\"sample cleanup\"}"
+```
+
+For production, prefer soft-delete/deactivate when audit or recovery matters. Hard delete is included
+because users need a concrete `DELETE` verb example.
+
+### Profile And Property Selection
+
+| User problem | Recommended starting profile | Key properties |
+|--------------|------------------------------|----------------|
+| "I need the smallest pod for occasional traffic" | `micro-dubbo`, static provider | `reactor.rust.jni.workers=1`, `reactor.dubbo.native-async-workers=1`, `reactor.rust.response-pool.small-capacity=8` |
+| "I need more successful writes at c256" | `micro-dubbo` plus route-specific tuning | Increase `reactor.rust.route-admission.post.api.v1.customers.max-concurrent`, then measure RSS/p99/503. |
+| "I need dynamic provider discovery" | `micro-dubbo` + `zookeeper-discovery` Maven profile | Set `SAMPLE_DUBBO_DISCOVERY=zookeeper`; expect a small RSS increase. |
+| "Provider DB is slow" | Keep consumer bounded, tune provider first | Check `sample.db.maximum-pool-size`, provider method limits, PostgreSQL latency. |
+| "I need a best-practice code template" | Copy this sample structure | `handler` -> `dubbo client` -> `shared interface` -> `provider service` -> `repository`. |
+
+Do not turn every problem into a bigger thread pool. For this framework, the safer production order is
+usually: bounded route admission, explicit timeout, provider bulkhead, DB pool tuning, then worker
+increase only after measurement.
 
 ## Why This Consumer Is Small
 

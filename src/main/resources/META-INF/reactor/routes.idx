@@ -3,3 +3,7 @@ GET /api/v1/catalog/nested com.reactor.sample.dubbo.consumer.handler.CatalogHand
 GET /api/v1/catalog/db/customers com.reactor.sample.dubbo.consumer.handler.CatalogHandler#databaseCustomers
 GET /api/v1/catalog/dubbo-metrics com.reactor.sample.dubbo.consumer.handler.CatalogHandler#dubboMetrics
 GET /api/v1/customers/db com.reactor.sample.dubbo.consumer.handler.CustomerHandler#databaseCustomers
+POST /api/v1/customers com.reactor.sample.dubbo.consumer.handler.CustomerHandler#createCustomer
+PATCH /api/v1/customers/{id}/segment com.reactor.sample.dubbo.consumer.handler.CustomerHandler#patchCustomerSegment
+PATCH /api/v1/customers/{id}/status com.reactor.sample.dubbo.consumer.handler.CustomerHandler#patchCustomerStatus
+DELETE /api/v1/customers/{id} com.reactor.sample.dubbo.consumer.handler.CustomerHandler#deleteCustomer

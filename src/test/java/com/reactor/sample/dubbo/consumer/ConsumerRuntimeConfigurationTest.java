@@ -50,6 +50,14 @@ class ConsumerRuntimeConfigurationTest {
         assertEquals("150", properties.getProperty("reactor.rust.route-admission.get.api.v1.catalog.db.customers.queue-timeout-ms"));
         assertEquals("8", properties.getProperty("reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent"));
         assertEquals("150", properties.getProperty("reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms"));
+        assertEquals("8", properties.getProperty("reactor.rust.route-admission.post.api.v1.customers.max-concurrent"));
+        assertEquals("150", properties.getProperty("reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms"));
+        assertEquals("8", properties.getProperty("reactor.rust.route-admission.patch.api.v1.customers.id.segment.max-concurrent"));
+        assertEquals("150", properties.getProperty("reactor.rust.route-admission.patch.api.v1.customers.id.segment.queue-timeout-ms"));
+        assertEquals("8", properties.getProperty("reactor.rust.route-admission.patch.api.v1.customers.id.status.max-concurrent"));
+        assertEquals("150", properties.getProperty("reactor.rust.route-admission.patch.api.v1.customers.id.status.queue-timeout-ms"));
+        assertEquals("8", properties.getProperty("reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent"));
+        assertEquals("150", properties.getProperty("reactor.rust.route-admission.delete.api.v1.customers.id.queue-timeout-ms"));
     }
 
     private static Properties loadProperties() throws IOException {

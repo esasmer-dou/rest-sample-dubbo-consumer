@@ -17,6 +17,7 @@ Bu örnek şu konuları göstermek için hazırlandı:
 - Java REST handler içinden Dubbo provider nasıl çağrılır.
 - Provider'ın ürettiği JSON `RawResponse` ile DTO graph kurulmadan nasıl HTTP response yapılır.
 - Tek REST process içinde birden fazla Dubbo interface full Dubbo stack yüklenmeden nasıl consume edilir.
+- Minimal Dubbo consumer üzerinde gerçek GET/POST/PATCH/DELETE REST verbleri nasıl expose edilir.
 - Static provider listesi ile consumer process nasıl küçük tutulur.
 - ZooKeeper discovery sadece ihtiyaç olduğunda nasıl devreye alınır.
 - Handler, config, RPC adapter ve runtime class'ları DTO record'lardan nasıl ayrılır.
@@ -64,6 +65,7 @@ Bu repo şunlara bağlıdır:
 |------------|----------------|
 | `rust-java-rest` | Rust Hyper HTTP server, Java handler modeli, DI, `RawResponse` ve runtime config sağlar. |
 | `java-rust-dubbo` | Bu örnekte kullanılan hafif Dubbo consumer adapter'ını sağlar. |
+| `hessian-lite` | POST/PATCH/DELETE command örnekleri gibi argüman taşıyan Dubbo method'ları için gerekir. |
 | `rest-sample-dubbo-provider` | Lokal uçtan uca test için kullanılan örnek Dubbo provider'dır. |
 | ZooKeeper | Opsiyoneldir. Sadece discovery modunda gerekir. |
 
@@ -177,12 +179,13 @@ HTTP client
 Kritik nokta: consumer provider JSON'unu DTO'ya parse edip tekrar serialize etmez. Provider JSON
 bytes üretiyorsa consumer bu bytes'ı direkt HTTP body olarak taşır.
 
-Bu sample artık iki Dubbo interface consume eder:
+Bu sample artık üç Dubbo interface consume eder:
 
 | REST alanı | Dubbo interface | Method | Neden ayrı? |
 |------------|-----------------|--------|-------------|
 | Catalog read | `NestedCatalogService` | `getNestedCatalogJson()` | Catalog payload DB-backed customer read'den bağımsızdır. |
 | Customer read | `CustomerQueryService` | `getDatabaseCustomersJson()` | DB-backed customer query'nin lifecycle, repository ve scaling profili ayrıdır. |
+| Customer write | `CustomerCommandService` | `createCustomer(...)`, `patchCustomer*`, `deleteCustomer(...)` | Write command'lerin concurrency, idempotency ve DB mutation riskleri read path'ten farklıdır. |
 
 Bunları ayrı interface olarak tutmak "god RPC interface" oluşmasını engeller. Ayrıca her provider
 contract'ı ayrı test edilebilir, tune edilebilir ve değiştirilebilir.
@@ -391,7 +394,17 @@ Büyük Dubbo object graph'ı consumer JVM'e çekip tekrar JSON'a çevirmek bu f
     <artifactId>java-rust-dubbo</artifactId>
     <version>0.1.0-rc2</version>
 </dependency>
+
+<dependency>
+    <groupId>org.apache.dubbo</groupId>
+    <artifactId>hessian-lite</artifactId>
+    <version>4.0.3</version>
+</dependency>
 ```
+
+`hessian-lite`, POST/PATCH/DELETE command örnekleri için gerekir; çünkü bu Dubbo method'ları argüman
+taşır. No-argument read path native byte-array fast path'i kullanabilir ve Hessian request encode
+yoluna girmez.
 
 Demo kendi içinde Dubbo interface source'larını taşır:
 
@@ -554,6 +567,10 @@ curl http://127.0.0.1:8080/api/v1/catalog/nested
 curl http://127.0.0.1:8080/api/v1/customers/db
 curl http://127.0.0.1:8080/api/v1/catalog/db/customers
 curl http://127.0.0.1:8080/api/v1/catalog/dubbo-metrics
+curl -X POST http://127.0.0.1:8080/api/v1/customers -H "Content-Type: application/json" -d "{\"requestId\":\"req-1001\",\"customerNo\":\"CUST-9001\",\"fullName\":\"Zeynep Şahin\",\"segment\":\"pilot\",\"email\":\"zeynep.sahin@example.com\"}"
+curl -X PATCH http://127.0.0.1:8080/api/v1/customers/1/segment -H "Content-Type: application/json" -d "{\"requestId\":\"req-1002\",\"segment\":\"enterprise\"}"
+curl -X PATCH http://127.0.0.1:8080/api/v1/customers/1/status -H "Content-Type: application/json" -d "{\"requestId\":\"req-1003\",\"status\":\"passive\"}"
+curl -X DELETE http://127.0.0.1:8080/api/v1/customers/3 -H "Content-Type: application/json" -d "{\"requestId\":\"req-1004\",\"reason\":\"sample cleanup\"}"
 ```
 
 Beklenen sonuç: yukarıdaki endpoint'lerin tamamı HTTP `200` dönmelidir. Customer endpoint'leri
@@ -594,7 +611,150 @@ Bu modda `reactor.dubbo.providers` yok sayılır, provider URL'leri ZooKeeper'da
 | `GET /api/v1/catalog/nested` | `NestedCatalogService` çağırır ve nested catalog JSON'u forward eder. |
 | `GET /api/v1/customers/db` | `CustomerQueryService` çağırır ve PostgreSQL-backed customer JSON'u forward eder. |
 | `GET /api/v1/catalog/db/customers` | Compatibility alias; yine `CustomerQueryService` çağırır. |
+| `POST /api/v1/customers` | `CustomerCommandService` üzerinden customer create/upsert yapar. |
+| `PATCH /api/v1/customers/{id}/segment` | Bounded DB command method ile customer segment değiştirir. |
+| `PATCH /api/v1/customers/{id}/status` | Bounded DB command method ile lifecycle status değiştirir. |
+| `DELETE /api/v1/customers/{id}` | Bounded DB command method ile customer delete yapar. |
 | `GET /api/v1/catalog/dubbo-metrics` | Native Dubbo client metrics çıktısı. |
+
+## Copy/Paste Use Case Cookbook
+
+Bu bölüm bilinçli olarak pratiktir. Derdi performans olan kullanıcı property tablolarından
+başlayabilir. Derdi doğru kod pattern'i bulmak olan kullanıcı Java snippet'lerini alıp aynı sınırları
+koruyabilir: REST handler Java'da, Dubbo adapter Java'da, HTTP I/O Rust'ta, DB mutation provider'da.
+
+| Gerçek ihtiyaç | Kullanılacak pattern | Neden |
+|----------------|----------------------|-------|
+| Ürün kataloğu, dashboard config, şube listesi | `GET` + provider JSON `byte[]` döner + `RawResponse.json(bytes)` | Read-heavy pass-through JSON için en düşük allocation yolu. |
+| DB provider'dan customer listesi | `GET` + Hikari/SQL provider'da + consumer bytes forward eder | REST process küçük kalır; DB pool HTTP process içine taşınmaz. |
+| Customer/order/payment create command | `POST` + compact JSON command bytes | Büyük consumer DTO graph kurmadan write command provider'a gider. |
+| Segment/status/adres gibi partial update | `PATCH` + path id + command body | Küçük payload, net command niyeti, bounded route admission. |
+| Delete/deactivate request | `DELETE` + path id + opsiyonel reason body | Destructive operation açık olur; audit için reason/requestId taşınabilir. |
+| Provider discovery zorunlu | ZooKeeper profile | Çalışır, fakat consumer process'e Java ZooKeeper client overhead ekler. |
+| En düşük memory servis | Static provider list + `micro-dubbo` | Hot REST JVM içinde ZooKeeper client ve resmi Dubbo runtime yoktur. |
+
+### Use Case 1: Read-Heavy Catalog Pass-Through
+
+Provider JSON'u zaten üretiyorsa consumer içinde parse etmeyin.
+
+```java
+@GetMapping(value = "/nested", responseType = RawResponse.class)
+@RouteAdmission(maxConcurrent = 16, queueTimeoutMs = 100)
+public CompletableFuture<ResponseEntity<RawResponse>> nestedCatalog() {
+    return catalogClient.nestedCatalogJsonAsync()
+            .thenApply(json -> ResponseEntity.ok(RawResponse.json(json)));
+}
+```
+
+Korunacak properties:
+
+```properties
+reactor.runtime.profile=micro-dubbo
+reactor.dubbo.transport=native
+reactor.dubbo.providers=127.0.0.1:20880
+reactor.rust.native-cache.max-bytes=0
+reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=16
+```
+
+Native cache'i sadece catalog bilinçli cache edilebilir olduğunda ve TTL/invalidation kuralınız netse
+açın. Bu sample default olarak kapalı tutar.
+
+### Use Case 2: DB-Backed Customer Query
+
+PostgreSQL/Hikari provider'ın sorumluluğudur. Consumer sadece REST endpoint açmak için kendi JDBC
+pool'unu başlatmamalı.
+
+```powershell
+curl http://127.0.0.1:8080/api/v1/customers/db
+```
+
+Bu değerleri birlikte tune edin:
+
+```properties
+# consumer
+reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=8
+reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms=150
+
+# provider
+sample.db.maximum-pool-size=2
+dubbo.provider.service.CustomerQueryService.max-concurrent=2
+dubbo.provider.service.CustomerQueryService.method.getDatabaseCustomersJson.max-concurrent=1
+```
+
+BEST: p99 büyürse önce DB pool wait ve provider method limitlerini kontrol edin. ANTI-PATTERN:
+provider DB pool saturation altındayken consumer JNI worker artırmak.
+
+### Use Case 3: POST Customer Create
+
+PowerShell:
+
+```powershell
+curl -X POST http://127.0.0.1:8080/api/v1/customers `
+  -H "Content-Type: application/json" `
+  -d "{\"requestId\":\"req-1001\",\"customerNo\":\"CUST-9001\",\"fullName\":\"Zeynep Şahin\",\"segment\":\"pilot\",\"email\":\"zeynep.sahin@example.com\"}"
+```
+
+Consumer handler:
+
+```java
+@PostMapping(value = "", requestType = byte[].class, responseType = RawResponse.class)
+@MaxRequestBodySize(32768)
+@RouteAdmission(maxConcurrent = 8, queueTimeoutMs = 150)
+public CompletableFuture<ResponseEntity<RawResponse>> createCustomer(@RequestBody byte[] body) {
+    return customerCommandClient.createCustomerAsync(body)
+            .thenApply(json -> ResponseEntity.created(RawResponse.json(json)));
+}
+```
+
+Pass-through command JSON için `@RequestBody byte[]` kullanın. Consumer çağrıdan önce typed business
+karar verecekse record DTO kullanmak kabul edilebilir.
+
+### Use Case 4: PATCH Customer Segment
+
+```powershell
+curl -X PATCH http://127.0.0.1:8080/api/v1/customers/1/segment `
+  -H "Content-Type: application/json" `
+  -d "{\"requestId\":\"req-1002\",\"segment\":\"enterprise\"}"
+```
+
+Business classification, tenant move, fiyat segmenti veya pilot -> enterprise geçişleri için bu
+pattern'i kullanın.
+
+### Use Case 5: PATCH Customer Status
+
+```powershell
+curl -X PATCH http://127.0.0.1:8080/api/v1/customers/1/status `
+  -H "Content-Type: application/json" `
+  -d "{\"requestId\":\"req-1003\",\"status\":\"passive\"}"
+```
+
+`active`, `passive`, `blocked`, `pending-review` gibi lifecycle değişikliklerinde küçük payload ve
+explicit route tercih edin. Her şeyi alan generic update endpoint'i default yapmayın.
+
+### Use Case 6: DELETE Customer
+
+```powershell
+curl -X DELETE http://127.0.0.1:8080/api/v1/customers/3 `
+  -H "Content-Type: application/json" `
+  -d "{\"requestId\":\"req-1004\",\"reason\":\"sample cleanup\"}"
+```
+
+Production'da audit veya recovery önemliyse hard delete yerine soft-delete/deactivate tercih edin.
+Hard delete örneği kullanıcıların net bir `DELETE` verb örneği görmesi için vardır.
+
+### Profile Ve Property Seçimi
+
+| Kullanıcı problemi | Başlangıç profile | Kritik properties |
+|--------------------|-------------------|-------------------|
+| "Ara sıra çağrı alan en küçük pod lazım" | `micro-dubbo`, static provider | `reactor.rust.jni.workers=1`, `reactor.dubbo.native-async-workers=1`, `reactor.rust.response-pool.small-capacity=8` |
+| "c256 altında daha fazla başarılı write lazım" | `micro-dubbo` + route-specific tuning | `reactor.rust.route-admission.post.api.v1.customers.max-concurrent` artırın, RSS/p99/503 ölçün. |
+| "Dynamic provider discovery lazım" | `micro-dubbo` + `zookeeper-discovery` Maven profile | `SAMPLE_DUBBO_DISCOVERY=zookeeper`; küçük RSS artışı bekleyin. |
+| "Provider DB yavaş" | Consumer bounded kalsın, önce provider tune edilsin | `sample.db.maximum-pool-size`, provider method limitleri, PostgreSQL latency. |
+| "Best-practice kod şablonu lazım" | Bu sample yapısını kopyalayın | `handler` -> `dubbo client` -> `shared interface` -> `provider service` -> `repository`. |
+
+Her problemi thread pool büyütme ile çözmeye çalışmayın. Bu framework için güvenli production sırası
+genelde şudur: bounded route admission, explicit timeout, provider bulkhead, DB pool tuning, sonra
+ölçümle worker artışı.
 
 ## Neden Küçük?
 
