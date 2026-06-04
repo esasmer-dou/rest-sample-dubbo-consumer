@@ -26,9 +26,9 @@ Bu örnek tam kapsamlı bir Dubbo governance platformu değildir. Tüm Dubbo öz
 yerine Rust-Java framework felsefesine uygun minimum-overhead consumer yolunu gösterir: business
 logic Java'da kalır, HTTP I/O ve seçilmiş low-level transport işleri Rust/native tarafta yürür.
 
-## `rust-java-rest` 3.2.0 Bu Örnekte Ne Değiştiriyor?
+## `rust-java-rest` 3.2.1 Bu Örnekte Ne Değiştiriyor?
 
-Bu örnek artık `rust-java-rest` `3.2.0` kullanır. Uygulama kodu modeli değişmez: handler'lar,
+Bu örnek artık `rust-java-rest` `3.2.1` kullanır. Uygulama kodu modeli değişmez: handler'lar,
 service adapter'ları, configuration class'ları ve business kararlar Java'da kalır. Değişiklik daha
 çok handler'ların altında çalışan runtime yolundadır.
 
@@ -41,6 +41,8 @@ service adapter'ları, configuration class'ları ve business kararlar Java'da ka
 | Startup component/route index'leri | Sample broad classpath scan fallback yapmadan açılabilir; index eskiyse startup erken fail eder. |
 | Route-level admission | Dubbo çağıran route'lar global JNI kuyruğunu doldurmadan önce bounded in-flight limit kullanır. |
 | Daha açık low-RSS tuning | Sample properties `micro-dubbo` kullanır: REST dar kalır, Dubbo native/static-provider ayarlarıyla çalışır. |
+| Production artifact temizliği | Sample normal framework dependency kullanır; framework demo/sample class'ları production-like RSS ölçümüne karışmaz. |
+| Açık property override düzeltmesi | `rust-spring.properties` içine yazdığınız değerler runtime profile default'ları tarafından ezilmez. |
 
 Bu örnek için en doğru akış hâlâ basittir:
 
@@ -68,6 +70,32 @@ Bu repo şunlara bağlıdır:
 | `hessian-lite` | POST/PATCH/DELETE command örnekleri gibi argüman taşıyan Dubbo method'ları için gerekir. |
 | `rest-sample-dubbo-provider` | Lokal uçtan uca test için kullanılan örnek Dubbo provider'dır. |
 | ZooKeeper | Opsiyoneldir. Sadece discovery modunda gerekir. |
+
+## Bu Sample'daki Maven Profile'ları
+
+Sample iki farklı consumer dependency şekli sunar:
+
+| Profile | Ne kullanır? | Ne için uygun? | Sınırı |
+|---------|--------------|----------------|--------|
+| `full-dubbo-consumer` | Full `java-rust-dubbo` artifact ve `hessian-lite`. Varsayılan aktiftir. | POST/PATCH/DELETE dahil tüm sample endpoint'lerini çalıştırmak. | En küçük read-only path'e göre classpath daha büyüktür. |
+| `native-static-consumer` | `java-rust-dubbo` `native-static` classifier. Hessian ve ZooKeeper dependency yoktur. | Static provider, no-arg `byte[]` read endpoint'leri için en küçük classpath yüzeyi. | Argüman taşıyan Dubbo method'ları full profile ister. |
+| `zookeeper-discovery` | ZooKeeper client dependency ekler. | Provider URL'lerini ZooKeeper'dan dinamik almak. | Consumer process'e Java ZooKeeper class/thread maliyeti ekler. |
+
+Tüm örnekleri kopyala-çalıştır yapmak istiyorsanız default/full profile kullanın:
+
+```powershell
+mvn -q test
+mvn -q exec:java
+```
+
+Sadece en küçük read-only pass-through yolu test edecekseniz native-static profile kullanın:
+
+```powershell
+mvn -q -Pnative-static-consumer test
+mvn -q -Pnative-static-consumer exec:java
+```
+
+`native-static-consumer` ile `/api/v1/catalog/nested` ve `/api/v1/catalog/db/customers` gibi no-argument read endpoint'lerini çağırın. POST/PATCH/DELETE command örnekleri method argümanı taşıdığı için bilinçli olarak Hessian request encoding kullanan full profile gerektirir.
 
 Provider repo:
 
@@ -386,7 +414,7 @@ Büyük Dubbo object graph'ı consumer JVM'e çekip tekrar JSON'a çevirmek bu f
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.2.0</version>
+    <version>3.2.1</version>
 </dependency>
 
 <dependency>
@@ -557,6 +585,12 @@ git clone git@github.com:esasmer-dou/rest-sample-dubbo-consumer.git
 cd rest-sample-dubbo-consumer
 mvn -q test
 mvn -q exec:java
+```
+
+Bu komut varsayılan `full-dubbo-consumer` profile'ını kullanır; bu yüzden GET/POST/PATCH/DELETE örneklerinin tamamı açıktır. Sadece en küçük static-provider read path'i istiyorsanız:
+
+```powershell
+mvn -q -Pnative-static-consumer exec:java
 ```
 
 Test:

@@ -26,9 +26,9 @@ This sample is not a full Dubbo governance platform. It does not try to demonstr
 feature. The goal is a minimum-overhead consumer path that fits the Rust-Java framework philosophy:
 Java owns business logic, Rust owns HTTP I/O and selected low-level transport work.
 
-## What `rust-java-rest` 3.2.0 Changes Here
+## What `rust-java-rest` 3.2.1 Changes Here
 
-This sample now targets `rust-java-rest` `3.2.0`. The application code model does not change:
+This sample now targets `rust-java-rest` `3.2.1`. The application code model does not change:
 handlers, service adapters, configuration classes, and business decisions still live in Java. The
 change is mostly about the runtime path underneath those handlers.
 
@@ -41,6 +41,8 @@ change is mostly about the runtime path underneath those handlers.
 | Startup component/route indexes | The sample can start without classpath scanning fallback; if an index is stale, startup fails early. |
 | Route-level admission | Dubbo-backed routes have bounded in-flight limits before they can fill the global JNI queue. |
 | Clearer low-RSS tuning | The sample properties use `micro-dubbo`: REST stays narrow and Dubbo uses native/static-provider settings. |
+| Production artifact cleanup | The sample uses the normal framework dependency; framework demo/sample classes stay out of production-like RSS checks. |
+| Explicit property override fix | Values you put in `rust-spring.properties` are no longer overwritten by runtime profile defaults. |
 
 For this sample, the best path is still simple:
 
@@ -68,6 +70,32 @@ This repository depends on:
 | `hessian-lite` | Needed only for argument-carrying Dubbo methods such as POST/PATCH/DELETE command examples. |
 | `rest-sample-dubbo-provider` | Example Dubbo provider used for local end-to-end testing. |
 | ZooKeeper | Optional. Needed only when running discovery mode instead of static provider mode. |
+
+## Maven Profiles In This Sample
+
+The sample has two consumer dependency shapes:
+
+| Profile | What it uses | Best for | Limitation |
+|---------|--------------|----------|------------|
+| `full-dubbo-consumer` | Full `java-rust-dubbo` artifact plus `hessian-lite`. Active by default. | Running every sample endpoint, including POST/PATCH/DELETE command methods. | Larger classpath than the smallest read-only path. |
+| `native-static-consumer` | `java-rust-dubbo` with the `native-static` classifier. No Hessian or ZooKeeper dependency. | Lowest classpath surface for static-provider, no-arg `byte[]` read endpoints. | Argument-carrying Dubbo methods need the full profile. |
+| `zookeeper-discovery` | Adds ZooKeeper client dependency. | Dynamic provider discovery through ZooKeeper. | Adds Java ZooKeeper classes and threads to the consumer process. |
+
+Use the default/full profile when you want to copy and run all examples:
+
+```powershell
+mvn -q test
+mvn -q exec:java
+```
+
+Use the native-static profile when you are testing the smallest read-only pass-through path:
+
+```powershell
+mvn -q -Pnative-static-consumer test
+mvn -q -Pnative-static-consumer exec:java
+```
+
+With `native-static-consumer`, call the no-argument read endpoints such as `/api/v1/catalog/nested` and `/api/v1/catalog/db/customers`. The POST/PATCH/DELETE command examples carry method arguments, so they intentionally require the full profile with Hessian request encoding.
 
 The provider repository is here:
 
@@ -388,7 +416,7 @@ into the consumer JVM and serializing it again is an anti-pattern for this frame
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.2.0</version>
+    <version>3.2.1</version>
 </dependency>
 
 <dependency>
@@ -559,6 +587,12 @@ git clone git@github.com:esasmer-dou/rest-sample-dubbo-consumer.git
 cd rest-sample-dubbo-consumer
 mvn -q test
 mvn -q exec:java
+```
+
+This starts the default `full-dubbo-consumer` profile, so all GET/POST/PATCH/DELETE examples are available. If you only want the smallest static-provider read path, use:
+
+```powershell
+mvn -q -Pnative-static-consumer exec:java
 ```
 
 Test:

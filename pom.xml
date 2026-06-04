@@ -15,7 +15,7 @@
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <rust-java-rest.version>3.2.0</rust-java-rest.version>
+        <rust-java-rest.version>3.2.1</rust-java-rest.version>
         <java-rust-dubbo.version>0.1.0-rc2</java-rust-dubbo.version>
         <hessian-lite.version>4.0.3</hessian-lite.version>
         <zookeeper.version>3.7.2</zookeeper.version>
@@ -40,16 +40,6 @@
             <groupId>com.reactor</groupId>
             <artifactId>rust-java-rest</artifactId>
             <version>${rust-java-rest.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>com.reactor</groupId>
-            <artifactId>java-rust-dubbo</artifactId>
-            <version>${java-rust-dubbo.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.dubbo</groupId>
-            <artifactId>hessian-lite</artifactId>
-            <version>${hessian-lite.version}</version>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
@@ -86,6 +76,35 @@
     </build>
 
     <profiles>
+        <profile>
+            <id>full-dubbo-consumer</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>com.reactor</groupId>
+                    <artifactId>java-rust-dubbo</artifactId>
+                    <version>${java-rust-dubbo.version}</version>
+                </dependency>
+                <dependency>
+                    <groupId>org.apache.dubbo</groupId>
+                    <artifactId>hessian-lite</artifactId>
+                    <version>${hessian-lite.version}</version>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>native-static-consumer</id>
+            <dependencies>
+                <dependency>
+                    <groupId>com.reactor</groupId>
+                    <artifactId>java-rust-dubbo</artifactId>
+                    <version>${java-rust-dubbo.version}</version>
+                    <classifier>native-static</classifier>
+                </dependency>
+            </dependencies>
+        </profile>
         <profile>
             <id>zookeeper-discovery</id>
             <dependencies>
