@@ -73,13 +73,13 @@ This repository depends on:
 
 ## Maven Profiles In This Sample
 
-The sample has two consumer dependency shapes:
+The sample has three consumer dependency shapes:
 
 | Profile | What it uses | Best for | Limitation |
 |---------|--------------|----------|------------|
 | `full-dubbo-consumer` | Full `java-rust-dubbo` artifact plus `hessian-lite`. Active by default. | Running every sample endpoint, including POST/PATCH/DELETE command methods. | Larger classpath than the smallest read-only path. |
 | `native-static-consumer` | `java-rust-dubbo` with the `native-static` classifier. No Hessian or ZooKeeper dependency. | Lowest classpath surface for static-provider, no-arg `byte[]` read endpoints. | Argument-carrying Dubbo methods need the full profile. |
-| `zookeeper-discovery` | Adds ZooKeeper client dependency. | Dynamic provider discovery through ZooKeeper. | Adds Java ZooKeeper classes and threads to the consumer process. |
+| `zookeeper-discovery` | Full `java-rust-dubbo`, `hessian-lite`, and ZooKeeper client dependency. | Kubernetes or any environment where provider discovery must come from ZooKeeper. | Adds Java ZooKeeper classes and threads to the consumer process. |
 
 Use the default/full profile when you want to copy and run all examples:
 
@@ -96,6 +96,14 @@ mvn -q -Pnative-static-consumer exec:java
 ```
 
 With `native-static-consumer`, call the no-argument read endpoints such as `/api/v1/catalog/nested` and `/api/v1/catalog/db/customers`. The POST/PATCH/DELETE command examples carry method arguments, so they intentionally require the full profile with Hessian request encoding.
+
+Use the ZooKeeper profile when the consumer must discover providers from ZooKeeper. This profile is self-contained; do not combine it with `full-dubbo-consumer`.
+
+```powershell
+$env:SAMPLE_DUBBO_DISCOVERY="zookeeper"
+$env:REACTOR_DUBBO_REGISTRY_ADDRESS="zookeeper://zookeeper:2181"
+mvn -q -Pzookeeper-discovery exec:java
+```
 
 The provider repository is here:
 
@@ -628,7 +636,7 @@ cd rest-sample-dubbo-provider
 mvn -q exec:java
 ```
 
-Start the consumer with the optional ZooKeeper profile:
+Start the consumer with the ZooKeeper profile:
 
 ```powershell
 cd rest-sample-dubbo-consumer

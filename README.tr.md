@@ -73,13 +73,13 @@ Bu repo şunlara bağlıdır:
 
 ## Bu Sample'daki Maven Profile'ları
 
-Sample iki farklı consumer dependency şekli sunar:
+Sample üç farklı consumer dependency şekli sunar:
 
 | Profile | Ne kullanır? | Ne için uygun? | Sınırı |
 |---------|--------------|----------------|--------|
 | `full-dubbo-consumer` | Full `java-rust-dubbo` artifact ve `hessian-lite`. Varsayılan aktiftir. | POST/PATCH/DELETE dahil tüm sample endpoint'lerini çalıştırmak. | En küçük read-only path'e göre classpath daha büyüktür. |
 | `native-static-consumer` | `java-rust-dubbo` `native-static` classifier. Hessian ve ZooKeeper dependency yoktur. | Static provider, no-arg `byte[]` read endpoint'leri için en küçük classpath yüzeyi. | Argüman taşıyan Dubbo method'ları full profile ister. |
-| `zookeeper-discovery` | ZooKeeper client dependency ekler. | Provider URL'lerini ZooKeeper'dan dinamik almak. | Consumer process'e Java ZooKeeper class/thread maliyeti ekler. |
+| `zookeeper-discovery` | Full `java-rust-dubbo`, `hessian-lite` ve ZooKeeper client dependency ekler. | Kubernetes veya provider discovery'nin mutlaka ZooKeeper'dan gelmesi gereken ortamlar. | Consumer process'e Java ZooKeeper class/thread maliyeti ekler. |
 
 Tüm örnekleri kopyala-çalıştır yapmak istiyorsanız default/full profile kullanın:
 
@@ -96,6 +96,14 @@ mvn -q -Pnative-static-consumer exec:java
 ```
 
 `native-static-consumer` ile `/api/v1/catalog/nested` ve `/api/v1/catalog/db/customers` gibi no-argument read endpoint'lerini çağırın. POST/PATCH/DELETE command örnekleri method argümanı taşıdığı için bilinçli olarak Hessian request encoding kullanan full profile gerektirir.
+
+Consumer provider'ları ZooKeeper'dan bulmak zorundaysa ZooKeeper profilini kullanın. Bu profil kendi başına yeterlidir; `full-dubbo-consumer` ile birlikte kullanmayın.
+
+```powershell
+$env:SAMPLE_DUBBO_DISCOVERY="zookeeper"
+$env:REACTOR_DUBBO_REGISTRY_ADDRESS="zookeeper://zookeeper:2181"
+mvn -q -Pzookeeper-discovery exec:java
+```
 
 Provider repo:
 
@@ -626,7 +634,7 @@ cd rest-sample-dubbo-provider
 mvn -q exec:java
 ```
 
-Consumer'ı optional ZooKeeper profiliyle başlatın:
+Consumer'ı ZooKeeper profiliyle başlatın:
 
 ```powershell
 cd rest-sample-dubbo-consumer
