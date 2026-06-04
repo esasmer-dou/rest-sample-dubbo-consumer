@@ -543,6 +543,191 @@ Important properties:
 | `reactor.dubbo.max-inflight` | Bounded RPC concurrency. |
 | `reactor.dubbo.native-connections-per-endpoint` | Native Dubbo TCP connection pool size per provider. Keep it low for memory-first services; increase only with p99/RSS measurements. |
 
+## Running By Environment
+
+There are two separate decisions:
+
+```text
+Maven profile = what dependencies go into the application classpath.
+Runtime properties/env = how the consumer finds Dubbo providers.
+```
+
+Do not treat them as the same thing. If the application must use ZooKeeper in Kubernetes, build/run
+with the `zookeeper-discovery` Maven profile and set `SAMPLE_DUBBO_DISCOVERY=zookeeper`.
+
+| Environment | Use this Maven profile | Discovery mode | Provider address source |
+|-------------|------------------------|----------------|-------------------------|
+| Local standalone JVM, provider fixed on one address | default `full-dubbo-consumer` | `static` | `REACTOR_DUBBO_PROVIDERS=127.0.0.1:20880` |
+| Local standalone JVM, provider must be found from ZooKeeper | `zookeeper-discovery` | `zookeeper` | `REACTOR_DUBBO_REGISTRY_ADDRESS=zookeeper://127.0.0.1:2181` |
+| Docker on one Docker network | `zookeeper-discovery` if discovery is required, otherwise default/full | `zookeeper` or `static` | Docker service name, for example `zookeeper:2181` or `provider:20880` |
+| Kubernetes | `zookeeper-discovery` | `zookeeper` | Kubernetes DNS name of ZooKeeper, for example `zookeeper-client.platform.svc.cluster.local:2181` |
+
+### Standalone JVM
+
+Use this when you run the provider and consumer directly from Maven or from your IDE.
+
+Static provider mode is the lightest standalone path:
+
+```powershell
+$env:SAMPLE_DUBBO_DISCOVERY="static"
+$env:REACTOR_DUBBO_PROVIDERS="127.0.0.1:20880"
+mvn -q exec:java
+```
+
+ZooKeeper discovery mode is the correct standalone test when you want the same provider discovery
+behavior as Kubernetes:
+
+```powershell
+$env:SAMPLE_DUBBO_DISCOVERY="zookeeper"
+$env:REACTOR_DUBBO_REGISTRY_ADDRESS="zookeeper://127.0.0.1:2181"
+mvn -q -Pzookeeper-discovery exec:java
+```
+
+BEST: use the ZooKeeper profile during local testing if production will use ZooKeeper.  
+ACCEPTABLE: use static provider mode for quick local smoke tests.  
+ANTI-PATTERN: testing only static provider mode and then deploying ZooKeeper discovery for the first
+time in Kubernetes.
+
+### Docker
+
+The sample does not require Spring Boot packaging. If you want a plain container image, copy compiled
+classes and runtime dependencies into the image:
+
+```powershell
+mvn -q -Pzookeeper-discovery -DskipTests package dependency:copy-dependencies `
+  -DincludeScope=runtime `
+  -DoutputDirectory=target/dependency
+```
+
+Example Dockerfile:
+
+```dockerfile
+FROM ibm-semeru-runtimes:open-21-jre
+WORKDIR /app
+COPY target/classes /app/classes
+COPY target/dependency /app/dependency
+EXPOSE 8080
+ENTRYPOINT ["java", "-XX:+UseContainerSupport", "-cp", "/app/classes:/app/dependency/*", "com.reactor.sample.dubbo.consumer.app.RestSampleDubboConsumerApplication"]
+```
+
+Build and run on a Docker network:
+
+```powershell
+docker network create reactor-dubbo
+docker build -t rest-sample-dubbo-consumer:zk .
+
+docker run --rm --name rest-sample-dubbo-consumer `
+  --network reactor-dubbo `
+  -p 8080:8080 `
+  -e SAMPLE_DUBBO_DISCOVERY=zookeeper `
+  -e REACTOR_DUBBO_REGISTRY_ADDRESS=zookeeper://zookeeper:2181 `
+  -e REACTOR_RUNTIME_PROFILE=micro-dubbo `
+  -e REACTOR_DUBBO_RUNTIME_PROFILE=micro-dubbo `
+  rest-sample-dubbo-consumer:zk
+```
+
+If you run static provider mode in Docker, use the provider container or service name, not
+`127.0.0.1`, because `127.0.0.1` points to the consumer container itself:
+
+```powershell
+docker run --rm --name rest-sample-dubbo-consumer `
+  --network reactor-dubbo `
+  -p 8080:8080 `
+  -e SAMPLE_DUBBO_DISCOVERY=static `
+  -e REACTOR_DUBBO_PROVIDERS=rest-sample-dubbo-provider:20880 `
+  rest-sample-dubbo-consumer:zk
+```
+
+### Kubernetes
+
+For your Kubernetes use case, this is the intended mode:
+
+```text
+Consumer pod -> ZooKeeper Service -> provider URL from registry -> Dubbo provider pod/service
+```
+
+Build the image with the `zookeeper-discovery` Maven profile. Setting only
+`SAMPLE_DUBBO_DISCOVERY=zookeeper` at runtime is not enough if the image was built without the
+ZooKeeper dependency.
+
+Minimal Deployment shape:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rest-sample-dubbo-consumer
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: rest-sample-dubbo-consumer
+  template:
+    metadata:
+      labels:
+        app: rest-sample-dubbo-consumer
+    spec:
+      containers:
+        - name: app
+          image: registry.example.com/rest-sample-dubbo-consumer:0.1.0-zk
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SAMPLE_DUBBO_DISCOVERY
+              value: "zookeeper"
+            - name: REACTOR_DUBBO_REGISTRY_ADDRESS
+              value: "zookeeper://zookeeper-client.platform.svc.cluster.local:2181"
+            - name: REACTOR_RUNTIME_PROFILE
+              value: "micro-dubbo"
+            - name: REACTOR_DUBBO_RUNTIME_PROFILE
+              value: "micro-dubbo"
+            - name: REACTOR_DUBBO_MAX_INFLIGHT
+              value: "8"
+            - name: REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT
+              value: "2"
+          readinessProbe:
+            httpGet:
+              path: /app/health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /app/health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+```
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rest-sample-dubbo-consumer
+spec:
+  selector:
+    app: rest-sample-dubbo-consumer
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+```
+
+Production notes for Kubernetes:
+
+- Start with `160Mi-256Mi` memory limit when ZooKeeper discovery is enabled; then lower only after an idle RSS and p99 test in your own image.
+- Keep `reactor.dubbo.max-inflight` bounded. Raising it blindly can protect RPS but damage p99 and provider stability.
+- Keep `reactor.dubbo.retries=0` for low-latency APIs unless the operation is idempotent and retry-safe.
+- `/app/health` is a process health endpoint. If you want readiness to depend on provider availability, add a separate readiness route; do not make liveness depend on Dubbo provider state.
+- During provider rolling restarts, ZooKeeper should publish the new provider URL and the consumer should reconnect through discovery. If this does not happen, inspect provider registration under `/dubbo/{interface}/providers`.
+
 ## Recommended Local Run Order
 
 For the smallest consumer process, start with static provider mode:
