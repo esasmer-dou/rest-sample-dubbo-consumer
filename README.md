@@ -513,7 +513,61 @@ src/main/resources/rust-spring.properties
 Read order:
 
 ```text
-system property > environment variable > classpath properties
+JVM system property (-Dkey=value)
+  > environment variable
+  > loaded rust-spring.properties
+  > framework internal defaults
+```
+
+The checked-in `src/main/resources/rust-spring.properties` is packaged into the application classpath
+and acts as the baseline configuration. In Kubernetes and Docker, prefer environment variables or JVM
+`-D...` options for environment-specific values. Do not rely on a mounted `rust-spring.properties`
+file overriding the packaged file; the framework loads the classpath file first and uses filesystem
+paths only when no classpath file is present.
+
+You can set the same value in three ways:
+
+```properties
+# src/main/resources/rust-spring.properties
+sample.dubbo.discovery=zookeeper
+reactor.dubbo.registry-address=zookeeper://127.0.0.1:2181
+```
+
+```powershell
+# JVM system properties. Highest priority.
+java `
+  -Dsample.dubbo.discovery=zookeeper `
+  -Dreactor.dubbo.registry-address=zookeeper://127.0.0.1:2181 `
+  -cp "classes;dependency/*" `
+  com.reactor.sample.dubbo.consumer.app.RestSampleDubboConsumerApplication
+```
+
+```yaml
+# Kubernetes environment variables. Preferred for deployments.
+env:
+  - name: SAMPLE_DUBBO_DISCOVERY
+    value: "zookeeper"
+  - name: REACTOR_DUBBO_REGISTRY_ADDRESS
+    value: "zookeeper://zookeeper-client.platform.svc.cluster.local:2181"
+```
+
+All properties can be overridden as environment variables. Conversion rule:
+
+```text
+sample.dubbo.discovery -> SAMPLE_DUBBO_DISCOVERY
+reactor.dubbo.native-connections-per-endpoint -> REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT
+reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent -> REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CUSTOMERS_DB_MAX_CONCURRENT
+```
+
+The rule is simple: uppercase the key, replace `.` with `_`, and replace `-` with `_`.
+
+If you need to pass JVM system properties through a container without changing the command, use
+`JAVA_TOOL_OPTIONS`:
+
+```yaml
+env:
+  - name: JAVA_TOOL_OPTIONS
+    value: "-Dreactor.dubbo.max-inflight=8 -Dreactor.dubbo.timeout-ms=1000"
 ```
 
 The sample does not keep runtime defaults in code. Missing or invalid properties fail fast during
@@ -542,6 +596,211 @@ Important properties:
 | `reactor.dubbo.timeout-ms` | Per-RPC timeout. |
 | `reactor.dubbo.max-inflight` | Bounded RPC concurrency. |
 | `reactor.dubbo.native-connections-per-endpoint` | Native Dubbo TCP connection pool size per provider. Keep it low for memory-first services; increase only with p99/RSS measurements. |
+
+<details>
+<summary>Complete sample property to environment variable map</summary>
+
+| Property | Environment variable |
+|----------|----------------------|
+| `server.port` | `SERVER_PORT` |
+| `server.host` | `SERVER_HOST` |
+| `reactor.runtime.profile` | `REACTOR_RUNTIME_PROFILE` |
+| `reactor.startup.component-index.enabled` | `REACTOR_STARTUP_COMPONENT_INDEX_ENABLED` |
+| `reactor.startup.component-index.required` | `REACTOR_STARTUP_COMPONENT_INDEX_REQUIRED` |
+| `reactor.startup.route-index.validate` | `REACTOR_STARTUP_ROUTE_INDEX_VALIDATE` |
+| `reactor.startup.route-index.required` | `REACTOR_STARTUP_ROUTE_INDEX_REQUIRED` |
+| `reactor.startup.scan.fallback-enabled` | `REACTOR_STARTUP_SCAN_FALLBACK_ENABLED` |
+| `reactor.rust.http.max-request-body-bytes` | `REACTOR_RUST_HTTP_MAX_REQUEST_BODY_BYTES` |
+| `reactor.rust.http.max-response-body-bytes` | `REACTOR_RUST_HTTP_MAX_RESPONSE_BODY_BYTES` |
+| `reactor.rust.http.max-inflight-body-bytes` | `REACTOR_RUST_HTTP_MAX_INFLIGHT_BODY_BYTES` |
+| `reactor.rust.http.max-inflight-response-bytes` | `REACTOR_RUST_HTTP_MAX_INFLIGHT_RESPONSE_BYTES` |
+| `reactor.rust.http.max-connections` | `REACTOR_RUST_HTTP_MAX_CONNECTIONS` |
+| `reactor.rust.http.max-request-header-bytes` | `REACTOR_RUST_HTTP_MAX_REQUEST_HEADER_BYTES` |
+| `reactor.rust.http.max-request-headers` | `REACTOR_RUST_HTTP_MAX_REQUEST_HEADERS` |
+| `reactor.rust.http.header-read-timeout-ms` | `REACTOR_RUST_HTTP_HEADER_READ_TIMEOUT_MS` |
+| `reactor.rust.http.request-body-timeout-ms` | `REACTOR_RUST_HTTP_REQUEST_BODY_TIMEOUT_MS` |
+| `reactor.rust.http.idle-timeout-ms` | `REACTOR_RUST_HTTP_IDLE_TIMEOUT_MS` |
+| `reactor.rust.http.http1-only-enabled` | `REACTOR_RUST_HTTP_HTTP1_ONLY_ENABLED` |
+| `reactor.rust.http.keep-alive-enabled` | `REACTOR_RUST_HTTP_KEEP_ALIVE_ENABLED` |
+| `reactor.rust.log.level` | `REACTOR_RUST_LOG_LEVEL` |
+| `reactor.rust.java.log.level` | `REACTOR_RUST_JAVA_LOG_LEVEL` |
+| `reactor.rust.jni.workers` | `REACTOR_RUST_JNI_WORKERS` |
+| `reactor.rust.jni.queue-capacity` | `REACTOR_RUST_JNI_QUEUE_CAPACITY` |
+| `reactor.rust.response-pool.small-capacity` | `REACTOR_RUST_RESPONSE_POOL_SMALL_CAPACITY` |
+| `reactor.rust.response-pool.medium-capacity` | `REACTOR_RUST_RESPONSE_POOL_MEDIUM_CAPACITY` |
+| `reactor.rust.response-pool.large-capacity` | `REACTOR_RUST_RESPONSE_POOL_LARGE_CAPACITY` |
+| `reactor.rust.response-pool.huge-capacity` | `REACTOR_RUST_RESPONSE_POOL_HUGE_CAPACITY` |
+| `reactor.rust.websocket.max-frame-bytes` | `REACTOR_RUST_WEBSOCKET_MAX_FRAME_BYTES` |
+| `reactor.rust.websocket.outbound-queue-capacity` | `REACTOR_RUST_WEBSOCKET_OUTBOUND_QUEUE_CAPACITY` |
+| `reactor.rust.websocket.send-timeout-ms` | `REACTOR_RUST_WEBSOCKET_SEND_TIMEOUT_MS` |
+| `reactor.rust.runtime.worker-threads` | `REACTOR_RUST_RUNTIME_WORKER_THREADS` |
+| `reactor.rust.runtime.max-blocking-threads` | `REACTOR_RUST_RUNTIME_MAX_BLOCKING_THREADS` |
+| `reactor.rust.runtime.thread-stack-bytes` | `REACTOR_RUST_RUNTIME_THREAD_STACK_BYTES` |
+| `reactor.rust.native-cache.max-entries` | `REACTOR_RUST_NATIVE_CACHE_MAX_ENTRIES` |
+| `reactor.rust.native-cache.max-bytes` | `REACTOR_RUST_NATIVE_CACHE_MAX_BYTES` |
+| `reactor.rust.native-cache.ttl-ms` | `REACTOR_RUST_NATIVE_CACHE_TTL_MS` |
+| `reactor.rust.async.max-inflight` | `REACTOR_RUST_ASYNC_MAX_INFLIGHT` |
+| `reactor.rust.async.response-timeout-ms` | `REACTOR_RUST_ASYNC_RESPONSE_TIMEOUT_MS` |
+| `reactor.rust.json.writer-initial-bytes` | `REACTOR_RUST_JSON_WRITER_INITIAL_BYTES` |
+| `reactor.rust.json.writer-retain-max-bytes` | `REACTOR_RUST_JSON_WRITER_RETAIN_MAX_BYTES` |
+| `reactor.rust.route-admission.enabled` | `REACTOR_RUST_ROUTE_ADMISSION_ENABLED` |
+| `reactor.rust.route-admission.default-max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_DEFAULT_MAX_CONCURRENT` |
+| `reactor.rust.route-admission.default-queue-timeout-ms` | `REACTOR_RUST_ROUTE_ADMISSION_DEFAULT_QUEUE_TIMEOUT_MS` |
+| `reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CATALOG_NESTED_MAX_CONCURRENT` |
+| `reactor.rust.route-admission.get.api.v1.catalog.nested.queue-timeout-ms` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CATALOG_NESTED_QUEUE_TIMEOUT_MS` |
+| `reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CATALOG_DB_CUSTOMERS_MAX_CONCURRENT` |
+| `reactor.rust.route-admission.get.api.v1.catalog.db.customers.queue-timeout-ms` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CATALOG_DB_CUSTOMERS_QUEUE_TIMEOUT_MS` |
+| `reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CUSTOMERS_DB_MAX_CONCURRENT` |
+| `reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CUSTOMERS_DB_QUEUE_TIMEOUT_MS` |
+| `reactor.rust.route-admission.post.api.v1.customers.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_POST_API_V1_CUSTOMERS_MAX_CONCURRENT` |
+| `reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms` | `REACTOR_RUST_ROUTE_ADMISSION_POST_API_V1_CUSTOMERS_QUEUE_TIMEOUT_MS` |
+| `reactor.rust.route-admission.patch.api.v1.customers.id.segment.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_PATCH_API_V1_CUSTOMERS_ID_SEGMENT_MAX_CONCURRENT` |
+| `reactor.rust.route-admission.patch.api.v1.customers.id.segment.queue-timeout-ms` | `REACTOR_RUST_ROUTE_ADMISSION_PATCH_API_V1_CUSTOMERS_ID_SEGMENT_QUEUE_TIMEOUT_MS` |
+| `reactor.rust.route-admission.patch.api.v1.customers.id.status.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_PATCH_API_V1_CUSTOMERS_ID_STATUS_MAX_CONCURRENT` |
+| `reactor.rust.route-admission.patch.api.v1.customers.id.status.queue-timeout-ms` | `REACTOR_RUST_ROUTE_ADMISSION_PATCH_API_V1_CUSTOMERS_ID_STATUS_QUEUE_TIMEOUT_MS` |
+| `reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_DELETE_API_V1_CUSTOMERS_ID_MAX_CONCURRENT` |
+| `reactor.rust.route-admission.delete.api.v1.customers.id.queue-timeout-ms` | `REACTOR_RUST_ROUTE_ADMISSION_DELETE_API_V1_CUSTOMERS_ID_QUEUE_TIMEOUT_MS` |
+| `sample.dubbo.discovery` | `SAMPLE_DUBBO_DISCOVERY` |
+| `reactor.dubbo.enabled` | `REACTOR_DUBBO_ENABLED` |
+| `reactor.dubbo.application-name` | `REACTOR_DUBBO_APPLICATION_NAME` |
+| `reactor.dubbo.transport` | `REACTOR_DUBBO_TRANSPORT` |
+| `reactor.dubbo.runtime-profile` | `REACTOR_DUBBO_RUNTIME_PROFILE` |
+| `reactor.dubbo.registry-address` | `REACTOR_DUBBO_REGISTRY_ADDRESS` |
+| `reactor.dubbo.registry-root` | `REACTOR_DUBBO_REGISTRY_ROOT` |
+| `reactor.dubbo.registry-timeout-ms` | `REACTOR_DUBBO_REGISTRY_TIMEOUT_MS` |
+| `reactor.dubbo.registry-session-timeout-ms` | `REACTOR_DUBBO_REGISTRY_SESSION_TIMEOUT_MS` |
+| `reactor.dubbo.registry-check` | `REACTOR_DUBBO_REGISTRY_CHECK` |
+| `reactor.dubbo.providers` | `REACTOR_DUBBO_PROVIDERS` |
+| `reactor.dubbo.timeout-ms` | `REACTOR_DUBBO_TIMEOUT_MS` |
+| `reactor.dubbo.retries` | `REACTOR_DUBBO_RETRIES` |
+| `reactor.dubbo.check` | `REACTOR_DUBBO_CHECK` |
+| `reactor.dubbo.lazy` | `REACTOR_DUBBO_LAZY` |
+| `reactor.dubbo.protocol` | `REACTOR_DUBBO_PROTOCOL` |
+| `reactor.dubbo.serialization` | `REACTOR_DUBBO_SERIALIZATION` |
+| `reactor.dubbo.cluster` | `REACTOR_DUBBO_CLUSTER` |
+| `reactor.dubbo.loadbalance` | `REACTOR_DUBBO_LOADBALANCE` |
+| `reactor.dubbo.connections` | `REACTOR_DUBBO_CONNECTIONS` |
+| `reactor.dubbo.share-connections` | `REACTOR_DUBBO_SHARE_CONNECTIONS` |
+| `reactor.dubbo.refer-thread-num` | `REACTOR_DUBBO_REFER_THREAD_NUM` |
+| `reactor.dubbo.max-inflight` | `REACTOR_DUBBO_MAX_INFLIGHT` |
+| `reactor.dubbo.max-response-bytes` | `REACTOR_DUBBO_MAX_RESPONSE_BYTES` |
+| `reactor.dubbo.native-connections-per-endpoint` | `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT` |
+| `reactor.dubbo.native-async-workers` | `REACTOR_DUBBO_NATIVE_ASYNC_WORKERS` |
+| `reactor.dubbo.native-async-queue-capacity` | `REACTOR_DUBBO_NATIVE_ASYNC_QUEUE_CAPACITY` |
+
+</details>
+
+## Real-World Tuning Recipes
+
+Tune one bottleneck at a time. Every change should be measured with successful RPS, p95/p99 latency,
+503 rate, provider error rate, and RSS after idle.
+
+| Use case | Starting property set | Why |
+|----------|-----------------------|-----|
+| Low-traffic Kubernetes service with mandatory ZooKeeper | `SAMPLE_DUBBO_DISCOVERY=zookeeper`, `REACTOR_RUNTIME_PROFILE=micro-dubbo`, `REACTOR_DUBBO_RUNTIME_PROFILE=micro-dubbo`, `REACTOR_RUST_JNI_WORKERS=1`, `REACTOR_DUBBO_MAX_INFLIGHT=8`, `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=1` | Keeps the REST process small and accepts controlled 503 under overload instead of retaining memory. |
+| Read-heavy catalog or dashboard JSON | `REACTOR_DUBBO_MAX_INFLIGHT=16-32`, `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=2-4`, route admission for the read route `16-64` | Improves useful 200 RPS when provider responses are fast and already JSON bytes. |
+| DB-backed query through provider | Keep consumer route max concurrent close to provider capacity, usually `4-8` per consumer pod; set `REACTOR_DUBBO_TIMEOUT_MS=800-1500`; queue timeout `50-150ms` | Prevents the consumer from amplifying provider DB pool saturation. |
+| POST/PATCH/DELETE command methods | `REACTOR_DUBBO_RETRIES=0`, command route max concurrent `4-8`, queue timeout `100-200ms` | Avoids accidental double execution and bounds write pressure. |
+| Large JSON response from provider | Raise `REACTOR_DUBBO_MAX_RESPONSE_BYTES`, `REACTOR_RUST_HTTP_MAX_RESPONSE_BODY_BYTES`, and `REACTOR_RUST_HTTP_MAX_INFLIGHT_RESPONSE_BYTES` together | A Dubbo response limit alone is not enough; the HTTP response and total in-flight caps must also allow the payload. |
+| Higher concurrency but memory still constrained | Increase `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT` first, then `REACTOR_DUBBO_MAX_INFLIGHT`, then `REACTOR_RUST_JNI_WORKERS`; keep response pools small | Connection reuse often improves p99 before extra Java worker threads are needed. |
+| Provider rolling restart | `SAMPLE_DUBBO_DISCOVERY=zookeeper`, `REACTOR_DUBBO_REGISTRY_CHECK=false`, `REACTOR_DUBBO_CHECK=false`, explicit RPC timeout | The pod can start while providers are moving; routes return bounded failures until discovery catches up. |
+
+### Recipe: Low-Memory Kubernetes Consumer With ZooKeeper
+
+```yaml
+env:
+  - name: SAMPLE_DUBBO_DISCOVERY
+    value: "zookeeper"
+  - name: REACTOR_DUBBO_REGISTRY_ADDRESS
+    value: "zookeeper://zookeeper-client.platform.svc.cluster.local:2181"
+  - name: REACTOR_RUNTIME_PROFILE
+    value: "micro-dubbo"
+  - name: REACTOR_DUBBO_RUNTIME_PROFILE
+    value: "micro-dubbo"
+  - name: REACTOR_RUST_JNI_WORKERS
+    value: "1"
+  - name: REACTOR_DUBBO_MAX_INFLIGHT
+    value: "8"
+  - name: REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT
+    value: "1"
+  - name: REACTOR_DUBBO_TIMEOUT_MS
+    value: "1000"
+  - name: REACTOR_DUBBO_RETRIES
+    value: "0"
+```
+
+BEST for: services with occasional or moderate traffic where memory matters more than absorbing every
+burst.
+Expected behavior: under overload, some calls may return controlled `503`; RSS stays bounded.
+
+### Recipe: Read-Heavy Catalog Endpoint
+
+```yaml
+env:
+  - name: REACTOR_DUBBO_MAX_INFLIGHT
+    value: "32"
+  - name: REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT
+    value: "4"
+  - name: REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CATALOG_NESTED_MAX_CONCURRENT
+    value: "32"
+  - name: REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CATALOG_NESTED_QUEUE_TIMEOUT_MS
+    value: "100"
+```
+
+BEST for: provider returns ready JSON `byte[]` and the consumer forwards it with `RawResponse`.
+ANTI-PATTERN: enabling native cache without a clear invalidation rule. Cache only deliberately
+cacheable responses.
+
+### Recipe: DB-Backed Provider Query
+
+```yaml
+env:
+  - name: REACTOR_DUBBO_MAX_INFLIGHT
+    value: "8"
+  - name: REACTOR_DUBBO_TIMEOUT_MS
+    value: "1200"
+  - name: REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CUSTOMERS_DB_MAX_CONCURRENT
+    value: "6"
+  - name: REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CUSTOMERS_DB_QUEUE_TIMEOUT_MS
+    value: "150"
+```
+
+If the provider Hikari pool has `10` connections and there are two consumer pods, do not let each
+consumer push `32` concurrent DB-backed RPCs. Start with `4-6` per pod and measure provider pool wait.
+
+### Recipe: Command Endpoint Without Duplicate Writes
+
+```yaml
+env:
+  - name: REACTOR_DUBBO_RETRIES
+    value: "0"
+  - name: REACTOR_DUBBO_TIMEOUT_MS
+    value: "1000"
+  - name: REACTOR_RUST_ROUTE_ADMISSION_POST_API_V1_CUSTOMERS_MAX_CONCURRENT
+    value: "6"
+  - name: REACTOR_RUST_ROUTE_ADMISSION_POST_API_V1_CUSTOMERS_QUEUE_TIMEOUT_MS
+    value: "150"
+```
+
+BEST for: create/update/delete operations that are not safely retryable.
+If you need retries, add idempotency keys at the provider contract first.
+
+### Recipe: Larger Provider JSON
+
+```yaml
+env:
+  - name: REACTOR_DUBBO_MAX_RESPONSE_BYTES
+    value: "16777216"
+  - name: REACTOR_RUST_HTTP_MAX_RESPONSE_BODY_BYTES
+    value: "16777216"
+  - name: REACTOR_RUST_HTTP_MAX_INFLIGHT_RESPONSE_BYTES
+    value: "33554432"
+  - name: REACTOR_RUST_JSON_WRITER_RETAIN_MAX_BYTES
+    value: "32768"
+```
+
+Use this only when the endpoint really returns larger JSON. If the response is a file or export,
+prefer the framework file/static/streaming response path instead of carrying one large Java body.
 
 ## Running By Environment
 
