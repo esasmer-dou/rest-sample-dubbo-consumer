@@ -41,10 +41,10 @@ edin.
 | Dubbo üzerinden write/command API | Default veya `zookeeper-discovery` | `micro-dubbo` | `byte[]` request body provider command method'una gider | REST handler ince ve açık kalır | Hessian request encoding gerekir |
 | Daha yüksek concurrency RPC servisi | Default veya `zookeeper-discovery` | `micro-dubbo` ile başla, ölçerek balanced değerlere yaklaş | Aynı API yolu, daha büyük route budget | Daha az overload reject | Daha yüksek RSS ve provider/DB baskısı |
 
-BEST: provider discovery production'da ZooKeeper üzerinden zorunluysa Kubernetes consumer'ı
-`zookeeper-discovery` ile build/run edin. ACCEPTABLE: lokal testlerde veya sidecar/config sistemi
-provider adresi yazıyorsa static provider modu kullanmak. ANTI-PATTERN: image'ı ZooKeeper dependency
-olmadan build edip runtime'da sadece `SAMPLE_DUBBO_DISCOVERY=zookeeper` vererek çalışmasını beklemek.
+Önerilen başlangıç: provider discovery production'da ZooKeeper üzerinden zorunluysa Kubernetes
+consumer'ı `zookeeper-discovery` ile build/run edin. Lokal testlerde veya sidecar/config sistemi
+provider adresi yazıyorsa static provider modu da uygundur. ZooKeeper dependency olmadan build
+edilmiş bir image'a runtime'da sadece `SAMPLE_DUBBO_DISCOVERY=zookeeper` vermek yeterli olmaz.
 
 ## Production Reçeteleri
 
@@ -146,6 +146,132 @@ reactor.rust.native-trim.allocator-trim-enabled=true
 
 Etkisi: warmed native anonymous memory idle sonrası geri verilebilir. High-throughput servislerde
 kör şekilde açmayın; trim açık/kapalı p99 ve 503 oranını birlikte ölçün.
+
+### Reçete 5: Consumer Restart Etmeden Provider Rolling Restart
+
+Provider'lar gün içinde redeploy oluyorsa ve consumer'ın ZooKeeper discovery ile toparlanması
+gerekiyorsa bunu kullanın.
+
+```yaml
+env:
+  - name: SAMPLE_DUBBO_DISCOVERY
+    value: "zookeeper"
+  - name: REACTOR_DUBBO_REGISTRY_ADDRESS
+    value: "zookeeper://zookeeper-client.platform.svc.cluster.local:2181"
+  - name: REACTOR_DUBBO_REGISTRY_CHECK
+    value: "false"
+  - name: REACTOR_DUBBO_CHECK
+    value: "false"
+  - name: REACTOR_DUBBO_TIMEOUT_MS
+    value: "1000"
+  - name: REACTOR_DUBBO_RETRIES
+    value: "0"
+```
+
+Etkisi: provider kısa süre yokken consumer başlayabilir. Bu boşlukta REST route'ları queue
+büyütmek yerine bounded failure döner. Provider ZooKeeper altında tekrar register olduğunda consumer
+yeni provider adresini kullanabilir.
+
+Pratik kontrol:
+
+```powershell
+curl http://localhost:8080/api/v1/catalog/dubbo-metrics
+curl http://localhost:8080/api/v1/catalog/nested
+```
+
+### Reçete 6: Docker İçinde Static Provider Adresi
+
+Tüm container'lar aynı network içindeyse ve consumer process içinde ZooKeeper client yüklemek
+istemiyorsanız bunu kullanın.
+
+```yaml
+env:
+  - name: SAMPLE_DUBBO_DISCOVERY
+    value: "static"
+  - name: REACTOR_DUBBO_PROVIDERS
+    value: "rest-sample-dubbo-provider:20880"
+  - name: REACTOR_RUNTIME_PROFILE
+    value: "micro-dubbo"
+```
+
+Etkisi: consumer Java ZooKeeper client yüklemez ve verdiğiniz provider host'a doğrudan bağlanır. Bu
+lokal veya kontrollü ortamlar için iyi bir şekildir. Production'da provider discovery zorunluysa
+ZooKeeper reçetesini kullanın.
+
+### Reçete 7: Daha Büyük Provider JSON Response
+
+Provider catalog snapshot veya rapor gibi daha büyük JSON document dönüyorsa bunu kullanın.
+
+```properties
+reactor.rust.http.max-response-body-bytes=16777216
+reactor.rust.http.max-inflight-response-bytes=33554432
+reactor.dubbo.max-response-bytes=16777216
+reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=8
+reactor.rust.route-admission.get.api.v1.catalog.nested.queue-timeout-ms=150
+```
+
+Etkisi:
+
+| Ayar | Anlamı |
+|------|--------|
+| `max-response-body-bytes` | Rust-Java runtime'ın kabul edeceği tek HTTP response body üst limiti. |
+| `max-inflight-response-bytes` | Aynı anda in-flight olan response'ların toplam byte limiti. |
+| `reactor.dubbo.max-response-bytes` | Dubbo provider'dan kabul edilecek maksimum response boyutu. |
+| Daha düşük route concurrency | Birkaç büyük response'un aynı anda memory'de tutulmasını sınırlar. |
+
+Bu path için `RawResponse.json(bytes)` kullanın. Büyük provider JSON'unu Java object graph'a parse
+edip sonra tekrar JSON'a çevirmeyin.
+
+### Reçete 8: Daha Yüksek Read Concurrency, Ama Bounded
+
+Catalog/read endpoint stabilse, provider CPU saturation altında değilse ve p99 hedefiniz için daha
+fazla başarılı request gerekiyorsa bunu kullanın.
+
+```properties
+reactor.dubbo.max-inflight=64
+reactor.dubbo.native-connections-per-endpoint=2
+reactor.dubbo.native-async-workers=2
+reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=32
+reactor.rust.route-admission.get.api.v1.catalog.nested.queue-timeout-ms=150
+```
+
+Etkisi: overload öncesi daha fazla read çağrısı ilerleyebilir. RSS ve provider CPU da artabilir. Bu
+değerleri birlikte artırın; p99, 503 oranı, provider CPU ve memory değerlerini birlikte ölçün. Route
+DB-backed ise önce provider Hikari pool ve provider method limitleriyle hizalayın.
+
+### Reçete 9: Türkçe Karakterler ve UTF-8 Payload
+
+Request body, query value, path variable veya provider JSON içinde `İstanbul`, `Şişli`, `Çağrı`,
+`müşteri` gibi değerler varsa bunu dikkate alın.
+
+```java
+@GetMapping(value = "/catalog/nested", responseType = RawResponse.class)
+public CompletableFuture<ResponseEntity<RawResponse>> nestedCatalog() {
+    return catalogClient.getNestedCatalogJson()
+            .thenApply(json -> ResponseEntity.ok(RawResponse.json(json)));
+}
+```
+
+```powershell
+curl "http://localhost:8080/api/v1/customers/db?city=%C4%B0stanbul"
+```
+
+Etkisi: JSON'u UTF-8 byte olarak tutup `RawResponse.json(bytes)` ile dönün. URL değerlerinde client
+tarafı non-ASCII karakterleri percent-encode etmelidir. Request body için UTF-8 JSON gönderin ve
+platform-default string/byte dönüşümlerinden kaçının.
+
+### Reçete 10: Dubbo Baskısından Ayrı Health Endpoint
+
+Kubernetes liveness için ucuz local health endpoint kullanın; Dubbo kontrollerini readiness veya
+ayrı diagnostics endpoint üzerinde tutun.
+
+```powershell
+curl http://localhost:8080/app/health
+curl http://localhost:8080/api/v1/catalog/dubbo-metrics
+```
+
+Etkisi: liveness ZooKeeper, provider CPU veya DB latency'ye bağımlı olmaz. Deployment politikanız
+gerektiriyorsa readiness Dubbo/provider durumunu ayrıca kontrol edebilir.
 
 ## `rust-java-rest` 3.2.2 Bu Örnekte Ne Değiştiriyor?
 
