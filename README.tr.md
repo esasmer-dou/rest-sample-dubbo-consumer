@@ -26,13 +26,13 @@ Bu örnek tam kapsamlı bir Dubbo governance platformu değildir. Tüm Dubbo öz
 yerine Rust-Java framework felsefesine uygun minimum-overhead consumer yolunu gösterir: business
 logic Java'da kalır, HTTP I/O ve seçilmiş low-level transport işleri Rust/native tarafta yürür.
 
-## `rust-java-rest` 3.2.1 Bu Örnekte Ne Değiştiriyor?
+## `rust-java-rest` 3.2.2 Bu Örnekte Ne Değiştiriyor?
 
-Bu örnek artık `rust-java-rest` `3.2.1` kullanır. Uygulama kodu modeli değişmez: handler'lar,
+Bu örnek artık `rust-java-rest` `3.2.2` kullanır. Uygulama kodu modeli değişmez: handler'lar,
 service adapter'ları, configuration class'ları ve business kararlar Java'da kalır. Değişiklik daha
 çok handler'ların altında çalışan runtime yolundadır.
 
-| v3.2 değişikliği | Bu örnekte etkisi |
+| v3.2.2 değişikliği | Bu örnekte etkisi |
 |-----------------|-------------------|
 | Daha düşük retention yapan response pool'lar | Trafik düşükken consumer daha az native response buffer tutar. |
 | Bounded in-flight response byte limiti | Büyük veya yavaş response'lar memory kullanımını limitsiz büyütemez. |
@@ -40,6 +40,9 @@ service adapter'ları, configuration class'ları ve business kararlar Java'da ka
 | Raw/precomputed response yolunun olgunlaşması | Provider JSON `byte[]` döner, consumer `RawResponse.json(bytes)` ile DTO parse/serialize yapmadan döner. |
 | Startup component/route index'leri | Sample broad classpath scan fallback yapmadan açılabilir; index eskiyse startup erken fail eder. |
 | Route-level admission | Dubbo çağıran route'lar global JNI kuyruğunu doldurmadan önce bounded in-flight limit kullanır. |
+| Route diagnostics ayrımı | Benchmark-only comparison route'lar production heavy-object-graph sayımına karışmaz. |
+| Anon evidence gate | RSS; heap, JIT, class metadata, direct buffer, Rust-accounted memory, stack budget ve residual anon olarak ayrılır. |
+| Conservative idle native trim | Düşük trafikli consumer pod'ları idle sonrası warmed native anonymous memory reclaim edebilir; default değil, opt-in kalır. |
 | Daha açık low-RSS tuning | Sample properties `micro-dubbo` kullanır: REST dar kalır, Dubbo native/static-provider ayarlarıyla çalışır. |
 | Production artifact temizliği | Sample normal framework dependency kullanır; framework demo/sample class'ları production-like RSS ölçümüne karışmaz. |
 | Açık property override düzeltmesi | `rust-spring.properties` içine yazdığınız değerler runtime profile default'ları tarafından ezilmez. |
@@ -58,6 +61,34 @@ database-backed olabilir.
 
 Direct JSON writer, consumer kendi içinde hot ve sabit şekilli JSON üretiyorsa anlamlıdır. Normal
 Dubbo forwarding yolunda gerekli değildir; çünkü provider zaten hazır JSON döner.
+
+### Production Dependency ve RSS Ölçümü
+
+Bu sample normal `rust-java-rest` Maven artifact'ine bağlıdır:
+
+```xml
+<dependency>
+  <groupId>com.reactor</groupId>
+  <artifactId>rust-java-rest</artifactId>
+  <version>3.2.2</version>
+</dependency>
+```
+
+Bu normal artifact framework repo'sundaki demo handler'ları, benchmark route'larını veya Dubbo
+sample application class'larını içermez. Bu class'lar sadece `rust-java-rest-*-sample.jar` içinde
+durur.
+
+Bu repo için kuralı şöyle okuyun:
+
+| Ne çalıştırıyorsunuz? | Doğru anlamı |
+|-----------------------|--------------|
+| Normal Maven dependency ile bu consumer uygulaması | Production-like consumer şekli |
+| `zookeeper-discovery` profile ile bu consumer | Kubernetes/ZooKeeper discovery şekli |
+| Framework `rust-java-rest-*-sample.jar` | Framework demo route'ları; bu consumer'ın memory resmi değil |
+| Framework `target/classes` | Sadece lokal framework debugging |
+
+Memory ölçerken bu consumer image'ını veya gerçek uygulama image'ınızı kullanın. Bu consumer'ın pod
+memory limitini framework sample jar sonucuna göre belirlemeyin.
 
 ## Diğer Projelerle İlişkisi
 
@@ -422,7 +453,7 @@ Büyük Dubbo object graph'ı consumer JVM'e çekip tekrar JSON'a çevirmek bu f
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.2.1</version>
+    <version>3.2.2</version>
 </dependency>
 
 <dependency>

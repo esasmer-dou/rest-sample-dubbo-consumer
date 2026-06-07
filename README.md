@@ -26,13 +26,13 @@ This sample is not a full Dubbo governance platform. It does not try to demonstr
 feature. The goal is a minimum-overhead consumer path that fits the Rust-Java framework philosophy:
 Java owns business logic, Rust owns HTTP I/O and selected low-level transport work.
 
-## What `rust-java-rest` 3.2.1 Changes Here
+## What `rust-java-rest` 3.2.2 Changes Here
 
-This sample now targets `rust-java-rest` `3.2.1`. The application code model does not change:
+This sample now targets `rust-java-rest` `3.2.2`. The application code model does not change:
 handlers, service adapters, configuration classes, and business decisions still live in Java. The
 change is mostly about the runtime path underneath those handlers.
 
-| v3.2 change | What it means in this sample |
+| v3.2.2 change | What it means in this sample |
 |------------|------------------------------|
 | Lower-retention response pools | The consumer keeps fewer native response buffers when traffic is low. |
 | Bounded in-flight response bytes | Large or slow responses cannot grow memory usage without a hard cap. |
@@ -40,6 +40,9 @@ change is mostly about the runtime path underneath those handlers.
 | Raw/precomputed response path maturity | Provider JSON `byte[]` can be returned as `RawResponse.json(bytes)` without DTO parse/serialize work. |
 | Startup component/route indexes | The sample can start without classpath scanning fallback; if an index is stale, startup fails early. |
 | Route-level admission | Dubbo-backed routes have bounded in-flight limits before they can fill the global JNI queue. |
+| Route diagnostics separation | Benchmark-only comparison routes stay out of production heavy-object-graph counts. |
+| Anon evidence gate | RSS is explained by heap, JIT, class metadata, direct buffers, Rust-accounted memory, stack budget, and residual anon. |
+| Conservative idle native trim | Low-traffic consumer pods can reclaim warmed native anonymous memory after idle, but it stays opt-in. |
 | Clearer low-RSS tuning | The sample properties use `micro-dubbo`: REST stays narrow and Dubbo uses native/static-provider settings. |
 | Production artifact cleanup | The sample uses the normal framework dependency; framework demo/sample classes stay out of production-like RSS checks. |
 | Explicit property override fix | Values you put in `rust-spring.properties` are no longer overwritten by runtime profile defaults. |
@@ -58,6 +61,33 @@ can be database-backed.
 
 Use direct JSON writer only when the consumer itself builds a hot, fixed-shape JSON response. It is
 not needed for the normal Dubbo forwarding path because the provider already returns ready JSON.
+
+### Production Dependency And RSS Measurement
+
+This sample depends on the normal `rust-java-rest` Maven artifact:
+
+```xml
+<dependency>
+  <groupId>com.reactor</groupId>
+  <artifactId>rust-java-rest</artifactId>
+  <version>3.2.2</version>
+</dependency>
+```
+
+That normal artifact does not include the framework repository's demo handlers, benchmark routes,
+or Dubbo sample application classes. Those classes live only in `rust-java-rest-*-sample.jar`.
+
+For this repository, read the rule like this:
+
+| What you run | Correct meaning |
+|--------------|-----------------|
+| This consumer application with the normal Maven dependency | Production-like consumer shape |
+| This consumer with `zookeeper-discovery` profile | Kubernetes/ZooKeeper discovery shape |
+| Framework `rust-java-rest-*-sample.jar` | Framework demo routes only, not this consumer |
+| Framework `target/classes` | Local framework debugging only |
+
+If you measure memory, use this consumer image or your real application image. Do not use the
+framework sample jar to decide this consumer's pod memory limit.
 
 ## Relationship With Other Projects
 
@@ -424,7 +454,7 @@ into the consumer JVM and serializing it again is an anti-pattern for this frame
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.2.1</version>
+    <version>3.2.2</version>
 </dependency>
 
 <dependency>
