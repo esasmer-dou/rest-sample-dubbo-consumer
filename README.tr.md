@@ -26,6 +26,127 @@ Bu örnek tam kapsamlı bir Dubbo governance platformu değildir. Tüm Dubbo öz
 yerine Rust-Java framework felsefesine uygun minimum-overhead consumer yolunu gösterir: business
 logic Java'da kalır, HTTP I/O ve seçilmiş low-level transport işleri Rust/native tarafta yürür.
 
+## Buradan Başlayın: Consumer Şeklinizi Seçin
+
+Kullanıcı için en doğru başlangıç tüm property listesini ezberlemek değildir. Önce servisinizin
+şeklini seçin, en yakın profile'ı kopyalayın, sonra sadece trafiğinizi etkileyen birkaç değeri tune
+edin.
+
+| Senaryonuz | Maven profile | Runtime profile | Response yolu | Ne kazandırır? | Bedeli |
+|------------|---------------|-----------------|---------------|----------------|--------|
+| Tüm sample verblerini lokal denemek | Default `full-dubbo-consumer` | `micro-dubbo` | `RawResponse.json(bytes)` | GET/POST/PATCH/DELETE örnekleri hemen çalışır | Read-only moda göre classpath daha büyüktür |
+| En düşük memory read-only consumer | `native-static-consumer` | `micro-dubbo` | No-arg Dubbo method UTF-8 JSON `byte[]` döner | Consumer içinde ZooKeeper/Hessian class'ları yoktur | Sadece argümansız read çağrıları |
+| Kubernetes'te ZooKeeper zorunlu consumer | `zookeeper-discovery` | `micro-dubbo` | Provider URL ZooKeeper'dan gelir | Provider restart/re-register akışını takip eder | ZooKeeper client thread/class ekler |
+| Read-heavy catalog veya lookup API | Default veya `zookeeper-discovery` | `micro-dubbo` | Provider hazır JSON döner, consumer raw bytes forward eder | REST JVM DTO graph ve JSON reserialize yapmaz | JSON shape/versioning provider sorumluluğudur |
+| Dubbo üzerinden write/command API | Default veya `zookeeper-discovery` | `micro-dubbo` | `byte[]` request body provider command method'una gider | REST handler ince ve açık kalır | Hessian request encoding gerekir |
+| Daha yüksek concurrency RPC servisi | Default veya `zookeeper-discovery` | `micro-dubbo` ile başla, ölçerek balanced değerlere yaklaş | Aynı API yolu, daha büyük route budget | Daha az overload reject | Daha yüksek RSS ve provider/DB baskısı |
+
+BEST: provider discovery production'da ZooKeeper üzerinden zorunluysa Kubernetes consumer'ı
+`zookeeper-discovery` ile build/run edin. ACCEPTABLE: lokal testlerde veya sidecar/config sistemi
+provider adresi yazıyorsa static provider modu kullanmak. ANTI-PATTERN: image'ı ZooKeeper dependency
+olmadan build edip runtime'da sadece `SAMPLE_DUBBO_DISCOVERY=zookeeper` vererek çalışmasını beklemek.
+
+## Production Reçeteleri
+
+### Reçete 1: ZooKeeper Discovery Kullanan Kubernetes Consumer
+
+Provider pod'ları restart olabilir, taşınabilir veya scale olabilir; consumer provider'ı ZooKeeper
+registration üzerinden bulmak zorundaysa bu yolu kullanın.
+
+```yaml
+env:
+  - name: SAMPLE_DUBBO_DISCOVERY
+    value: "zookeeper"
+  - name: REACTOR_DUBBO_REGISTRY_ADDRESS
+    value: "zookeeper://zookeeper-client.platform.svc.cluster.local:2181"
+  - name: REACTOR_RUNTIME_PROFILE
+    value: "micro-dubbo"
+  - name: REACTOR_DUBBO_RUNTIME_PROFILE
+    value: "micro-dubbo"
+  - name: REACTOR_DUBBO_MAX_INFLIGHT
+    value: "8"
+  - name: REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT
+    value: "1"
+  - name: REACTOR_DUBBO_NATIVE_ASYNC_WORKERS
+    value: "1"
+```
+
+Image aynı dependency şekliyle build edilmelidir:
+
+```powershell
+mvn -q -Pzookeeper-discovery -DskipTests package
+```
+
+Etkisi:
+
+| Ayar | Neyi kontrol eder? | Artırırsanız | Azaltırsanız |
+|------|--------------------|--------------|--------------|
+| `REACTOR_DUBBO_MAX_INFLIGHT` | Dubbo adapter'ın izin verdiği concurrent RPC sayısı | Daha çok request fail-fast olmadan bekler/çalışır; RSS ve provider baskısı artabilir | RSS düşer, spike anında 503 daha erken gelir |
+| `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT` | Provider endpoint başına native Dubbo TCP connection sayısı | Yavaş provider'da paralellik artabilir | Connection/buffer footprint küçülür |
+| `REACTOR_DUBBO_NATIVE_ASYNC_WORKERS` | Native RPC completion worker sayısı | Yüksek concurrency'de queueing azalabilir | Thread stack/native memory düşer |
+| `REACTOR_RUST_JNI_WORKERS` | Java handler execution worker sayısı | Daha çok Java work aynı anda çalışır | RSS düşer ve CPU contention azalır |
+
+### Reçete 2: Küçük Read-Only Consumer
+
+Provider adresi biliniyorsa ve REST API sadece `/api/v1/catalog/nested` gibi read endpoint'leri
+expose ediyorsa bunu kullanın.
+
+```powershell
+mvn -q -Pnative-static-consumer package
+java -Xms8m -Xmx48m -Xss256k -XX:ActiveProcessorCount=1 `
+  -Dreactor.dubbo.providers=provider:20880 `
+  -jar target/rest-sample-dubbo-consumer-0.1.0.jar
+```
+
+Etkisi:
+
+| Seçim | Neden önemli? |
+|-------|---------------|
+| `native-static-consumer` | Read-only consumer classpath'inden ZooKeeper ve Hessian'ı çıkarır. |
+| `RawResponse.json(bytes)` | Provider JSON'u Java record'a parse edilip tekrar serialize edilmez. |
+| `micro-dubbo` | Rust worker, JNI worker, queue ve pool değerlerini küçük tutar. |
+
+### Reçete 3: Bounded Overload İle Command Endpoint
+
+Her REST isteğinin bir provider command çağrısına dönüştüğü POST/PATCH/DELETE route'ları için bunu
+kullanın.
+
+```properties
+reactor.rust.route-admission.post.api.v1.customers.max-concurrent=8
+reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms=150
+reactor.rust.route-admission.patch.api.v1.customers.id.segment.max-concurrent=8
+reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent=8
+reactor.dubbo.timeout-ms=1000
+reactor.dubbo.retries=0
+```
+
+Etkisi:
+
+| Ayar | Production etkisi |
+|------|-------------------|
+| Route `max-concurrent` | REST process'i çok sayıda yavaş RPC/DB çağrısından korur. |
+| Route `queue-timeout-ms` | REST katmanının controlled overload dönmeden önce ne kadar bekleyeceğini belirler. |
+| `reactor.dubbo.timeout-ms` | Tek RPC çağrısını sınırlar. HTTP timeout budget'ınızdan düşük tutun. |
+| `reactor.dubbo.retries=0` | Write command'lerinde retry storm riskini azaltır. Idempotency/retry kararını caller veya workflow katmanına koyun. |
+
+### Reçete 4: Idle Sonrası Küçük Kalması Gereken Düşük Trafikli Pod
+
+Sadece az trafik alan ve uzun süre idle kalan servislerde kullanın.
+
+```properties
+reactor.rust.native-trim.enabled=true
+reactor.rust.native-trim.initial-delay-ms=30000
+reactor.rust.native-trim.interval-ms=60000
+reactor.rust.native-trim.min-idle-ms=10000
+reactor.rust.native-trim.max-active-connections=0
+reactor.rust.native-trim.max-active-requests=0
+reactor.rust.native-trim.retain-small=16
+reactor.rust.native-trim.allocator-trim-enabled=true
+```
+
+Etkisi: warmed native anonymous memory idle sonrası geri verilebilir. High-throughput servislerde
+kör şekilde açmayın; trim açık/kapalı p99 ve 503 oranını birlikte ölçün.
+
 ## `rust-java-rest` 3.2.2 Bu Örnekte Ne Değiştiriyor?
 
 Bu örnek artık `rust-java-rest` `3.2.2` kullanır. Uygulama kodu modeli değişmez: handler'lar,

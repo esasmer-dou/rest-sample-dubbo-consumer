@@ -26,6 +26,125 @@ This sample is not a full Dubbo governance platform. It does not try to demonstr
 feature. The goal is a minimum-overhead consumer path that fits the Rust-Java framework philosophy:
 Java owns business logic, Rust owns HTTP I/O and selected low-level transport work.
 
+## Start Here: Pick Your Consumer Shape
+
+Most users should not start by reading every property. Start from the shape of your service, copy the
+closest profile, then tune only the few values that affect your traffic.
+
+| Your scenario | Use this Maven profile | Use this runtime profile | Key response path | What you gain | Main trade-off |
+|---------------|------------------------|--------------------------|-------------------|---------------|----------------|
+| Local smoke test with all sample verbs | Default `full-dubbo-consumer` | `micro-dubbo` | `RawResponse.json(bytes)` | GET/POST/PATCH/DELETE examples work immediately | Larger classpath than read-only mode |
+| Lowest-memory read-only consumer | `native-static-consumer` | `micro-dubbo` | No-arg Dubbo method returns UTF-8 JSON `byte[]` | No ZooKeeper or Hessian classes in the consumer | Only no-argument read calls |
+| Kubernetes consumer that must use ZooKeeper | `zookeeper-discovery` | `micro-dubbo` | Provider URL comes from ZooKeeper | Handles provider restart/re-register flow | ZooKeeper client adds threads/classes |
+| Read-heavy catalog or lookup API | Default or `zookeeper-discovery` | `micro-dubbo` | Provider returns ready JSON, consumer forwards raw bytes | Avoids DTO graph and JSON reserialization in the REST JVM | Provider must own JSON shape/versioning |
+| Write/command API over Dubbo | Default or `zookeeper-discovery` | `micro-dubbo` | `byte[]` request body forwarded to provider command method | Keeps REST handler thin and explicit | Requires Hessian request encoding |
+| Higher concurrency RPC service | Default or `zookeeper-discovery` | Start `micro-dubbo`, measure toward balanced settings | Same API path, larger route budgets | Fewer overload rejects | Higher RSS and possible provider/DB pressure |
+
+BEST: run production Kubernetes consumers with `zookeeper-discovery` when provider discovery is a
+requirement. ACCEPTABLE: use static provider mode for local tests or controlled environments where a
+sidecar/config system writes provider addresses. ANTI-PATTERN: build without ZooKeeper dependencies
+and expect `SAMPLE_DUBBO_DISCOVERY=zookeeper` to work at runtime.
+
+## Production Recipes
+
+### Recipe 1: Kubernetes Consumer With ZooKeeper Discovery
+
+Use this when provider pods can restart, move, or scale and the consumer must follow ZooKeeper
+registrations.
+
+```yaml
+env:
+  - name: SAMPLE_DUBBO_DISCOVERY
+    value: "zookeeper"
+  - name: REACTOR_DUBBO_REGISTRY_ADDRESS
+    value: "zookeeper://zookeeper-client.platform.svc.cluster.local:2181"
+  - name: REACTOR_RUNTIME_PROFILE
+    value: "micro-dubbo"
+  - name: REACTOR_DUBBO_RUNTIME_PROFILE
+    value: "micro-dubbo"
+  - name: REACTOR_DUBBO_MAX_INFLIGHT
+    value: "8"
+  - name: REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT
+    value: "1"
+  - name: REACTOR_DUBBO_NATIVE_ASYNC_WORKERS
+    value: "1"
+```
+
+Build the image with the same dependency shape:
+
+```powershell
+mvn -q -Pzookeeper-discovery -DskipTests package
+```
+
+Effect:
+
+| Setting | What it controls | If you increase it | If you decrease it |
+|---------|------------------|--------------------|--------------------|
+| `REACTOR_DUBBO_MAX_INFLIGHT` | Concurrent RPC calls allowed by the Dubbo adapter | More requests wait/execute before fail-fast; RSS and provider pressure can rise | Lower RSS and faster overload response; more 503 under spikes |
+| `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT` | Native Dubbo TCP connections per provider endpoint | Better parallelism for slow providers | Smaller connection/buffer footprint |
+| `REACTOR_DUBBO_NATIVE_ASYNC_WORKERS` | Native RPC completion workers | Can reduce queueing at higher concurrency | Lower thread stack/native memory |
+| `REACTOR_RUST_JNI_WORKERS` | Java handler execution workers | More Java work can run concurrently | Lower RSS and less CPU contention |
+
+### Recipe 2: Small Read-Only Consumer
+
+Use this when the provider address is known and your REST API only exposes read endpoints such as
+`/api/v1/catalog/nested`.
+
+```powershell
+mvn -q -Pnative-static-consumer package
+java -Xms8m -Xmx48m -Xss256k -XX:ActiveProcessorCount=1 `
+  -Dreactor.dubbo.providers=provider:20880 `
+  -jar target/rest-sample-dubbo-consumer-0.1.0.jar
+```
+
+Effect:
+
+| Choice | Why it matters |
+|--------|----------------|
+| `native-static-consumer` | Keeps ZooKeeper and Hessian out of the read-only consumer classpath. |
+| `RawResponse.json(bytes)` | Provider JSON is not parsed into Java records and serialized again. |
+| `micro-dubbo` | Keeps Rust worker count, JNI workers, queues, and pools small by default. |
+
+### Recipe 3: Command Endpoint With Bounded Overload
+
+Use this for POST/PATCH/DELETE routes where each REST request becomes one provider command call.
+
+```properties
+reactor.rust.route-admission.post.api.v1.customers.max-concurrent=8
+reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms=150
+reactor.rust.route-admission.patch.api.v1.customers.id.segment.max-concurrent=8
+reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent=8
+reactor.dubbo.timeout-ms=1000
+reactor.dubbo.retries=0
+```
+
+Effect:
+
+| Setting | Production effect |
+|---------|-------------------|
+| Route `max-concurrent` | Protects the REST process from too many slow RPC/DB calls. |
+| Route `queue-timeout-ms` | Defines how long the REST layer waits before returning controlled overload. |
+| `reactor.dubbo.timeout-ms` | Bounds one RPC call. Keep it lower than your HTTP timeout budget. |
+| `reactor.dubbo.retries=0` | Avoids retry storms for write commands. Put idempotency/retry policy at the caller or workflow layer. |
+
+### Recipe 4: Low-Traffic Pod That Must Stay Small After Idle
+
+Use this only for services that receive occasional traffic and spend meaningful time idle.
+
+```properties
+reactor.rust.native-trim.enabled=true
+reactor.rust.native-trim.initial-delay-ms=30000
+reactor.rust.native-trim.interval-ms=60000
+reactor.rust.native-trim.min-idle-ms=10000
+reactor.rust.native-trim.max-active-connections=0
+reactor.rust.native-trim.max-active-requests=0
+reactor.rust.native-trim.retain-small=16
+reactor.rust.native-trim.allocator-trim-enabled=true
+```
+
+Effect: warmed native anonymous memory can be returned after idle. Do not enable this blindly on
+high-throughput services; validate p99 and 503 rate with trim on/off.
+
 ## What `rust-java-rest` 3.2.2 Changes Here
 
 This sample now targets `rust-java-rest` `3.2.2`. The application code model does not change:
