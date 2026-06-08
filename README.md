@@ -271,27 +271,62 @@ curl http://localhost:8080/api/v1/catalog/dubbo-metrics
 Effect: liveness does not become dependent on ZooKeeper, provider CPU, or DB latency. Readiness can
 still verify Dubbo/provider state when your deployment policy needs it.
 
-## Production Scenario Playbooks
+## Production Scenario Guide
 
-Use these larger scenarios when a single property table is not enough. Each scenario maps a real
-service shape to the first property set you should try, the problem it solves, and the measurement
-you should run before changing the next knob.
+This section is not a list of properties to memorize. It is a practical guide for choosing settings
+based on the shape of a real service. A single consumer can expose customer reads, order reads,
+catalog reads, customer creation, status updates, and deletes at the same time. These endpoints do
+not have the same cost, so giving every endpoint the same queue, timeout, and concurrency is not a
+production-safe design.
 
-### Scenario A: DB-Backed API, 5 Endpoints, 3 Hot Routes
+### First, The Terms
 
-Service shape:
+| Term | Plain meaning | What it affects here |
+|------|---------------|----------------------|
+| `p99` | 99 of 100 requests finish below this latency. Example: p99 120 ms means most requests are fast, but the slowest 1 percent still reaches 120 ms. | Shows user-visible tail latency better than average latency. |
+| `503` | The service says "I cannot accept this request right now". It is an error response, but it can be intentional controlled overload. | Prevents queues from growing until memory and latency explode. |
+| Hot read | A heavily called read endpoint, such as get customer, get order, or get catalog. | Can receive a larger route budget, but must not exceed provider/DB capacity. |
+| Cold route | A rarely called endpoint, such as admin actions, rare patch, or delete. | Should not steal capacity from hot endpoints. |
+| Write command | A data-changing operation, such as create customer, cancel order, or change customer status. | Retries and deep queues are dangerous; idempotency is required. |
+| Route budget | How many requests one endpoint may process at the same time. | Controlled by `reactor.rust.route-admission...max-concurrent`. |
+| Queue timeout | How long a request may wait when the route budget is full. | Increasing `queue-timeout-ms` can reduce 503, but can increase p99 and memory. |
+| In-flight | Requests or responses currently being processed. | Too much in-flight work increases RSS and p99. |
+| RSS | The real memory seen by the operating system and Kubernetes. | This is the number your pod memory limit cares about. |
+| Consumer | This sample: receives REST requests, optionally calls Dubbo provider, and returns HTTP responses. | REST and Dubbo settings are applied here. |
+| Provider | The backend Dubbo service. It may call DB, execute business logic, or produce JSON. | If the provider is slow, making the consumer queue larger is not a real fix. |
+| RawResponse | Returning provider JSON bytes directly without Java DTO parse/serialize work. | Preferred for lower allocation, lower CPU, and lower RSS. |
 
-| Endpoint | Traffic | Backend | Recommended response path |
-|----------|---------|---------|---------------------------|
-| `GET /api/v1/catalog/nested` | Hot | Dubbo read provider | `RawResponse.json(bytes)` |
-| `GET /api/v1/customers/db` | Hot | Dubbo -> PostgreSQL | `RawResponse.json(bytes)` |
-| `POST /api/v1/customers` | Hot | Dubbo write command -> PostgreSQL | `RawResponse.json(bytes)` |
-| `PATCH /api/v1/customers/{id}/status` | Low | Dubbo write command -> PostgreSQL | `RawResponse.json(bytes)` |
-| `DELETE /api/v1/customers/{id}` | Low | Dubbo write command -> PostgreSQL | `RawResponse.json(bytes)` |
+Route admission keys are generated from the HTTP method and path. For example,
+`GET /api/v1/customers/db` maps to
+`reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent`. If your path is different,
+the property key must also match your own path.
 
-Typical problem: the three hot endpoints fill queues, DB-backed reads slow down, and write commands
-start increasing p99. The fix is not one larger global queue. Give each route its own budget and keep
-Dubbo/DB capacity aligned.
+### E-Commerce Customer And Order Service: 5 Endpoints, 3 Busy Endpoints
+
+An e-commerce REST consumer serves mobile traffic. The mobile app frequently asks for customer
+details, order summary, and catalog data. The same service also creates customers, changes customer
+status, and deletes customers through a Dubbo provider. The provider uses PostgreSQL and Hikari.
+
+API meaning:
+
+| Real-world action | Sample endpoint | Traffic | Backend work |
+|-------------------|-----------------|---------|--------------|
+| Get catalog or order summary | `GET /api/v1/catalog/nested` | Very high | Dubbo read provider returns JSON |
+| Get customer details | `GET /api/v1/customers/db` | Very high | Dubbo provider reads PostgreSQL |
+| Create customer | `POST /api/v1/customers` | High | Dubbo provider writes PostgreSQL |
+| Change customer status | `PATCH /api/v1/customers/{id}/status` | Low | Dubbo write command |
+| Delete customer | `DELETE /api/v1/customers/{id}` | Low | Dubbo write command |
+
+Timeline:
+
+| Step | What happened? | What you see |
+|------|----------------|--------------|
+| Day one | You start with `micro-dubbo`. | RSS is low and endpoints are healthy. |
+| Traffic grows | Three busy endpoints hit the provider at the same time. | `GET /customers/db` p99 rises and `POST /customers` slows down. |
+| First wrong move | Only the global queue is increased. | 503 decreases, but p99 and memory rise. |
+| Correct move | Each endpoint receives its own route budget. | Read endpoints stay productive and write commands stop overwhelming the provider. |
+
+Starting configuration:
 
 ```properties
 reactor.runtime.profile=micro-dubbo
@@ -317,27 +352,47 @@ reactor.rust.route-admission.patch.api.v1.customers.id.status.max-concurrent=2
 reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent=2
 ```
 
-Why this works:
+Why: cheap catalog/order reads can receive a larger budget. DB-backed customer reads start lower.
+Write commands stay lower because provider and DB write capacity is not infinite. `retries=0`
+prevents command retry storms.
 
-| Decision | Effect |
-|----------|--------|
-| Catalog read gets the largest budget | Cheap reads stay productive without letting DB/write routes dominate. |
-| DB read stays at `8` | Consumer does not send much more work than a small provider DB pool can finish. |
-| Write commands stay lower | Reduces duplicate-write pressure and makes overload visible quickly. |
-| `retries=0` | Avoids retry storms for command methods. |
+Measure: successful `200` RPS per endpoint, p99 per endpoint, `503` rate per endpoint, provider DB
+pool wait, and consumer RSS after 30-60 seconds of quiet idle time.
 
-Measure next: successful 200 RPS per endpoint, p99 per endpoint, 503 rate per endpoint, provider DB
-pool wait, and consumer RSS after a quiet 30-60 second idle window.
+Different problems in this scenario and the exact property actions:
 
-### Scenario B: Memory-Constrained Pod, 4 Endpoints, 2 Hot Routes
+| Situation | Previous value | Change | Expected improvement | Cost / watch-out |
+|-----------|----------------|--------|----------------------|------------------|
+| `GET /api/v1/customers/db` p99 rises and provider DB pool wait increases | `customers.db.max-concurrent=12` or higher | `reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=8` | Consumer sends DB-backed reads at a rate the provider can finish. | Some `503` may increase; this is acceptable when protecting DB. |
+| `POST /api/v1/customers` slows down and duplicate write risk appears | `post.customers.max-concurrent=10`, `reactor.dubbo.retries=1` | `post.customers.max-concurrent=6`, `reactor.dubbo.retries=0` | Write commands become more predictable and retry storms decrease. | If clients do not use idempotency, duplicate risk still needs a domain fix. |
+| Catalog/order summary is cheap but receives 503 | `catalog.nested.max-concurrent=16`, `native-connections-per-endpoint=1` | `catalog.nested.max-concurrent=24`, `native-connections-per-endpoint=2` | Cheap hot read receives more useful throughput. | If provider CPU is not healthy, this can make p99 worse. |
+| All endpoints see p99 rise at the same time | Only `jni.queue-capacity` was increased | Revert the global queue increase; split budgets per route | One slow endpoint stops dominating the whole service. | Do not grow one global setting without endpoint-level metrics. |
 
-Service shape: a small Kubernetes pod has four REST endpoints, two of them are hot reads, two are
-rare commands. The main constraint is memory, not maximum throughput.
+### Loyalty Points Service: Small Pod, 4 Endpoints, 2 Busy Endpoints
 
-| Endpoint group | Traffic | Recommended choice |
-|----------------|---------|--------------------|
-| 2 read endpoints | Hot | Keep `RawResponse.json(bytes)` and small response pools |
-| 2 command endpoints | Low | Keep low route concurrency and `retries=0` |
+Many small pods run in Kubernetes. This consumer mainly serves loyalty-point and customer-summary
+reads. Two command endpoints are rare. The environment is memory-constrained, so the goal is not to
+carry every spike; the goal is to keep each pod small.
+
+API meaning:
+
+| Real-world action | Sample endpoint | Traffic | Decision |
+|-------------------|-----------------|---------|----------|
+| Get points/catalog summary | `GET /api/v1/catalog/nested` | Very high | Return raw JSON |
+| Get customer points | `GET /api/v1/customers/db` | Very high | Start DB-backed read budget low |
+| Create points account | `POST /api/v1/customers` | Low | Keep command concurrency low |
+| Disable account | `DELETE /api/v1/customers/{id}` | Low | Fast-fail is acceptable |
+
+Timeline:
+
+| Step | What happened? | What you see |
+|------|----------------|--------------|
+| Initial setup | Pod memory limit is low. | Service starts, but warm-load RSS matters. |
+| Traffic spike | Two hot reads arrive at the same time. | Some requests get 503, but pod memory remains stable. |
+| Expectation is clarified | This service is memory-first. | Controlled 503 is acceptable; unbounded queueing is not. |
+| Idle period | Service receives little traffic. | Native trim can reduce idle RSS if enabled. |
+
+Starting configuration:
 
 ```properties
 reactor.runtime.profile=micro-dubbo
@@ -356,7 +411,7 @@ reactor.dubbo.native-connections-per-endpoint=1
 reactor.dubbo.native-async-workers=1
 ```
 
-If the service spends long time idle, add this after your p99 gate passes:
+If the service stays idle for long periods and your p99 test passes, enable this separately:
 
 ```properties
 reactor.rust.native-trim.enabled=true
@@ -369,22 +424,45 @@ reactor.rust.native-trim.retain-small=16
 reactor.rust.native-trim.allocator-trim-enabled=true
 ```
 
-What to expect: lower idle RSS and controlled overload under spikes. Some `503` under sudden high
-concurrency is acceptable in this profile. If every request must return `200`, this is no longer a
-strict memory-first service; move toward Scenario C.
+Why: thread count, response pools, and Dubbo connections stay small, so RSS remains controlled. The
+cost is that high concurrency can produce some 503. If every request must return 200, this is not a
+memory-first scenario anymore.
 
-### Scenario C: Latency Pressure, 10 Endpoints, 4 Hot Routes, 1 Large JSON Route
+Different problems in this scenario and the exact property actions:
 
-Service shape: the app has 10 endpoints. Four endpoints receive most traffic. One of those four
-returns a larger provider JSON response. Latency is rising, but the pod still has a memory budget.
+| Situation | Previous value | Change | Expected improvement | Cost / watch-out |
+|-----------|----------------|--------|----------------------|------------------|
+| Idle RSS is higher than expected | `native-trim.enabled=false`, wider pools | `native-trim.enabled=true`, `small-capacity=8`, `medium-capacity=2`, `large-capacity=1` | Warmed native memory is released better after traffic becomes quiet. | Trim must run only during idle; hot-path trim can cause p99 spikes. |
+| Too many 503 under two hot reads, while RSS is still safe | `catalog.nested.max-concurrent=12`, `customers.db.max-concurrent=6` | `catalog.nested.max-concurrent=16`, `customers.db.max-concurrent=8` | Useful `200` RPS increases. | Re-measure RSS and provider DB wait before increasing more. |
+| Pod memory limit becomes tighter | `max-connections=512`, `dubbo.max-inflight=16` | `max-connections=256`, `dubbo.max-inflight=8` | Less work is accepted at once, keeping RSS controlled. | 503 increases during spikes; this is intentional for this profile. |
+| p99 becomes unstable after trim | Aggressive `native-trim.interval-ms=15000` | `initial-delay-ms=30000`, `interval-ms=60000`, `min-idle-ms=10000` | Trim becomes more conservative and latency impact drops. | RSS reduction may appear more slowly. |
 
-Endpoint split:
+### Reporting And Snapshot Service: 10 Endpoints, 4 Busy Endpoints, 1 Large JSON
 
-| Group | Example | Risk |
-|-------|---------|------|
-| 3 hot small reads | catalog/customer/status lookups | Queueing if all share one small budget |
-| 1 hot large JSON read | report/snapshot | In-flight response bytes and retained buffers |
-| 6 cold routes | command or admin routes | Should not steal budget from hot reads |
+An internal operations screen calls the consumer for customer snapshots, campaign lists, order
+status, and one large report JSON. There are 10 endpoints total. Most traffic goes to 4 of them, and
+one of those 4 returns a large JSON body.
+
+API meaning:
+
+| Real-world action | Sample endpoint | Traffic | Risk |
+|-------------------|-----------------|---------|------|
+| Get catalog/snapshot | `GET /api/v1/catalog/nested` | Very high | Can receive high budget if cheap |
+| Get customer DB info | `GET /api/v1/customers/db` | Very high | Can wait on provider DB pool |
+| Get customer+campaign large JSON | `GET /api/v1/catalog/db/customers` | High | Large responses retain memory together |
+| Read metrics/health | `GET /api/v1/catalog/dubbo-metrics` | Medium | Must not steal hot route capacity |
+| Other 6 endpoints | Admin or command | Low | Keep small budgets |
+
+Timeline:
+
+| Step | What happened? | What you see |
+|------|----------------|--------------|
+| Start | All endpoints share similar settings. | Small responses are fine, large JSON fluctuates. |
+| Traffic grows | Large JSON endpoint receives many concurrent calls. | RSS rises and p99 gets worse. |
+| Wrong move | `max-connections` is increased first. | More large responses are retained at the same time. |
+| Correct move | Large JSON limits are adjusted together and route concurrency is reduced. | Memory is controlled and small hot reads are protected. |
+
+Starting configuration:
 
 ```properties
 reactor.runtime.profile=micro-dubbo
@@ -408,20 +486,47 @@ reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6
 reactor.rust.route-admission.get.api.v1.catalog.db.customers.queue-timeout-ms=150
 ```
 
-Large JSON rule: raise the Dubbo response limit, HTTP single response limit, and total in-flight
-response limit together. Do not raise `reactor.rust.http.max-connections` first; more connections can
-make the large JSON route retain more memory at the same time.
+Why: large JSON needs more than one limit. Dubbo response limit, HTTP response limit, and total
+in-flight response bytes must be considered together. The large JSON route receives lower concurrency
+so it cannot keep too many large bodies in memory at once.
 
-Measure next: p99 for each hot route separately. If only the large JSON route is slow, lower its
-route concurrency before changing the whole process. If all hot reads are slow and provider CPU is
-healthy, increase native connections before increasing Java workers again.
+Measure: large JSON p99, small hot-read p99, `503` rate, response bytes, warm-load RSS, and idle RSS
+after 30-60 seconds.
 
-### Scenario D: High Write Pressure With Real Business Commands
+Different problems in this scenario and the exact property actions:
 
-Service shape: REST exposes create, update, patch, delete, and read APIs. Writes go through Dubbo to
-a DB-backed provider. Some clients retry on their side.
+| Situation | Previous value | Change | Expected improvement | Cost / watch-out |
+|-----------|----------------|--------|----------------------|------------------|
+| Large JSON hits the response limit | `max-response-body-bytes=8388608`, `dubbo.max-response-bytes=8388608` | Set both to `16777216`; set total limit `max-inflight-response-bytes=33554432` | Large response can return without being rejected. | Raising only one response limit is not enough; total in-flight bytes must stay bounded. |
+| Large JSON route increases RSS | `catalog.db.customers.max-concurrent=10` or `12` | `catalog.db.customers.max-concurrent=6` | Fewer large bodies are retained at the same time. | Large endpoint RPS may drop, but pod memory is protected. |
+| Small hot reads slow down because of large JSON | All routes have similar budgets | Small read `catalog.nested.max-concurrent=32`, large JSON `catalog.db.customers.max-concurrent=6` | Small responses are separated from the large-response queue. | Route keys must match the real path. |
+| Provider CPU is free but consumer p99 is high | `native-connections-per-endpoint=1`, `native-async-workers=1` | `native-connections-per-endpoint=3`, `native-async-workers=2` | Native Dubbo data-plane can carry more parallel work. | If provider CPU/DB is saturated, this will not help. |
 
-Main risk: duplicate writes, retry storms, and hidden queues. Keep write routes predictable.
+### CRM Command Service: High Create, Patch, And Delete Pressure
+
+A call-center or CRM screen creates customers, changes segment, updates status, and sometimes deletes
+customers. These are not reads; they are commands that change data. The provider writes to DB. Some
+clients retry when they see a timeout.
+
+API meaning:
+
+| Real-world action | Sample endpoint | Traffic | Risk |
+|-------------------|-----------------|---------|------|
+| Create customer | `POST /api/v1/customers` | High | Duplicate create |
+| Change segment | `PATCH /api/v1/customers/{id}/segment` | Medium | Racing updates for same customer |
+| Change status | `PATCH /api/v1/customers/{id}/status` | Medium | Retry conflicts with state |
+| Delete customer | `DELETE /api/v1/customers/{id}` | Low | Hard-to-revert command |
+
+Timeline:
+
+| Step | What happened? | What you see |
+|------|----------------|--------------|
+| First live traffic | Read endpoints work fine. | Command routes show occasional timeout. |
+| Client retries | The same command arrives again. | Provider and DB see duplicate write pressure. |
+| Wrong move | Consumer queue is increased. | The problem is hidden, while p99 and memory rise. |
+| Correct move | Command concurrency stays low, retries stay off, idempotency is planned. | The system becomes more predictable. |
+
+Starting configuration:
 
 ```properties
 reactor.dubbo.retries=0
@@ -441,14 +546,35 @@ reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent=2
 reactor.rust.route-admission.delete.api.v1.customers.id.queue-timeout-ms=100
 ```
 
-Operational rule: if the caller needs guaranteed completion, add idempotency keys or a durable
-workflow before the provider. Do not turn the consumer into a deep write queue. Deep queues increase
-p99 and memory while hiding the real provider/DB limit.
+Production decision: "queue it and it will eventually finish" is an anti-pattern for command
+endpoints. If guaranteed completion is required, add idempotency keys, outbox, or durable workflow.
+The consumer should keep short timeouts and low concurrency so provider/DB limits remain visible.
 
-### Scenario E: Mixed Traffic With Strict Memory and Acceptable Controlled Overload
+Different problems in this scenario and the exact property actions:
 
-Service shape: traffic is uneven. Two endpoints receive most calls, two endpoints are occasional, and
-the deployment must stay small because many pods run in the same namespace.
+| Situation | Previous value | Change | Expected improvement | Cost / watch-out |
+|-----------|----------------|--------|----------------------|------------------|
+| Create customer overloads DB | `post.customers.max-concurrent=8` or `10` | `post.customers.max-concurrent=4`, `queue-timeout-ms=100` | DB write pressure drops and p99 becomes more predictable. | Peak write RPS drops; this is correct backpressure. |
+| Same command repeats after timeout | `reactor.dubbo.retries=1` or blind client retry | `reactor.dubbo.retries=0`, require client idempotency key | Duplicate write risk decreases. | If completion must be guaranteed, use durable workflow instead of consumer queue. |
+| Patch endpoints hurt each other | Segment/status routes share one high budget | Separate segment and status budgets with `max-concurrent=4` | One patch type cannot fully block another. | Real domain still needs optimistic locking or idempotency for same-customer updates. |
+| Delete route is rare but expensive | `delete.customers.id.max-concurrent=4` | `delete.customers.id.max-concurrent=2` | Hard-to-revert command flows more carefully. | Admin users can see 503 during spikes. |
+
+### Campaign Listing Service: Many Pods, Strict Memory, Controlled 503
+
+Many small consumer pods run in the same namespace. Each pod reads campaign lists and customer
+summaries heavily. Some admin or command endpoints are rare. The goal is not maximum RPS per pod; it
+is low RSS per pod and horizontal scaling.
+
+API meaning:
+
+| Real-world action | Sample endpoint | Traffic | Decision |
+|-------------------|-----------------|---------|----------|
+| Get campaign/catalog | `GET /api/v1/catalog/nested` | Very high | Medium budget |
+| Get customer summary | `GET /api/v1/customers/db` | High | Budget based on DB capacity |
+| Create customer | `POST /api/v1/customers` | Low | Small command budget |
+| Delete customer | `DELETE /api/v1/customers/{id}` | Low | Smallest budget |
+
+Kubernetes starting configuration:
 
 ```yaml
 env:
@@ -468,8 +594,7 @@ env:
     value: "2"
 ```
 
-If the two hot endpoints are read-only, give them moderate route budgets. Keep occasional write/admin
-routes small:
+Route budget:
 
 ```properties
 reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=16
@@ -478,13 +603,43 @@ reactor.rust.route-admission.post.api.v1.customers.max-concurrent=2
 reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent=1
 ```
 
-What success looks like: hot reads continue to return useful `200` responses, occasional routes fail
-fast under overload, and RSS returns near the expected idle level after traffic quiets down.
+Timeline:
 
-### Scenario F: Same API, But Memory Is Fine And Latency Is The Problem
+| Step | What happened? | What you see |
+|------|----------------|--------------|
+| First deployment | Many small pods start. | Total capacity is high and per-pod RSS is low. |
+| Campaign burst | Two hot read endpoints spike. | Some cold routes can receive 503. |
+| Traffic quiets down | Pods become idle. | RSS should return near the expected idle level. |
 
-Use this when the service is not memory-bound anymore and the real problem is high p99 under normal
-business load.
+Correct interpretation: 503 is not always bad in this scenario. It is an early reject signal that
+protects the pod memory limit. The real problem is hiding 503 by making queues larger and increasing
+p99 for the whole service.
+
+Different problems in this scenario and the exact property actions:
+
+| Situation | Previous value | Change | Expected improvement | Cost / watch-out |
+|-----------|----------------|--------|----------------------|------------------|
+| Per-pod RSS is too high and namespace memory is full | `max-connections=512`, `small-capacity=32`, `medium-capacity=8` | `max-connections=256`, `small-capacity=8`, `medium-capacity=2` | Each pod retains fewer idle/native buffers. | Single-pod throughput drops; scale horizontally. |
+| Hot read 503 rate is unacceptable during campaign burst | `catalog.nested.max-concurrent=8` | `catalog.nested.max-concurrent=16` | Hot read accepts more requests. | Measure RSS and provider CPU after the change. |
+| Admin/write route affects hot reads | Admin/write route budget is high | `post.customers.max-concurrent=2`, `delete.customers.id.max-concurrent=1` | Rare routes stop stealing hot-read capacity. | Admin operations fail fast during spikes. |
+| 503 was reduced by growing the global queue | `jni.queue-capacity=512` | `jni.queue-capacity=128`, split with route budgets | Prevents global queue growth and p99 increase. | You must define route budgets for each hot endpoint. |
+
+### Call-Center Lookup API: Memory Is Fine, p99 Is High
+
+A call-center screen continuously reads customer and order data. Pod memory limit is comfortable,
+but users wait on the screen. Here the goal is not the lowest possible memory; the goal is to reduce
+p99 to an acceptable level.
+
+API meaning:
+
+| Real-world action | Sample endpoint | Traffic | Decision |
+|-------------------|-----------------|---------|----------|
+| Customer lookup | `GET /api/v1/customers/db` | Very high | More Dubbo capacity |
+| Order/catalog lookup | `GET /api/v1/catalog/nested` | Very high | More route budget |
+| Large customer history | `GET /api/v1/catalog/db/customers` | Medium | Separate large JSON budget |
+| Command endpoints | `POST/PATCH/DELETE` | Low | Keep small budgets |
+
+Starting configuration:
 
 ```properties
 reactor.runtime.profile=micro-dubbo
@@ -495,18 +650,33 @@ reactor.dubbo.native-async-workers=2
 reactor.rust.http.max-connections=768
 ```
 
-Keep the route-specific budgets. Do not remove admission control just because memory is available.
-Admission is still the line that prevents one slow provider route from making every endpoint slow.
+Timeline:
 
-Use this scenario only after checking:
+| Step | What happened? | What you see |
+|------|----------------|--------------|
+| First measurement | Average latency looks good. | p99 is bad, so users still feel waiting. |
+| Capacity is raised | Dubbo in-flight and native connections are increased. | Hot read p99 can improve. |
+| Admission is removed | Every endpoint is free to enter. | One slow provider route slows the whole service. |
+| Correct move | Route budgets stay enabled; only hot-read capacity is raised. | p99 becomes more balanced and cold routes do not dominate. |
+
+Before using this profile, check:
 
 | Check | Required signal |
 |-------|-----------------|
 | Provider CPU | Has headroom |
 | Provider DB pool | Not saturated |
 | Consumer RSS | Still below pod limit after warm load |
-| 503 rate | Lower after tuning, not just hidden by a bigger queue |
+| `503` rate | Lower after tuning, not only hidden by a larger queue |
 | p99 | Improves for hot endpoints, not only average latency |
+
+Different problems in this scenario and the exact property actions:
+
+| Situation | Previous value | Change | Expected improvement | Cost / watch-out |
+|-----------|----------------|--------|----------------------|------------------|
+| Provider CPU is free but consumer p99 is high | `dubbo.max-inflight=24`, `native-connections-per-endpoint=2` | `dubbo.max-inflight=64`, `native-connections-per-endpoint=4` | Hot lookup endpoints can carry more parallel Dubbo calls. | Re-measure RSS and provider DB pool. |
+| Only customer lookup is slow | All hot routes share similar budget | `customers.db.max-concurrent=12`, keep catalog budget unchanged | Problem route is tuned without affecting other endpoints. | If DB wait rises, reduce it again. |
+| Large customer history hurts small lookups | Large JSON route `max-concurrent=12` | Large JSON route `max-concurrent=6`, keep small lookup routes higher | Small lookup p99 is protected. | Large JSON endpoint gets lower useful RPS. |
+| Admission was removed completely | No route budgets | Restore route budgets, increase only hot-read values | One slow provider route cannot lock the whole service. | Config becomes more detailed, but safer in production. |
 
 ## What `rust-java-rest` 3.2.2 Changes Here
 
