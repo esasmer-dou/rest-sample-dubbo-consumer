@@ -39,6 +39,7 @@ edin.
 | Kubernetes Service DNS ile static consumer | Default veya `native-static-consumer` | `micro-dubbo` | Provider adresi K8s Service DNS olur | Consumer içinde Java ZooKeeper client/thread/class yükü yoktur | Dubbo registry/governance yoktur; dağıtım TCP connection bazlıdır |
 | Kubernetes'te ZooKeeper zorunlu consumer | `zookeeper-discovery` | `micro-dubbo` | Provider URL ZooKeeper'dan gelir | Provider restart/re-register akışını takip eder | ZooKeeper client thread/class ekler |
 | Read-heavy catalog veya lookup API | Default veya `zookeeper-discovery` | `micro-dubbo` | Provider hazır JSON döner, consumer raw bytes forward eder | REST JVM DTO graph ve JSON reserialize yapmaz | JSON shape/versioning provider sorumluluğudur |
+| Typed Dubbo DTO örnekleri | Default veya `zookeeper-discovery` | `micro-dubbo` | Provider record/list/map/scalar değerler döner | Normal Dubbo object contract örneklerini gösterir | Hessian encode/decode ve Java object graph allocation |
 | Dubbo üzerinden write/command API | Default veya `zookeeper-discovery` | `micro-dubbo` | `byte[]` request body provider command method'una gider | REST handler ince ve açık kalır | Hessian request encoding gerekir |
 | Daha yüksek concurrency RPC servisi | Default veya `zookeeper-discovery` | `micro-dubbo` ile başla, ölçerek balanced değerlere yaklaş | Aynı API yolu, daha büyük route budget | Daha az overload reject | Daha yüksek RSS ve provider/DB baskısı |
 
@@ -1195,8 +1196,9 @@ Büyük Dubbo object graph'ı consumer JVM'e çekip tekrar JSON'a çevirmek bu f
 ```
 
 `hessian-lite`, POST/PATCH/DELETE command örnekleri için gerekir; çünkü bu Dubbo method'ları argüman
-taşır. No-argument read path native byte-array fast path'i kullanabilir ve Hessian request encode
-yoluna girmez.
+taşır. Ayrıca Dubbo method'u typed `record`, `List`, `Map`, `String` veya primitive wrapper dönüyorsa
+legacy Hessian codec path'i gerekir. No-argument `byte[]` read path native byte-array fast path'i
+kullanabilir ve Hessian request encode yoluna girmez.
 
 Demo kendi içinde Dubbo interface source'larını taşır:
 
@@ -1205,15 +1207,60 @@ package com.reactor.rust.dubbo.sample;
 
 public interface NestedCatalogService {
     byte[] getNestedCatalogJson();
+
+    String getCatalogTitle();
+
+    int countCatalogItems();
+
+    CatalogInfo getCatalogInfo();
+
+    List<CatalogItem> listFeaturedItems(int limit);
+
+    Map<String, String> getCatalogAttributes();
 }
 
 public interface CustomerQueryService {
     byte[] getDatabaseCustomersJson();
+
+    CustomerSummary getCustomer(long customerId);
+
+    List<CustomerSummary> findCustomersBySegment(String segment, int limit);
+
+    CustomerStats getCustomerStats();
+
+    boolean customerExists(long customerId);
+
+    String getCustomerDisplayName(long customerId);
+}
+
+public interface CustomerCommandService {
+    byte[] createCustomer(byte[] commandJson);
+
+    CustomerMutationResult createCustomerTyped(CreateCustomerCommand command);
+
+    CustomerMutationResult patchCustomerStatusTyped(long customerId, String status, String requestId);
 }
 ```
 
 Gerçek sistemde bu interface'ler provider ve consumer tarafından kullanılan ortak bir `*-api` jar
 içinden gelmelidir. Ayrı servislerde küçük farklarla copy/paste contract üretmeyin.
+
+### Dubbo Method Veri Yapısı Kataloğu
+
+| Provider method şekli | Bu sample'daki örnek | Consumer endpoint | Ne zaman kullanılır? | Runtime maliyeti |
+|-----------------------|----------------------|-------------------|----------------------|------------------|
+| `byte[]` UTF-8 JSON, argümansız | `getNestedCatalogJson()` | `GET /api/v1/catalog/nested` | Provider JSON shape'in sahibiyse ve consumer sadece forward edecekse. | En düşük. Native no-arg byte-array fast path; consumer DTO graph kurmaz. |
+| `String` | `getCatalogTitle()` | `GET /api/v1/catalog/title` | Küçük label, başlık veya tek değer. | Küçük String allocation ve REST tarafında JSON wrapper. |
+| Primitive/scalar | `countCatalogItems()`, `customerExists(id)` | `GET /api/v1/catalog/count`, `GET /api/v1/customers/{id}/exists` | Count, flag, ucuz lookup kararı. | Typed çağrı için Hessian decode vardır; büyük object graph yoktur. |
+| Java `record` | `getCatalogInfo()`, `getCustomer(id)` | `GET /api/v1/catalog/info`, `GET /api/v1/customers/db/{id}` | Consumer field'ları okuyup branching, validation veya enrichment yapacaksa. | Hessian record oluşturur, sonra REST JSON serialize eder. |
+| `List<record>` | `listFeaturedItems(limit)`, `findCustomersBySegment(segment, limit)` | `GET /api/v1/catalog/items`, `GET /api/v1/customers/db/by-segment` | Küçük ve bounded sayfalar. | Liste + her item için record allocation; `limit` her zaman bounded olmalı. |
+| `Map<String,String>` | `getCatalogAttributes()` | `GET /api/v1/catalog/attributes` | Küçük metadata çantası. | Map allocation ve JSON wrapper; büyük dinamik payload için kullanmayın. |
+| `record` command input ve `record` output | `createCustomerTyped(CreateCustomerCommand)` | `POST /api/v1/customers/typed` | Daha okunabilir typed business command contract istiyorsanız. | Request encode + response decode + REST serialization. |
+| `byte[]` command input ve `byte[]` JSON output | `createCustomer(byte[])` | `POST /api/v1/customers` | En düşük allocation command pass-through. | Request/response bytes taşınır; validation provider'da kalır. |
+
+Production kuralı: record daha okunabilir diye tüm `byte[]` method'larını record'a çevirmeyin.
+Consumer typed business data ile karar verecekse record kullanın. Consumer sadece provider JSON'unu
+HTTP'ye taşıyorsa `byte[] + RawResponse` yolunu koruyun.
 
 ## GitHub Packages
 
@@ -1438,16 +1485,21 @@ Route admission:
 | `reactor.rust.route-admission.default-queue-timeout-ms` | `0` | Global default queue wait. `0` default olarak queue yapılmaz demektir. |
 | `reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent` | `16` | Read-heavy nested catalog cap. Provider hızlıysa artırın; provider CPU/RSS artıyorsa düşürün. |
 | `reactor.rust.route-admission.get.api.v1.catalog.nested.queue-timeout-ms` | `100` | Catalog wait budget. Daha az 503 için artırın, daha sıkı p99 için düşürün. |
+| `reactor.rust.route-admission.get.api.v1.catalog.title/count/info/items/attributes.*` | `16` / `100` | Typed catalog scalar/record/list/map route cap'leri. List/map route'larında object allocation p99'u bozuyorsa düşürün. |
 | `reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent` | `8` | DB-backed catalog route cap. Provider DB pool ve method bulkhead ile hizalayın. |
 | `reactor.rust.route-admission.get.api.v1.catalog.db.customers.queue-timeout-ms` | `150` | DB-backed catalog wait budget. p99 yüksekse worker artırmadan önce bunu düşürün. |
 | `reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent` | `8` | Customer DB read route cap. Provider `CustomerQueryService` concurrency ile tune edilir. |
 | `reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms` | `150` | Customer DB read queue wait. DB saturation altında hızlı fail-fast için düşürün. |
+| `reactor.rust.route-admission.get.api.v1.customers.db.stats/by-segment/id.*` | `4-8` / `150` | Typed DB stats, list ve record lookup cap'leri. List query'leri raw byte pass-through route'larından düşük tutun. |
+| `reactor.rust.route-admission.get.api.v1.customers.id.exists/display-name.*` | `8` / `150` | Küçük scalar lookup cap'leri. Bu method'lar DB'ye gidiyorsa provider DB pool ile tune edin. |
 | `reactor.rust.route-admission.post.api.v1.customers.max-concurrent` | `8` | Create command cap. Duplicate write baskısı ve DB queue büyümesini önlemek için bounded kalmalı. |
 | `reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms` | `150` | Create command wait budget. Write p99 burst absorption'dan önemliyse düşürün. |
+| `reactor.rust.route-admission.post.api.v1.customers.typed.*` | `4` / `150` | Typed create command cap. REST record parse ve Hessian record encode/decode olduğu için byte pass-through'dan düşük tutulur. |
 | `reactor.rust.route-admission.patch.api.v1.customers.id.segment.max-concurrent` | `8` | Segment patch cap. Command provider kapasitesiyle hizalayın. |
 | `reactor.rust.route-admission.patch.api.v1.customers.id.segment.queue-timeout-ms` | `150` | Segment patch queue wait. Sadece idempotent caller ve p99 ölçümü varsa artırın. |
 | `reactor.rust.route-admission.patch.api.v1.customers.id.status.max-concurrent` | `8` | Status patch cap. Write-side stabilite için bounded kalmalı. |
 | `reactor.rust.route-admission.patch.api.v1.customers.id.status.queue-timeout-ms` | `150` | Status patch queue wait. Overload hızlı görünmeli ise düşürün. |
+| `reactor.rust.route-admission.patch.api.v1.customers.id.status.typed.*` | `4` / `150` | Typed status command cap. Typed command provider method limitiyle hizalı tutun. |
 | `reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent` | `8` | Delete command cap. Delete side-effect route olduğu için konservatif kalmalı. |
 | `reactor.rust.route-admission.delete.api.v1.customers.id.queue-timeout-ms` | `150` | Delete command wait budget. Daha strict fail-fast için düşürün. |
 
@@ -1534,16 +1586,23 @@ Dubbo consumer:
 | `reactor.rust.route-admission.default-queue-timeout-ms` | `REACTOR_RUST_ROUTE_ADMISSION_DEFAULT_QUEUE_TIMEOUT_MS` |
 | `reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CATALOG_NESTED_MAX_CONCURRENT` |
 | `reactor.rust.route-admission.get.api.v1.catalog.nested.queue-timeout-ms` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CATALOG_NESTED_QUEUE_TIMEOUT_MS` |
+| `reactor.rust.route-admission.get.api.v1.catalog.info.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CATALOG_INFO_MAX_CONCURRENT` |
+| `reactor.rust.route-admission.get.api.v1.catalog.items.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CATALOG_ITEMS_MAX_CONCURRENT` |
+| `reactor.rust.route-admission.get.api.v1.catalog.attributes.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CATALOG_ATTRIBUTES_MAX_CONCURRENT` |
 | `reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CATALOG_DB_CUSTOMERS_MAX_CONCURRENT` |
 | `reactor.rust.route-admission.get.api.v1.catalog.db.customers.queue-timeout-ms` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CATALOG_DB_CUSTOMERS_QUEUE_TIMEOUT_MS` |
 | `reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CUSTOMERS_DB_MAX_CONCURRENT` |
 | `reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CUSTOMERS_DB_QUEUE_TIMEOUT_MS` |
+| `reactor.rust.route-admission.get.api.v1.customers.db.by-segment.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CUSTOMERS_DB_BY_SEGMENT_MAX_CONCURRENT` |
+| `reactor.rust.route-admission.get.api.v1.customers.db.id.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CUSTOMERS_DB_ID_MAX_CONCURRENT` |
 | `reactor.rust.route-admission.post.api.v1.customers.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_POST_API_V1_CUSTOMERS_MAX_CONCURRENT` |
 | `reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms` | `REACTOR_RUST_ROUTE_ADMISSION_POST_API_V1_CUSTOMERS_QUEUE_TIMEOUT_MS` |
+| `reactor.rust.route-admission.post.api.v1.customers.typed.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_POST_API_V1_CUSTOMERS_TYPED_MAX_CONCURRENT` |
 | `reactor.rust.route-admission.patch.api.v1.customers.id.segment.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_PATCH_API_V1_CUSTOMERS_ID_SEGMENT_MAX_CONCURRENT` |
 | `reactor.rust.route-admission.patch.api.v1.customers.id.segment.queue-timeout-ms` | `REACTOR_RUST_ROUTE_ADMISSION_PATCH_API_V1_CUSTOMERS_ID_SEGMENT_QUEUE_TIMEOUT_MS` |
 | `reactor.rust.route-admission.patch.api.v1.customers.id.status.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_PATCH_API_V1_CUSTOMERS_ID_STATUS_MAX_CONCURRENT` |
 | `reactor.rust.route-admission.patch.api.v1.customers.id.status.queue-timeout-ms` | `REACTOR_RUST_ROUTE_ADMISSION_PATCH_API_V1_CUSTOMERS_ID_STATUS_QUEUE_TIMEOUT_MS` |
+| `reactor.rust.route-admission.patch.api.v1.customers.id.status.typed.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_PATCH_API_V1_CUSTOMERS_ID_STATUS_TYPED_MAX_CONCURRENT` |
 | `reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_DELETE_API_V1_CUSTOMERS_ID_MAX_CONCURRENT` |
 | `reactor.rust.route-admission.delete.api.v1.customers.id.queue-timeout-ms` | `REACTOR_RUST_ROUTE_ADMISSION_DELETE_API_V1_CUSTOMERS_ID_QUEUE_TIMEOUT_MS` |
 | `sample.dubbo.discovery` | `SAMPLE_DUBBO_DISCOVERY` |
@@ -2048,14 +2107,48 @@ Bu modda `reactor.dubbo.providers` yok sayılır, provider URL'leri ZooKeeper'da
 | Endpoint | Açıklama |
 |----------|----------|
 | `GET /app/health` | Consumer application health endpoint'i. |
-| `GET /api/v1/catalog/nested` | `NestedCatalogService` çağırır ve nested catalog JSON'u forward eder. |
-| `GET /api/v1/customers/db` | `CustomerQueryService` çağırır ve PostgreSQL-backed customer JSON'u forward eder. |
+| `GET /api/v1/catalog/nested` | `NestedCatalogService.getNestedCatalogJson()` çağırır ve provider JSON byte'larını `RawResponse` ile forward eder. |
+| `GET /api/v1/catalog/title` | `String getCatalogTitle()` çağırır ve scalar değeri JSON olarak sarar. |
+| `GET /api/v1/catalog/count` | `int countCatalogItems()` çağırır ve küçük scalar JSON response döner. |
+| `GET /api/v1/catalog/info` | `CatalogInfo getCatalogInfo()` çağırır ve typed record DTO shape döner. |
+| `GET /api/v1/catalog/items?limit=2` | `List<CatalogItem> listFeaturedItems(int limit)` çağırır; query input bounded kalır. |
+| `GET /api/v1/catalog/attributes` | Küçük metadata için `Map<String,String> getCatalogAttributes()` çağırır. |
+| `GET /api/v1/customers/db` | `CustomerQueryService.getDatabaseCustomersJson()` çağırır ve PostgreSQL-backed customer JSON byte'larını forward eder. |
+| `GET /api/v1/customers/db/stats` | `CustomerStats getCustomerStats()` çağırır ve aggregate count döner. |
+| `GET /api/v1/customers/db/{id}` | `CustomerSummary getCustomer(long id)` çağırır; provider null dönerse 404 döner. |
+| `GET /api/v1/customers/db/by-segment?segment=pilot&limit=10` | `List<CustomerSummary> findCustomersBySegment(...)` çağırır; result size bounded olur. |
+| `GET /api/v1/customers/{id}/exists` | `boolean customerExists(long id)` çağırır. |
+| `GET /api/v1/customers/{id}/display-name` | `String getCustomerDisplayName(long id)` çağırır. |
 | `GET /api/v1/catalog/db/customers` | Compatibility alias; yine `CustomerQueryService` çağırır. |
-| `POST /api/v1/customers` | `CustomerCommandService` üzerinden customer create/upsert yapar. |
+| `POST /api/v1/customers` | Compact command JSON byte'larını `CustomerCommandService.createCustomer(byte[])` method'una gönderir. |
+| `POST /api/v1/customers/typed` | REST body'yi `CreateCustomerCommand` olarak parse eder, typed Dubbo command çağırır, `CustomerMutationResult` JSON döner. |
 | `PATCH /api/v1/customers/{id}/segment` | Bounded DB command method ile customer segment değiştirir. |
 | `PATCH /api/v1/customers/{id}/status` | Bounded DB command method ile lifecycle status değiştirir. |
+| `PATCH /api/v1/customers/{id}/status/typed?status=passive&requestId=demo-1` | `patchCustomerStatusTyped(long, String, String)` çağırır. |
 | `DELETE /api/v1/customers/{id}` | Bounded DB command method ile customer delete yapar. |
 | `GET /api/v1/catalog/dubbo-metrics` | Native Dubbo client metrics çıktısı. |
+
+Hızlı typed Dubbo smoke çağrıları:
+
+```bash
+curl http://localhost:8080/api/v1/catalog/title
+curl http://localhost:8080/api/v1/catalog/count
+curl http://localhost:8080/api/v1/catalog/info
+curl "http://localhost:8080/api/v1/catalog/items?limit=2"
+curl http://localhost:8080/api/v1/catalog/attributes
+
+curl http://localhost:8080/api/v1/customers/db/stats
+curl http://localhost:8080/api/v1/customers/db/1
+curl "http://localhost:8080/api/v1/customers/db/by-segment?segment=pilot&limit=10"
+curl http://localhost:8080/api/v1/customers/1/exists
+curl http://localhost:8080/api/v1/customers/1/display-name
+
+curl -X POST http://localhost:8080/api/v1/customers/typed \
+  -H "Content-Type: application/json" \
+  -d '{"customerNo":"CUST-9001","fullName":"Typed Demo Customer","segment":"pilot","email":"typed@example.com","requestId":"typed-001"}'
+
+curl -X PATCH "http://localhost:8080/api/v1/customers/1/status/typed?status=passive&requestId=status-001"
+```
 
 ## Copy/Paste Use Case Cookbook
 
@@ -2066,8 +2159,11 @@ koruyabilir: REST handler Java'da, Dubbo adapter Java'da, HTTP I/O Rust'ta, DB m
 | Gerçek ihtiyaç | Kullanılacak pattern | Neden |
 |----------------|----------------------|-------|
 | Ürün kataloğu, dashboard config, şube listesi | `GET` + provider JSON `byte[]` döner + `RawResponse.json(bytes)` | Read-heavy pass-through JSON için en düşük allocation yolu. |
+| Küçük typed lookup | `GET` + provider `record`, `String`, `boolean` veya `int` döner | Consumer field okuyacak veya değere göre branch edecektir. |
+| Küçük sayfalı arama | `GET` + provider strict `limit` ile `List<record>` döner | Küçük sayfa için net DTO contract; unbounded export için kullanılmamalı. |
 | DB provider'dan customer listesi | `GET` + Hikari/SQL provider'da + consumer bytes forward eder | REST process küçük kalır; DB pool HTTP process içine taşınmaz. |
 | Customer/order/payment create command | `POST` + compact JSON command bytes | Büyük consumer DTO graph kurmadan write command provider'a gider. |
+| Typed customer command | `POST` + REST record body + Dubbo record command | Daha temiz business contract; byte pass-through'a göre allocation yükü daha fazladır. |
 | Segment/status/adres gibi partial update | `PATCH` + path id + command body | Küçük payload, net command niyeti, bounded route admission. |
 | Delete/deactivate request | `DELETE` + path id + opsiyonel reason body | Destructive operation açık olur; audit için reason/requestId taşınabilir. |
 | Provider discovery zorunlu | ZooKeeper profile | Çalışır, fakat consumer process'e Java ZooKeeper client overhead ekler. |

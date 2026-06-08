@@ -11,11 +11,18 @@ import com.reactor.rust.dubbo.NativeDubboMethodInvoker;
 import com.reactor.rust.dubbo.sample.CustomerCommandService;
 import com.reactor.rust.dubbo.sample.CustomerQueryService;
 import com.reactor.rust.dubbo.sample.NestedCatalogService;
+import com.reactor.rust.dubbo.sample.dto.CatalogInfo;
+import com.reactor.rust.dubbo.sample.dto.CreateCustomerCommand;
+import com.reactor.rust.dubbo.sample.dto.CustomerMutationResult;
+import com.reactor.rust.dubbo.sample.dto.CustomerStats;
+import com.reactor.rust.dubbo.sample.dto.CustomerSummary;
 import com.reactor.sample.dubbo.consumer.dubbo.CustomerCommandClient;
 import com.reactor.sample.dubbo.consumer.dubbo.CustomerQueryClient;
 import com.reactor.sample.dubbo.consumer.dubbo.NestedCatalogClient;
 
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 @Configuration
 public final class DubboConsumerConfiguration {
@@ -35,7 +42,15 @@ public final class DubboConsumerConfiguration {
         NativeDubboMethodInvoker<byte[]> invoker =
                 client.method(spec, "getNestedCatalogJson", byte[].class);
 
-        return new NestedCatalogClient(invoker, client);
+        return new NestedCatalogClient(
+                invoker,
+                client.method(spec, "getCatalogTitle", String.class),
+                client.method(spec, "countCatalogItems", Integer.class),
+                client.method(spec, "getCatalogInfo", CatalogInfo.class),
+                client.method(spec, "listFeaturedItems", List.class, int.class),
+                client.method(spec, "getCatalogAttributes", Map.class),
+                client
+        );
     }
 
     @Bean
@@ -51,7 +66,14 @@ public final class DubboConsumerConfiguration {
         NativeDubboMethodInvoker<byte[]> databaseInvoker =
                 client.method(spec, "getDatabaseCustomersJson", byte[].class);
 
-        return new CustomerQueryClient(databaseInvoker);
+        return new CustomerQueryClient(
+                databaseInvoker,
+                client.method(spec, "getCustomer", CustomerSummary.class, long.class),
+                client.method(spec, "findCustomersBySegment", List.class, String.class, int.class),
+                client.method(spec, "getCustomerStats", CustomerStats.class),
+                client.method(spec, "customerExists", Boolean.class, long.class),
+                client.method(spec, "getCustomerDisplayName", String.class, long.class)
+        );
     }
 
     @Bean
@@ -68,7 +90,9 @@ public final class DubboConsumerConfiguration {
                 client.method(spec, "createCustomer", byte[].class, byte[].class),
                 client.method(spec, "patchCustomerSegment", byte[].class, long.class, byte[].class),
                 client.method(spec, "patchCustomerStatus", byte[].class, long.class, byte[].class),
-                client.method(spec, "deleteCustomer", byte[].class, long.class, byte[].class)
+                client.method(spec, "deleteCustomer", byte[].class, long.class, byte[].class),
+                client.method(spec, "createCustomerTyped", CustomerMutationResult.class, CreateCustomerCommand.class),
+                client.method(spec, "patchCustomerStatusTyped", CustomerMutationResult.class, long.class, String.class, String.class)
         );
     }
 
