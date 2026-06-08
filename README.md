@@ -2050,15 +2050,21 @@ because users need a concrete `DELETE` verb example.
 This section adds copy/paste handler patterns beyond the concrete sample endpoints. The goal is to
 make it clear which request body and response type should be used for each HTTP verb.
 
-| Verb | Request type | Response type | When to use it |
-|------|--------------|---------------|----------------|
-| `GET` | No body, `@PathVariable`, `@RequestParam` | Java `record`, `List<record>`, `RawResponse` | Read endpoints, lookup, listing, pass-through JSON. |
-| `POST` | `byte[]` | `RawResponse.json(bytes)` or `RawResponse.bytes(...)` | JSON/binary payload should pass through to the provider. |
-| `POST` | Java `record` | Java `record` | Consumer must make typed validation or a business decision before Dubbo. |
-| `POST` | Java `record` | `List<record>` | Search/query endpoint receives filters in the body. |
-| `PUT` | Java `record` | Java `record` or error body | Full replace/update operations. |
-| `PATCH` | Java `record` or `byte[]` | Java `record` or `RawResponse` | Small partial commands: status, segment, address, flag. |
-| `DELETE` | No body or optional `byte[]` | `204 No Content`, error body, or audit JSON | Delete, deactivate, cancel, or carry audit reason. |
+| Verb | Request type | Response type | When to use it | Java heap / GC impact | JSON parse / serialize cost | Rust / JNI / body impact |
+|------|--------------|---------------|----------------|-----------------------|-----------------------------|--------------------------|
+| `GET` | No body, `@PathVariable`, `@RequestParam` | `RawResponse.json(bytes)` | Provider or cache already produces JSON. | Very low; no DTO object graph. | None; JSON is not parsed or serialized again. | Cheapest read path. Body byte[] is sent to Rust HTTP response; native static/cache can reduce per-request body transfer further. |
+| `GET` | No body, path/query parameters | Java `record` | Small status, lookup, or consumer-computed response. | Low; response record allocation only. | Response serialization only. | Good for small JSON; at high traffic DTO serialization can affect p99. |
+| `GET` | No body, query filters | `List<record>` | Listing, search result, small paged response. | Medium/high; list plus one record per item. | Entire list is serialized. | Large lists increase RSS and p99; pagination, route budget, and response byte limits are required. |
+| `POST` | `byte[]` | `RawResponse.json(bytes)` | JSON command passes through to provider and provider returns JSON. | Low; no request DTO graph. | No consumer-side JSON parse; provider response is not serialized again. | Request body byte[] is transferred. Lowest-allocation command pass-through path. |
+| `POST` | `byte[]` | `RawResponse.bytes(...)` | Binary upload, signature payload, small binary echo/download. | Low; no body DTO. | None. | Raw binary is transferred; large binary should use `FileResponse`/streaming. |
+| `POST` | `byte[]` | Java `record` | Consumer does not parse request but returns an accepted id/receipt. | Low/medium; no request DTO, response record exists. | Response serialization only. | Good middle ground for command accept/receipt endpoints. |
+| `POST` | Java `record` | Java `record` | Consumer needs typed validation or a business decision before Dubbo. | Medium; request record plus response record allocation. | Request parse plus response serialization. | Clean normal REST DTO path; not as cheap as `byte[] + RawResponse` on hot paths. |
+| `POST` | Java `record` | `List<record>` | Search/query endpoint receives filters in the body. | High; request record plus list and item records. | Request parse plus list serialization. | Expensive for high traffic and large result sets; require pagination and max-result limits. |
+| `PUT` | Java `record` | Java `record` or error body | Full replace/update. | Medium; request and response DTOs are created. | Request parse plus response serialization. | Clear idempotent update contract; add body limits and route admission. |
+| `PATCH` | Java `record` | Java `record` | Typed partial update such as status, segment, address. | Low/medium; small command record plus response record. | Request parse plus response serialization. | Acceptable for small payloads; keep command concurrency low. |
+| `PATCH` | `byte[]` | `RawResponse.json(bytes)` | Provider processes command JSON as-is. | Low; no consumer DTO graph. | No consumer parse/serialize. | Lower-RSS partial command pass-through; validation moves to provider. |
+| `DELETE` | No body | `204 No Content` | Delete/deactivate does not need a body. | Lowest; no response object graph. | None. | Cheapest delete path; use header/log/outbox for audit when possible. |
+| `DELETE` | Optional `byte[]` | `RawResponse.json(bytes)` or error body | Audit reason/requestId must be carried. | Low; only byte[] is carried if body exists. | No JSON cost if consumer does not parse it. | Keep audit JSON small; destructive command concurrency should stay low. |
 
 Notes:
 

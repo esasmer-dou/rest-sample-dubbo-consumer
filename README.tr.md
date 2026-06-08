@@ -2051,15 +2051,21 @@ Bu bölüm sample'daki gerçek endpoint'lere ek olarak, kendi projenize kopyalay
 pattern'lerini gösterir. Örneklerin amacı tüm HTTP verb'lerinde hangi request body ve response tipi
 ne zaman kullanılmalı sorusunu netleştirmektir.
 
-| Verb | Request tipi | Response tipi | Ne zaman kullanılır? |
-|------|--------------|---------------|----------------------|
-| `GET` | Body yok, `@PathVariable`, `@RequestParam` | Java `record`, `List<record>`, `RawResponse` | Okuma endpoint'leri, lookup, listeleme, pass-through JSON. |
-| `POST` | `byte[]` | `RawResponse.json(bytes)` veya `RawResponse.bytes(...)` | Provider'a JSON/binary payload aynen taşınacaksa. |
-| `POST` | Java `record` | Java `record` | Consumer request üzerinde typed validation/business karar verecekse. |
-| `POST` | Java `record` | `List<record>` | Arama/sorgu endpoint'i body üzerinden filtre alıyorsa. |
-| `PUT` | Java `record` | Java `record` veya hata body | Tam replace/update işlemleri. |
-| `PATCH` | Java `record` veya `byte[]` | Java `record` veya `RawResponse` | Küçük partial command: status, segment, adres, flag. |
-| `DELETE` | Body yok veya opsiyonel `byte[]` | `204 No Content`, hata body veya audit JSON | Silme, deactivate, iptal, audit reason taşıma. |
+| Verb | Request tipi | Response tipi | Ne zaman kullanılır? | Java heap / GC etkisi | JSON parse / serialize maliyeti | Rust / JNI / body etkisi |
+|------|--------------|---------------|----------------------|-----------------------|------------------------------|--------------------------|
+| `GET` | Body yok, `@PathVariable`, `@RequestParam` | `RawResponse.json(bytes)` | Provider veya cache hazır JSON üretiyorsa. | Çok düşük; DTO object graph kurulmaz. | Yok; JSON parse edilmez, tekrar serialize edilmez. | En ucuz read path. Body byte[] Rust HTTP response'a taşınır; native static/cache kullanılırsa per-request body taşıma da azalır. |
+| `GET` | Body yok, path/query parametreleri | Java `record` | Küçük status, lookup veya consumer'ın hesapladığı response. | Düşük; sadece response record allocation. | Sadece response serialize edilir. | Küçük JSON için uygun; high traffic'te DTO serialization p99'a yansıyabilir. |
+| `GET` | Body yok, filtre query parametreleri | `List<record>` | Listeleme, arama sonucu, küçük sayfalı response. | Orta/yüksek; liste + her item için record allocation. | Tüm liste serialize edilir. | Büyük listelerde RSS ve p99 artar; pagination, route budget ve response byte limiti şart. |
+| `POST` | `byte[]` | `RawResponse.json(bytes)` | JSON command provider'a aynen gidecek ve provider JSON dönecekse. | Düşük; request DTO graph kurulmaz. | Consumer tarafında JSON parse yok; provider response tekrar serialize edilmez. | Request body byte[] taşınır. Pass-through command için en düşük allocation yolu. |
+| `POST` | `byte[]` | `RawResponse.bytes(...)` | Binary upload, imza doğrulama payload'ı, küçük binary echo/download. | Düşük; body DTO yok. | Yok. | Raw binary taşınır; büyük binary için `FileResponse`/stream tercih edilmeli. |
+| `POST` | `byte[]` | Java `record` | Request'i parse etmeden sadece kabul bilgisi veya id dönecekseniz. | Düşük/orta; request DTO yok, response record var. | Sadece response serialize edilir. | Command accept/receipt endpoint'i için iyi ara yol. |
+| `POST` | Java `record` | Java `record` | Consumer request üzerinde typed validation veya business karar verecekse. | Orta; request record + response record allocation. | Request parse + response serialize vardır. | En okunabilir normal REST DTO yolu; hot path'te `byte[] + RawResponse` kadar ucuz değildir. |
+| `POST` | Java `record` | `List<record>` | Body ile filtre alan search/query endpoint'i. | Yüksek; request record + liste + item records. | Request parse + liste serialize edilir. | High traffic ve büyük result set için pahalıdır; pagination ve max result limit zorunlu olmalı. |
+| `PUT` | Java `record` | Java `record` veya hata body | Tam replace/update. | Orta; request ve response DTO oluşur. | Request parse + response serialize vardır. | Idempotent update için net contract; body limit ve route admission ekleyin. |
+| `PATCH` | Java `record` | Java `record` | Status, segment, adres gibi typed partial update. | Düşük/orta; küçük command record + response record. | Request parse + response serialize vardır. | Küçük payload için kabul edilebilir; command concurrency düşük tutulmalı. |
+| `PATCH` | `byte[]` | `RawResponse.json(bytes)` | Provider command JSON'u aynen işleyecekse. | Düşük; consumer DTO graph yok. | Consumer parse/serialize yok. | Partial command pass-through için daha düşük RSS; validation provider'a kalır. |
+| `DELETE` | Body yok | `204 No Content` | Silme/deactivate sonucu body gerekmiyorsa. | En düşük; response object graph yok. | Yok. | En ucuz delete path; audit gerekiyorsa header/log/outbox kullanın. |
+| `DELETE` | Opsiyonel `byte[]` | `RawResponse.json(bytes)` veya hata body | Reason/requestId gibi audit body taşınacaksa. | Düşük; body varsa sadece byte[] taşınır. | Consumer parse etmezse JSON maliyeti yok. | Audit JSON küçük tutulmalı; destructive command concurrency düşük olmalı. |
 
 Notlar:
 
