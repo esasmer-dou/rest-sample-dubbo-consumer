@@ -35,15 +35,63 @@ closest profile, then tune only the few values that affect your traffic.
 |---------------|------------------------|--------------------------|-------------------|---------------|----------------|
 | Local smoke test with all sample verbs | Default `full-dubbo-consumer` | `micro-dubbo` | `RawResponse.json(bytes)` | GET/POST/PATCH/DELETE examples work immediately | Larger classpath than read-only mode |
 | Lowest-memory read-only consumer | `native-static-consumer` | `micro-dubbo` | No-arg Dubbo method returns UTF-8 JSON `byte[]` | No ZooKeeper or Hessian classes in the consumer | Only no-argument read calls |
+| Kubernetes static consumer through Service DNS | Default or `native-static-consumer` | `micro-dubbo` | Provider address is a K8s Service DNS | No Java ZooKeeper client/thread/class cost in the consumer | No Dubbo registry/governance; distribution is TCP-connection based |
 | Kubernetes consumer that must use ZooKeeper | `zookeeper-discovery` | `micro-dubbo` | Provider URL comes from ZooKeeper | Handles provider restart/re-register flow | ZooKeeper client adds threads/classes |
 | Read-heavy catalog or lookup API | Default or `zookeeper-discovery` | `micro-dubbo` | Provider returns ready JSON, consumer forwards raw bytes | Avoids DTO graph and JSON reserialization in the REST JVM | Provider must own JSON shape/versioning |
 | Write/command API over Dubbo | Default or `zookeeper-discovery` | `micro-dubbo` | `byte[]` request body forwarded to provider command method | Keeps REST handler thin and explicit | Requires Hessian request encoding |
 | Higher concurrency RPC service | Default or `zookeeper-discovery` | Start `micro-dubbo`, measure toward balanced settings | Same API path, larger route budgets | Fewer overload rejects | Higher RSS and possible provider/DB pressure |
 
-Recommended starting point: run production Kubernetes consumers with `zookeeper-discovery` when
-provider discovery is a requirement. Static provider mode is also fine for local tests or controlled
-environments where a sidecar/config system writes provider addresses. Avoid building without
-ZooKeeper dependencies and then expecting `SAMPLE_DUBBO_DISCOVERY=zookeeper` to work at runtime.
+Recommended starting point: if your provider is already behind a stable Kubernetes `Service` DNS and
+you do not need Dubbo registry/governance, start with static provider mode. It is smaller and easier
+to operate. If your deployment contract says provider discovery must come from ZooKeeper, build and
+run with `zookeeper-discovery`; runtime properties alone cannot add ZooKeeper classes to an image
+that was built without them.
+
+## What ZooKeeper Provides, And When You Need It
+
+ZooKeeper is not an HTTP performance feature. In this sample it is only the Dubbo registry/discovery
+plane. It tells the consumer which provider addresses exist and lets the consumer follow provider
+registration changes.
+
+| ZooKeeper duty | What it means | Does Kubernetes Service DNS cover it? |
+|----------------|---------------|----------------------------------------|
+| Provider registration | Provider publishes interface, host, port, and URL metadata under the registry path. | Partly. K8s tracks pod endpoints, but not Dubbo interface/group/version metadata. |
+| Provider discovery | Consumer reads the current provider address list. | Yes for simple one-service scenarios where the provider is represented by one Service DNS. |
+| Provider change watch | Consumer can react when providers restart, disappear, or register again. | K8s readiness and EndpointSlice handle pod membership, but not Dubbo registry events. |
+| Interface/group/version metadata | Consumer can distinguish Dubbo service variants from registry metadata. | No. You must model this with separate Service DNS names or config. |
+| Dubbo governance/routing | Registry-driven routing, dynamic provider rules, or Dubbo governance features. | No. Use ZooKeeper if you depend on these features. |
+
+**BEST for this framework:** if one Dubbo interface maps cleanly to one Kubernetes Service, use
+static provider mode and point the consumer at that Service DNS:
+
+```yaml
+env:
+  - name: SAMPLE_DUBBO_DISCOVERY
+    value: "static"
+  - name: REACTOR_DUBBO_PROVIDERS
+    value: "rest-sample-dubbo-provider:20880"
+  - name: REACTOR_RUNTIME_PROFILE
+    value: "micro-dubbo"
+  - name: REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT
+    value: "2"
+```
+
+**ACCEPTABLE:** if different provider interfaces are managed through different namespaces or Service
+DNS names, static mode can still be explicit and production-safe:
+
+```properties
+reactor.dubbo.providers=customer-provider:20880,order-provider:20880
+```
+
+In this model, Kubernetes distributes TCP connections behind the Service regardless of whether there
+is one provider replica or several. It does not balance every individual RPC call. If you keep
+`reactor.dubbo.native-connections-per-endpoint=1`, one consumer pod can spend most of its time on
+one backend connection. Use `2` or `4` only after measuring p99 and provider capacity.
+
+Use ZooKeeper when providers are not represented by stable K8s Services, when VM/bare-metal
+providers register dynamically, when interface/group/version metadata must come from the registry,
+or when your organization depends on Dubbo governance/routing. Do not add ZooKeeper only because the
+application runs in Kubernetes.
 
 ## Production Recipes
 
@@ -177,10 +225,10 @@ curl http://localhost:8080/api/v1/catalog/dubbo-metrics
 curl http://localhost:8080/api/v1/catalog/nested
 ```
 
-### Recipe 6: Static Provider Address In Docker
+### Recipe 6: Static Provider Address In Docker Or Kubernetes Service DNS
 
-Use this for simple Docker Compose-style tests where every container is on the same network and you
-do not need ZooKeeper in the consumer process.
+Use this when the provider address is stable as a Docker service name or Kubernetes Service DNS and
+you do not need a ZooKeeper client in the consumer process.
 
 ```yaml
 env:
@@ -193,8 +241,26 @@ env:
 ```
 
 Effect: the consumer skips Java ZooKeeper client loading and connects directly to the provider host
-you give it. This is a good local or controlled-environment shape. If production requires provider
-discovery, use the ZooKeeper recipe instead.
+you give it. This is a good shape for local Docker, Docker Compose, Kubernetes Service DNS, or a
+sidecar-generated provider list.
+
+If several provider interfaces are managed by separate Service DNS names, pass a comma-separated
+list:
+
+```properties
+reactor.dubbo.providers=customer-provider:20880,order-provider:20880
+```
+
+ZooKeeper is not mandatory in this model. The number of provider pod replicas behind the Kubernetes
+Service can change; the consumer connects to the Service DNS and Kubernetes distributes connections
+to endpoints behind it. That distribution is TCP-connection based, not per-RPC. With one native
+connection, a consumer pod can stay on one backend pod for a while. If you need more even spreading,
+try `reactor.dubbo.native-connections-per-endpoint=2` or `4`, but do not make that the default
+without measuring RSS and p99.
+
+Switch to the ZooKeeper recipe only when provider addresses cannot be modeled as Service DNS names,
+VM/bare-metal providers register dynamically, interface/group/version metadata must come from the
+registry, or you depend on Dubbo governance/routing features.
 
 ### Recipe 7: Larger Provider JSON Response
 
@@ -578,6 +644,10 @@ Kubernetes starting configuration:
 
 ```yaml
 env:
+  - name: SAMPLE_DUBBO_DISCOVERY
+    value: "static"
+  - name: REACTOR_DUBBO_PROVIDERS
+    value: "campaign-provider:20880,customer-provider:20880"
   - name: REACTOR_RUNTIME_PROFILE
     value: "micro-dubbo"
   - name: REACTOR_RUST_JNI_WORKERS
@@ -844,8 +914,9 @@ ZooKeeper discovery mode:
 consumer -> ZooKeeper -> provider URL -> Dubbo provider
 ```
 
-Use ZooKeeper mode only when discovery is required. Leaving `reactor.dubbo.providers` empty enables
-it, but that also means the Java ZooKeeper client is loaded in the REST process.
+Use ZooKeeper mode only when discovery is required. In this sample, ZooKeeper discovery is selected
+with `sample.dubbo.discovery=zookeeper` or `SAMPLE_DUBBO_DISCOVERY=zookeeper`; that also means the
+Java ZooKeeper client is loaded in the REST process.
 
 ## Route Admission For Dubbo Calls
 
@@ -1275,7 +1346,7 @@ Important properties:
 | `reactor.rust.native-cache.max-bytes` | Hard cap for optional native response cache. Leave small or unused unless the endpoint is explicitly cacheable. |
 | `reactor.rust.route-admission.*` | Per-route in-flight and queue timeout limits enforced before the global JNI queue. |
 | `sample.dubbo.discovery` | `static` or `zookeeper`. |
-| `reactor.dubbo.providers` | Static provider list, e.g. `127.0.0.1:20880`. |
+| `reactor.dubbo.providers` | Static provider list. Can be one Service DNS or a comma-separated list: `rest-sample-dubbo-provider:20880` or `customer-provider:20880,order-provider:20880`. |
 | `reactor.dubbo.registry-address` | ZooKeeper address used in discovery mode. |
 | `reactor.dubbo.timeout-ms` | Per-RPC timeout. |
 | `reactor.dubbo.max-inflight` | Bounded RPC concurrency. |
@@ -1291,7 +1362,8 @@ Quick symptom lookup:
 | p99 grows but RSS is still low | `reactor.dubbo.native-connections-per-endpoint`, `reactor.dubbo.native-async-workers`, route queue timeout | Improve connection reuse before adding many Java workers. |
 | RSS stays high after traffic stops | `reactor.rust.response-pool.*`, `reactor.rust.json.writer-retain-max-bytes`, optional `reactor.rust.native-trim.*` | Use idle trim only for low-traffic pods and measure p99. |
 | Startup fails with component/route index error | `reactor.startup.component-index.*`, `reactor.startup.route-index.*`, `reactor.startup.scan.fallback-enabled` | Regenerate/update index files after adding handlers/routes. |
-| Consumer cannot find provider in Kubernetes | `sample.dubbo.discovery`, `reactor.dubbo.registry-address`, `reactor.dubbo.registry-root` | Build with `zookeeper-discovery` and set registry DNS correctly. |
+| Static Kubernetes consumer cannot find provider | `sample.dubbo.discovery`, `reactor.dubbo.providers` | If `SAMPLE_DUBBO_DISCOVERY=static`, check provider Service DNS, port, and readiness. Do not use `127.0.0.1`. |
+| ZooKeeper Kubernetes consumer cannot find provider | `sample.dubbo.discovery`, `reactor.dubbo.registry-address`, `reactor.dubbo.registry-root` | Build with `zookeeper-discovery`, set registry DNS correctly, and confirm the provider node exists in the registry. |
 | Static Docker consumer connects to the wrong place | `reactor.dubbo.providers` | Use container/service DNS, not `127.0.0.1`, inside Docker networks. |
 | Slow/unstable write commands | `reactor.dubbo.retries`, command route admission keys, `reactor.dubbo.timeout-ms` | Keep retries `0`; tune bounded queue and timeout. |
 | Too many idle HTTP clients hold resources | `reactor.rust.http.max-connections`, `reactor.rust.http.idle-timeout-ms`, `reactor.rust.http.keep-alive-enabled` | Lower idle timeout before disabling keep-alive. |
@@ -1394,7 +1466,7 @@ Dubbo consumer:
 | `reactor.dubbo.registry-timeout-ms` | `3000` | ZooKeeper operation timeout. Raise only for slow registry networks. |
 | `reactor.dubbo.registry-session-timeout-ms` | `30000` | ZooKeeper session timeout. Controls how quickly dead providers disappear. |
 | `reactor.dubbo.registry-check` | `false` | If true, startup can fail when registry is unavailable. Keep false for rolling deploys. |
-| `reactor.dubbo.providers` | `127.0.0.1:20880` | Static provider list. Override with service/container DNS in Docker or controlled static deployments. |
+| `reactor.dubbo.providers` | `127.0.0.1:20880` | Static provider list. Override with service DNS in Docker/K8s/controlled static deployments. If several interfaces are mapped to separate Services, use `customer-provider:20880,order-provider:20880`. |
 | `reactor.dubbo.timeout-ms` | `1000` | Per-RPC timeout. Keep below the HTTP route timeout budget. |
 | `reactor.dubbo.retries` | `0` | Retry count. Keep `0` for write/command routes to avoid duplicate execution. |
 | `reactor.dubbo.check` | `false` | If true, reference startup can fail when provider is absent. Keep false for provider rolling restarts. |
@@ -1512,13 +1584,15 @@ Tune one bottleneck at a time. Every change should be measured with successful R
 
 | Use case | Starting property set | Why |
 |----------|-----------------------|-----|
+| Low-memory static Kubernetes consumer through Service DNS | `SAMPLE_DUBBO_DISCOVERY=static`, `REACTOR_DUBBO_PROVIDERS=customer-provider:20880,order-provider:20880`, `REACTOR_RUNTIME_PROFILE=micro-dubbo`, `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=2`, `REACTOR_DUBBO_MAX_INFLIGHT=8-16` | Keeps ZooKeeper client/thread/class cost out of the consumer. Each interface is managed explicitly through its own Service DNS. |
 | Low-traffic Kubernetes service with mandatory ZooKeeper | `SAMPLE_DUBBO_DISCOVERY=zookeeper`, `REACTOR_RUNTIME_PROFILE=micro-dubbo`, `REACTOR_DUBBO_RUNTIME_PROFILE=micro-dubbo`, `REACTOR_RUST_JNI_WORKERS=1`, `REACTOR_DUBBO_MAX_INFLIGHT=8`, `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=1` | Keeps the REST process small and accepts controlled 503 under overload instead of retaining memory. |
 | Read-heavy catalog or dashboard JSON | `REACTOR_DUBBO_MAX_INFLIGHT=16-32`, `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=2-4`, route admission for the read route `16-64` | Improves useful 200 RPS when provider responses are fast and already JSON bytes. |
 | DB-backed query through provider | Keep consumer route max concurrent close to provider capacity, usually `4-8` per consumer pod; set `REACTOR_DUBBO_TIMEOUT_MS=800-1500`; queue timeout `50-150ms` | Prevents the consumer from amplifying provider DB pool saturation. |
 | POST/PATCH/DELETE command methods | `REACTOR_DUBBO_RETRIES=0`, command route max concurrent `4-8`, queue timeout `100-200ms` | Avoids accidental double execution and bounds write pressure. |
 | Large JSON response from provider | Raise `REACTOR_DUBBO_MAX_RESPONSE_BYTES`, `REACTOR_RUST_HTTP_MAX_RESPONSE_BODY_BYTES`, and `REACTOR_RUST_HTTP_MAX_INFLIGHT_RESPONSE_BYTES` together | A Dubbo response limit alone is not enough; the HTTP response and total in-flight caps must also allow the payload. |
 | Higher concurrency but memory still constrained | Increase `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT` first, then `REACTOR_DUBBO_MAX_INFLIGHT`, then `REACTOR_RUST_JNI_WORKERS`; keep response pools small | Connection reuse often improves p99 before extra Java worker threads are needed. |
-| Provider rolling restart | `SAMPLE_DUBBO_DISCOVERY=zookeeper`, `REACTOR_DUBBO_REGISTRY_CHECK=false`, `REACTOR_DUBBO_CHECK=false`, explicit RPC timeout | The pod can start while providers are moving; routes return bounded failures until discovery catches up. |
+| Provider rolling restart, K8s Service DNS | `SAMPLE_DUBBO_DISCOVERY=static`, correct provider readiness probe, `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=2`, explicit RPC timeout | Kubernetes removes unhealthy pods from the Service endpoint list. The consumer does not hold registry state; recovery depends on readiness and EndpointSlice behavior. |
+| Provider rolling restart, ZooKeeper registry | `SAMPLE_DUBBO_DISCOVERY=zookeeper`, `REACTOR_DUBBO_REGISTRY_CHECK=false`, `REACTOR_DUBBO_CHECK=false`, explicit RPC timeout | The pod can start while providers are moving; routes return bounded failures until discovery catches up. |
 
 ### Recipe: Low-Memory Kubernetes Consumer With ZooKeeper
 
@@ -1626,15 +1700,18 @@ Maven profile = what dependencies go into the application classpath.
 Runtime properties/env = how the consumer finds Dubbo providers.
 ```
 
-Do not treat them as the same thing. If the application must use ZooKeeper in Kubernetes, build/run
-with the `zookeeper-discovery` Maven profile and set `SAMPLE_DUBBO_DISCOVERY=zookeeper`.
+Do not treat them as the same thing. Kubernetes has two valid paths. If the provider can be
+represented by a K8s Service DNS, static mode is smaller and more explicit. If your discovery
+contract is ZooKeeper, build/run with the `zookeeper-discovery` Maven profile and set
+`SAMPLE_DUBBO_DISCOVERY=zookeeper`.
 
 | Environment | Use this Maven profile | Discovery mode | Provider address source |
 |-------------|------------------------|----------------|-------------------------|
 | Local standalone JVM, provider fixed on one address | default `full-dubbo-consumer` | `static` | `REACTOR_DUBBO_PROVIDERS=127.0.0.1:20880` |
 | Local standalone JVM, provider must be found from ZooKeeper | `zookeeper-discovery` | `zookeeper` | `REACTOR_DUBBO_REGISTRY_ADDRESS=zookeeper://127.0.0.1:2181` |
 | Docker on one Docker network | `zookeeper-discovery` if discovery is required, otherwise default/full | `zookeeper` or `static` | Docker service name, for example `zookeeper:2181` or `provider:20880` |
-| Kubernetes | `zookeeper-discovery` | `zookeeper` | Kubernetes DNS name of ZooKeeper, for example `zookeeper-client.platform.svc.cluster.local:2181` |
+| Kubernetes, provider Service DNS is stable | default/full or `native-static-consumer` | `static` | `REACTOR_DUBBO_PROVIDERS=rest-sample-dubbo-provider:20880` |
+| Kubernetes, Dubbo registry/governance is mandatory | `zookeeper-discovery` | `zookeeper` | Kubernetes DNS name of ZooKeeper, for example `zookeeper-client.platform.svc.cluster.local:2181` |
 
 ### Standalone JVM
 
@@ -1714,7 +1791,68 @@ docker run --rm --name rest-sample-dubbo-consumer `
 
 ### Kubernetes
 
-For your Kubernetes use case, this is the intended mode:
+Kubernetes has two valid models. Pick based on provider discovery requirements; running in
+Kubernetes does not automatically make ZooKeeper mandatory.
+
+#### Static Service DNS Mode
+
+If the provider is behind a Kubernetes Service and you do not use Dubbo registry/governance, this is
+the smallest consumer shape:
+
+```text
+Consumer pod -> rest-sample-dubbo-provider Service DNS -> provider pod endpoints
+```
+
+Use a normal Service for the provider:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rest-sample-dubbo-provider
+spec:
+  selector:
+    app: rest-sample-dubbo-provider
+  sessionAffinity: None
+  ports:
+    - name: dubbo
+      port: 20880
+      targetPort: 20880
+```
+
+Consumer Deployment env example:
+
+```yaml
+env:
+  - name: SAMPLE_DUBBO_DISCOVERY
+    value: "static"
+  - name: REACTOR_DUBBO_PROVIDERS
+    value: "rest-sample-dubbo-provider:20880"
+  - name: REACTOR_RUNTIME_PROFILE
+    value: "micro-dubbo"
+  - name: REACTOR_DUBBO_RUNTIME_PROFILE
+    value: "micro-dubbo"
+  - name: REACTOR_DUBBO_MAX_INFLIGHT
+    value: "8"
+  - name: REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT
+    value: "2"
+```
+
+If different Dubbo interfaces are managed through different Service DNS names, list them in the same
+property:
+
+```properties
+reactor.dubbo.providers=customer-provider:20880,order-provider:20880
+```
+
+In this model, the Kubernetes Service distributes TCP connections across pod replicas. It does not
+load balance each Dubbo RPC request individually. If provider readiness is wrong, the Service can
+send connections to a pod that is not actually ready; make the provider readiness probe turn ready
+only when the RPC port can serve traffic.
+
+#### ZooKeeper Discovery Mode
+
+If your discovery contract is ZooKeeper, the intended flow is:
 
 ```text
 Consumer pod -> ZooKeeper Service -> provider URL from registry -> Dubbo provider pod/service
@@ -1724,7 +1862,7 @@ Build the image with the `zookeeper-discovery` Maven profile. Setting only
 `SAMPLE_DUBBO_DISCOVERY=zookeeper` at runtime is not enough if the image was built without the
 ZooKeeper dependency.
 
-Minimal Deployment shape:
+Minimal ZooKeeper discovery Deployment shape:
 
 ```yaml
 apiVersion: apps/v1
@@ -1796,10 +1934,12 @@ spec:
 
 Production notes for Kubernetes:
 
+- Static Service DNS mode can start with a smaller memory budget because the consumer does not load a Java ZooKeeper client. Still, do not lower limits aggressively before an idle RSS and p99 test in your own image.
 - Start with `160Mi-256Mi` memory limit when ZooKeeper discovery is enabled; then lower only after an idle RSS and p99 test in your own image.
 - Keep `reactor.dubbo.max-inflight` bounded. Raising it blindly can protect RPS but damage p99 and provider stability.
 - Keep `reactor.dubbo.retries=0` for low-latency APIs unless the operation is idempotent and retry-safe.
 - `/app/health` is a process health endpoint. If you want readiness to depend on provider availability, add a separate readiness route; do not make liveness depend on Dubbo provider state.
+- In static Service DNS mode, provider rolling restart recovery depends on Kubernetes readiness and EndpointSlice behavior. With a correct readiness probe, the Service removes unhealthy provider pods from its endpoint list.
 - During provider rolling restarts, ZooKeeper should publish the new provider URL and the consumer should reconnect through discovery. If this does not happen, inspect provider registration under `/dubbo/{interface}/providers`.
 
 ## Recommended Local Run Order

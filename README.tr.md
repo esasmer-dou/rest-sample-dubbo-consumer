@@ -36,15 +36,63 @@ edin.
 |------------|---------------|-----------------|---------------|----------------|--------|
 | Tüm sample verblerini lokal denemek | Default `full-dubbo-consumer` | `micro-dubbo` | `RawResponse.json(bytes)` | GET/POST/PATCH/DELETE örnekleri hemen çalışır | Read-only moda göre classpath daha büyüktür |
 | En düşük memory read-only consumer | `native-static-consumer` | `micro-dubbo` | No-arg Dubbo method UTF-8 JSON `byte[]` döner | Consumer içinde ZooKeeper/Hessian class'ları yoktur | Sadece argümansız read çağrıları |
+| Kubernetes Service DNS ile static consumer | Default veya `native-static-consumer` | `micro-dubbo` | Provider adresi K8s Service DNS olur | Consumer içinde Java ZooKeeper client/thread/class yükü yoktur | Dubbo registry/governance yoktur; dağıtım TCP connection bazlıdır |
 | Kubernetes'te ZooKeeper zorunlu consumer | `zookeeper-discovery` | `micro-dubbo` | Provider URL ZooKeeper'dan gelir | Provider restart/re-register akışını takip eder | ZooKeeper client thread/class ekler |
 | Read-heavy catalog veya lookup API | Default veya `zookeeper-discovery` | `micro-dubbo` | Provider hazır JSON döner, consumer raw bytes forward eder | REST JVM DTO graph ve JSON reserialize yapmaz | JSON shape/versioning provider sorumluluğudur |
 | Dubbo üzerinden write/command API | Default veya `zookeeper-discovery` | `micro-dubbo` | `byte[]` request body provider command method'una gider | REST handler ince ve açık kalır | Hessian request encoding gerekir |
 | Daha yüksek concurrency RPC servisi | Default veya `zookeeper-discovery` | `micro-dubbo` ile başla, ölçerek balanced değerlere yaklaş | Aynı API yolu, daha büyük route budget | Daha az overload reject | Daha yüksek RSS ve provider/DB baskısı |
 
-Önerilen başlangıç: provider discovery production'da ZooKeeper üzerinden zorunluysa Kubernetes
-consumer'ı `zookeeper-discovery` ile build/run edin. Lokal testlerde veya sidecar/config sistemi
-provider adresi yazıyorsa static provider modu da uygundur. ZooKeeper dependency olmadan build
-edilmiş bir image'a runtime'da sadece `SAMPLE_DUBBO_DISCOVERY=zookeeper` vermek yeterli olmaz.
+Önerilen başlangıç: Kubernetes içinde provider zaten bir `Service` DNS arkasındaysa ve Dubbo
+registry/governance ihtiyacınız yoksa static provider modu daha küçük ve daha sade başlangıçtır.
+Provider discovery production'da ZooKeeper üzerinden zorunluysa consumer'ı `zookeeper-discovery` ile
+build/run edin. ZooKeeper dependency olmadan build edilmiş bir image'a runtime'da sadece
+`SAMPLE_DUBBO_DISCOVERY=zookeeper` vermek yeterli olmaz.
+
+## ZooKeeper Ne Sağlar, Ne Zaman Gerekir?
+
+ZooKeeper bu consumer için performans artırıcı bir HTTP bileşeni değildir. Görevi Dubbo provider
+discovery ve registry bilgisidir.
+
+| ZooKeeper görevi | Açıklama | K8s Service DNS bunu karşılar mı? |
+|------------------|----------|----------------------------------|
+| Provider registration | Provider hangi interface'i hangi IP/port ile sunduğunu registry'ye yazar. | Kısmen. K8s Service pod endpoint'lerini bilir ama Dubbo interface metadata'sı tutmaz. |
+| Provider discovery | Consumer provider listesini registry'den okur. | Evet, basit tek-service senaryoda Service DNS provider adresi gibi kullanılabilir. |
+| Provider değişimini izleme | Provider giderse veya yeni provider gelirse registry üzerinden görülebilir. | Evet, readiness + EndpointSlice ile pod değişimi izlenir; ama Dubbo registry event'i yoktur. |
+| Interface/group/version metadata | Dubbo interface, group, version gibi bilgiler registry modelinde tutulur. | Hayır. Bunları Service adı/config ile siz yönetirsiniz. |
+| Governance/routing | Disable/enable, özel route, group/version routing gibi Dubbo davranışlarına zemin sağlar. | Hayır. K8s Service basit endpoint dağıtımı yapar. |
+
+**BEST:** K8s içinde tek provider service'iniz varsa ve consumer sadece
+`rest-sample-dubbo-provider:20880` gibi stabil bir Service DNS'e gidecekse ZooKeeper kullanmayın.
+Bu durumda consumer daha az class, thread ve registry state taşır.
+
+```yaml
+env:
+  - name: SAMPLE_DUBBO_DISCOVERY
+    value: "static"
+  - name: REACTOR_DUBBO_PROVIDERS
+    value: "rest-sample-dubbo-provider:20880"
+  - name: REACTOR_RUNTIME_PROFILE
+    value: "micro-dubbo"
+  - name: REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT
+    value: "2"
+```
+
+**ACCEPTABLE:** Birden fazla provider interface'i farklı Kubernetes Service DNS'leriyle yönetilecekse
+yine static kalabilirsiniz. Burada provider adreslerini config ile açık verirsiniz:
+
+```properties
+reactor.dubbo.providers=customer-provider:20880,order-provider:20880
+```
+
+Bu modelde Kubernetes arka tarafta kaç provider replica olduğundan bağımsız Service üzerinden TCP
+connection dağıtımı yapar. Ancak dağıtım RPC başına değil, çoğunlukla TCP connection başınadır.
+Bu yüzden `reactor.dubbo.native-connections-per-endpoint=2` veya `4` gibi kontrollü değerler daha
+dengeli dağılım sağlayabilir.
+
+**ZooKeeper gerekli olur:** provider'lar K8s Service DNS ile sabitlenemiyorsa, Dubbo
+interface/group/version registry metadata'sı gerekiyorsa, VM/bare-metal provider'lar da aynı
+registry'ye register oluyorsa veya disable/enable/routing gibi Dubbo governance özellikleri
+production kararınızın parçasıysa.
 
 ## Production Reçeteleri
 
@@ -179,10 +227,10 @@ curl http://localhost:8080/api/v1/catalog/dubbo-metrics
 curl http://localhost:8080/api/v1/catalog/nested
 ```
 
-### Reçete 6: Docker İçinde Static Provider Adresi
+### Reçete 6: Docker veya Kubernetes Service DNS İle Static Provider Adresi
 
-Tüm container'lar aynı network içindeyse ve consumer process içinde ZooKeeper client yüklemek
-istemiyorsanız bunu kullanın.
+Provider adresi Docker service adı veya Kubernetes Service DNS olarak sabitse ve consumer process
+içinde ZooKeeper client yüklemek istemiyorsanız bunu kullanın.
 
 ```yaml
 env:
@@ -195,8 +243,25 @@ env:
 ```
 
 Etkisi: consumer Java ZooKeeper client yüklemez ve verdiğiniz provider host'a doğrudan bağlanır. Bu
-lokal veya kontrollü ortamlar için iyi bir şekildir. Production'da provider discovery zorunluysa
-ZooKeeper reçetesini kullanın.
+lokal, Docker Compose, K8s Service DNS veya sidecar-generated provider list gibi kontrollü ortamlar
+için iyi bir şekildir.
+
+Birden fazla provider interface'i ayrı Service DNS ile yönetiliyorsa virgülle ayrılmış liste verin:
+
+```properties
+reactor.dubbo.providers=customer-provider:20880,order-provider:20880
+```
+
+Bu modelde ZooKeeper zorunlu değildir. Kubernetes Service arkasındaki pod replica sayısı değişebilir;
+consumer Service DNS'e bağlanır, K8s arka tarafta connection'ları endpoint'lere dağıtır. Bu dağıtım
+request bazlı değil TCP connection bazlıdır. Bu yüzden tek connection ile başlarsanız consumer bir
+süre aynı backend pod üzerinde kalabilir. Daha dengeli dağıtım gerekiyorsa
+`reactor.dubbo.native-connections-per-endpoint=2` veya `4` deneyin; bunu RSS ve p99 ölçmeden default
+yapmayın.
+
+ZooKeeper reçetesine sadece provider adresleri Service DNS ile modellenemiyorsa, provider'lar
+VM/bare-metal ortamdan registry'ye register oluyorsa, interface/group/version metadata'sı registry'den
+gelmek zorundaysa veya Dubbo governance/routing özellikleri kullanılıyorsa geçin.
 
 ### Reçete 7: Daha Büyük Provider JSON Response
 
@@ -579,6 +644,10 @@ Kubernetes başlangıç ayarı:
 
 ```yaml
 env:
+  - name: SAMPLE_DUBBO_DISCOVERY
+    value: "static"
+  - name: REACTOR_DUBBO_PROVIDERS
+    value: "campaign-provider:20880,customer-provider:20880"
   - name: REACTOR_RUNTIME_PROFILE
     value: "micro-dubbo"
   - name: REACTOR_RUST_JNI_WORKERS
@@ -845,8 +914,9 @@ ZooKeeper discovery modu:
 consumer -> ZooKeeper -> provider URL -> Dubbo provider
 ```
 
-ZooKeeper modunu sadece discovery gerçekten gerekiyorsa kullanın. `reactor.dubbo.providers` boş
-bırakılırsa ZooKeeper devreye girer; bu durumda Java ZooKeeper client'i REST process içinde yüklenir.
+ZooKeeper modunu sadece discovery gerçekten gerekiyorsa kullanın. Bu sample'da ZooKeeper discovery
+için `sample.dubbo.discovery=zookeeper` veya `SAMPLE_DUBBO_DISCOVERY=zookeeper` verilir; bu durumda
+Java ZooKeeper client'i REST process içinde yüklenir.
 
 ## Dubbo Çağrıları İçin Route Admission
 
@@ -1275,7 +1345,7 @@ Repo içindeki değerler bilinçli olarak low-RSS yönlüdür; bu değerleri anc
 | `reactor.rust.native-cache.max-bytes` | Opsiyonel native response cache için hard limit. Endpoint bilinçli cache edilebilir değilse küçük veya kullanılmamış kalmalı. |
 | `reactor.rust.route-admission.*` | Global JNI queue öncesinde route bazlı in-flight ve queue timeout limiti. |
 | `sample.dubbo.discovery` | `static` veya `zookeeper`. |
-| `reactor.dubbo.providers` | Static provider listesi, örn. `127.0.0.1:20880`. |
+| `reactor.dubbo.providers` | Static provider listesi. Tek Service DNS veya virgülle ayrılmış liste olabilir: `rest-sample-dubbo-provider:20880` veya `customer-provider:20880,order-provider:20880`. |
 | `reactor.dubbo.registry-address` | Discovery modunda ZooKeeper adresi. |
 | `reactor.dubbo.timeout-ms` | RPC timeout. |
 | `reactor.dubbo.max-inflight` | Bounded RPC concurrency. |
@@ -1291,7 +1361,8 @@ Hızlı semptom rehberi:
 | p99 büyüyor ama RSS hâlâ düşük | `reactor.dubbo.native-connections-per-endpoint`, `reactor.dubbo.native-async-workers`, route queue timeout | Çok Java worker eklemeden önce connection reuse iyileştirin. |
 | Trafik durduktan sonra RSS yüksek kalıyor | `reactor.rust.response-pool.*`, `reactor.rust.json.writer-retain-max-bytes`, opsiyonel `reactor.rust.native-trim.*` | Idle trim sadece düşük trafikli podlarda açılmalı ve p99 ölçülmeli. |
 | Startup component/route index hatası veriyor | `reactor.startup.component-index.*`, `reactor.startup.route-index.*`, `reactor.startup.scan.fallback-enabled` | Handler/route ekledikten sonra index dosyalarını güncelleyin. |
-| Kubernetes'te consumer provider bulamıyor | `sample.dubbo.discovery`, `reactor.dubbo.registry-address`, `reactor.dubbo.registry-root` | `zookeeper-discovery` ile build edin ve registry DNS'i doğru verin. |
+| Kubernetes static consumer provider bulamıyor | `sample.dubbo.discovery`, `reactor.dubbo.providers` | `SAMPLE_DUBBO_DISCOVERY=static` ise provider Service DNS, port ve readiness'ı kontrol edin. `127.0.0.1` kullanmayın. |
+| Kubernetes ZooKeeper consumer provider bulamıyor | `sample.dubbo.discovery`, `reactor.dubbo.registry-address`, `reactor.dubbo.registry-root` | `zookeeper-discovery` ile build edin, registry DNS'i doğru verin ve provider node'unun registry altında oluştuğunu kontrol edin. |
 | Docker static consumer yanlış yere bağlanıyor | `reactor.dubbo.providers` | Docker network içinde `127.0.0.1` değil container/service DNS kullanın. |
 | Write command yavaş veya dengesiz | `reactor.dubbo.retries`, command route admission key'leri, `reactor.dubbo.timeout-ms` | Retry `0` kalsın; bounded queue ve timeout'u tune edin. |
 | Çok sayıda idle HTTP client kaynak tutuyor | `reactor.rust.http.max-connections`, `reactor.rust.http.idle-timeout-ms`, `reactor.rust.http.keep-alive-enabled` | Keep-alive kapatmadan önce idle timeout'u düşürün. |
@@ -1394,7 +1465,7 @@ Dubbo consumer:
 | `reactor.dubbo.registry-timeout-ms` | `3000` | ZooKeeper operation timeout. Registry network yavaşsa artırın. |
 | `reactor.dubbo.registry-session-timeout-ms` | `30000` | ZooKeeper session timeout. Ölü provider'ın ne kadar hızlı kaybolacağını etkiler. |
 | `reactor.dubbo.registry-check` | `false` | True olursa registry yokken startup fail edebilir. Rolling deploy için false kalsın. |
-| `reactor.dubbo.providers` | `127.0.0.1:20880` | Static provider listesi. Docker/controlled static ortamda service/container DNS ile override edin. |
+| `reactor.dubbo.providers` | `127.0.0.1:20880` | Static provider listesi. Docker/K8s/controlled static ortamda service DNS ile override edin. Birden fazla interface Service DNS ile yönetiliyorsa `customer-provider:20880,order-provider:20880` formatını kullanın. |
 | `reactor.dubbo.timeout-ms` | `1000` | RPC timeout. HTTP route timeout budget'ından düşük olmalı. |
 | `reactor.dubbo.retries` | `0` | Retry sayısı. Write/command route'larında duplicate execution riskini azaltmak için `0` kalsın. |
 | `reactor.dubbo.check` | `false` | True olursa provider yokken reference startup fail edebilir. Provider rolling restart için false kalsın. |
@@ -1512,13 +1583,15 @@ provider hata oranı ve idle sonrası RSS ile birlikte ölçülmelidir.
 
 | Use case | Başlangıç property seti | Neden |
 |----------|-------------------------|-------|
+| Kubernetes Service DNS ile düşük-memory static consumer | `SAMPLE_DUBBO_DISCOVERY=static`, `REACTOR_DUBBO_PROVIDERS=customer-provider:20880,order-provider:20880`, `REACTOR_RUNTIME_PROFILE=micro-dubbo`, `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=2`, `REACTOR_DUBBO_MAX_INFLIGHT=8-16` | ZooKeeper client/thread/class yükü consumer'a girmez. Her interface ayrı Service DNS ile açık yönetilir. |
 | ZooKeeper zorunlu düşük trafikli Kubernetes servisi | `SAMPLE_DUBBO_DISCOVERY=zookeeper`, `REACTOR_RUNTIME_PROFILE=micro-dubbo`, `REACTOR_DUBBO_RUNTIME_PROFILE=micro-dubbo`, `REACTOR_RUST_JNI_WORKERS=1`, `REACTOR_DUBBO_MAX_INFLIGHT=8`, `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=1` | REST process küçük kalır; overload anında memory tutmak yerine kontrollü 503 kabul edilir. |
 | Read-heavy katalog veya dashboard JSON | `REACTOR_DUBBO_MAX_INFLIGHT=16-32`, `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=2-4`, read route admission `16-64` | Provider hızlı ve hazır JSON `byte[]` dönüyorsa başarılı 200 RPS artar. |
 | Provider üzerinden DB-backed query | Consumer route max concurrent değerini provider kapasitesine yakın tutun, genelde pod başına `4-8`; `REACTOR_DUBBO_TIMEOUT_MS=800-1500`; queue timeout `50-150ms` | Consumer'ın provider DB pool saturation'ını büyütmesini engeller. |
 | POST/PATCH/DELETE command method'ları | `REACTOR_DUBBO_RETRIES=0`, command route max concurrent `4-8`, queue timeout `100-200ms` | Yanlışlıkla duplicate write oluşmasını engeller ve write basıncını sınırlar. |
 | Büyük JSON response | `REACTOR_DUBBO_MAX_RESPONSE_BYTES`, `REACTOR_RUST_HTTP_MAX_RESPONSE_BODY_BYTES` ve `REACTOR_RUST_HTTP_MAX_INFLIGHT_RESPONSE_BYTES` birlikte artırılır | Sadece Dubbo response limitini büyütmek yetmez; HTTP response ve toplam in-flight limit de payload'a izin vermelidir. |
 | Daha yüksek concurrency ama memory hâlâ sınırlı | Önce `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT`, sonra `REACTOR_DUBBO_MAX_INFLIGHT`, en son `REACTOR_RUST_JNI_WORKERS` artırılır; response pool küçük kalır | Connection reuse çoğu zaman ekstra Java worker'dan önce p99'u toparlar. |
-| Provider rolling restart | `SAMPLE_DUBBO_DISCOVERY=zookeeper`, `REACTOR_DUBBO_REGISTRY_CHECK=false`, `REACTOR_DUBBO_CHECK=false`, explicit RPC timeout | Pod provider geçişlerinde ayağa kalkabilir; discovery toparlanana kadar route'lar bounded failure döner. |
+| Provider rolling restart, K8s Service DNS | `SAMPLE_DUBBO_DISCOVERY=static`, doğru provider readiness probe, `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=2`, explicit RPC timeout | K8s Service sağlıksız pod'u endpoint listesinden çıkarır. Consumer registry tutmaz; toparlanma readiness/EndpointSlice davranışına bağlıdır. |
+| Provider rolling restart, ZooKeeper registry | `SAMPLE_DUBBO_DISCOVERY=zookeeper`, `REACTOR_DUBBO_REGISTRY_CHECK=false`, `REACTOR_DUBBO_CHECK=false`, explicit RPC timeout | Pod provider geçişlerinde ayağa kalkabilir; discovery toparlanana kadar route'lar bounded failure döner. |
 
 ### Reçete: ZooKeeper Zorunlu Low-Memory Kubernetes Consumer
 
@@ -1625,8 +1698,9 @@ Maven profile = uygulama classpath'ine hangi dependency'ler girecek.
 Runtime property/env = consumer Dubbo provider'ları nasıl bulacak.
 ```
 
-Bunları aynı şey gibi düşünmeyin. Uygulama Kubernetes içinde ZooKeeper kullanmak zorundaysa
-`zookeeper-discovery` Maven profile'ı ile build/run edin ve runtime'da
+Bunları aynı şey gibi düşünmeyin. Kubernetes içinde iki geçerli yol vardır. Provider bir K8s Service
+DNS ile temsil edilebiliyorsa static mod daha küçük ve daha nettir. Discovery sözleşmeniz ZooKeeper
+ise `zookeeper-discovery` Maven profile'ı ile build/run edin ve runtime'da
 `SAMPLE_DUBBO_DISCOVERY=zookeeper` verin.
 
 | Ortam | Maven profile | Discovery modu | Provider adresi nereden gelir? |
@@ -1634,7 +1708,8 @@ Bunları aynı şey gibi düşünmeyin. Uygulama Kubernetes içinde ZooKeeper ku
 | Lokal standalone JVM, provider tek sabit adreste | default `full-dubbo-consumer` | `static` | `REACTOR_DUBBO_PROVIDERS=127.0.0.1:20880` |
 | Lokal standalone JVM, provider ZooKeeper'dan bulunacak | `zookeeper-discovery` | `zookeeper` | `REACTOR_DUBBO_REGISTRY_ADDRESS=zookeeper://127.0.0.1:2181` |
 | Tek Docker network içinde | Discovery gerekiyorsa `zookeeper-discovery`, değilse default/full | `zookeeper` veya `static` | Docker service adı, örn. `zookeeper:2181` veya `provider:20880` |
-| Kubernetes | `zookeeper-discovery` | `zookeeper` | ZooKeeper Kubernetes DNS adı, örn. `zookeeper-client.platform.svc.cluster.local:2181` |
+| Kubernetes, provider Service DNS sabit | default/full veya `native-static-consumer` | `static` | `REACTOR_DUBBO_PROVIDERS=rest-sample-dubbo-provider:20880` |
+| Kubernetes, Dubbo registry/governance zorunlu | `zookeeper-discovery` | `zookeeper` | ZooKeeper Kubernetes DNS adı, örn. `zookeeper-client.platform.svc.cluster.local:2181` |
 
 ### Standalone JVM
 
@@ -1714,7 +1789,67 @@ docker run --rm --name rest-sample-dubbo-consumer `
 
 ### Kubernetes
 
-Sizin Kubernetes senaryonuz için doğru mod şudur:
+Kubernetes içinde iki doğru model vardır. Hangisini seçeceğiniz provider discovery ihtiyacınıza
+bağlıdır; Kubernetes'te çalışmak tek başına ZooKeeper zorunluluğu anlamına gelmez.
+
+#### Static Service DNS Mode
+
+Provider bir Kubernetes Service arkasındaysa ve Dubbo registry/governance kullanmıyorsanız en küçük
+consumer şekli budur:
+
+```text
+Consumer pod -> rest-sample-dubbo-provider Service DNS -> provider pod endpoint'leri
+```
+
+Provider tarafında standart Service kullanın:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rest-sample-dubbo-provider
+spec:
+  selector:
+    app: rest-sample-dubbo-provider
+  sessionAffinity: None
+  ports:
+    - name: dubbo
+      port: 20880
+      targetPort: 20880
+```
+
+Consumer Deployment env örneği:
+
+```yaml
+env:
+  - name: SAMPLE_DUBBO_DISCOVERY
+    value: "static"
+  - name: REACTOR_DUBBO_PROVIDERS
+    value: "rest-sample-dubbo-provider:20880"
+  - name: REACTOR_RUNTIME_PROFILE
+    value: "micro-dubbo"
+  - name: REACTOR_DUBBO_RUNTIME_PROFILE
+    value: "micro-dubbo"
+  - name: REACTOR_DUBBO_MAX_INFLIGHT
+    value: "8"
+  - name: REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT
+    value: "2"
+```
+
+Farklı Dubbo interface'leri farklı Service DNS ile yönetiliyorsa aynı property içinde listeleyin:
+
+```properties
+reactor.dubbo.providers=customer-provider:20880,order-provider:20880
+```
+
+Bu modelde K8s Service replica arkasındaki podlara TCP connection dağıtır. Dubbo request'lerinin her
+biri için ayrı load balancing yapılmaz. Provider readiness probe doğru değilse Service sağlıksız pod'a
+connection gönderebilir; bu yüzden provider readiness'ı RPC portu gerçekten hazır olduğunda `ready`
+olmalıdır.
+
+#### ZooKeeper Discovery Mode
+
+Discovery sözleşmeniz ZooKeeper ise doğru akış şudur:
 
 ```text
 Consumer pod -> ZooKeeper Service -> registry'den provider URL -> Dubbo provider pod/service
@@ -1724,7 +1859,7 @@ Image'i `zookeeper-discovery` Maven profile'ı ile build edin. Sadece runtime'da
 `SAMPLE_DUBBO_DISCOVERY=zookeeper` vermek yeterli değildir; image ZooKeeper dependency olmadan
 build edildiyse uygulama discovery yapamaz.
 
-Minimal Deployment şekli:
+Minimal ZooKeeper discovery Deployment şekli:
 
 ```yaml
 apiVersion: apps/v1
@@ -1796,10 +1931,12 @@ spec:
 
 Kubernetes production notları:
 
+- Static Service DNS modunda başlangıç memory limitini daha düşük tutabilirsiniz; consumer Java ZooKeeper client yüklemez. Yine de kendi image'inizde idle RSS ve p99 testi yapmadan limitleri agresif düşürmeyin.
 - ZooKeeper discovery açıksa başlangıç memory limitini `160Mi-256Mi` aralığında tutun; sonra kendi image'inizde idle RSS ve p99 testiyle düşürün.
 - `reactor.dubbo.max-inflight` bounded kalmalı. Kör şekilde artırmak RPS'i koruyabilir ama p99'u ve provider stabilitesini bozabilir.
 - Low-latency API'lerde operation idempotent ve retry-safe değilse `reactor.dubbo.retries=0` kalsın.
 - `/app/health` process health endpoint'idir. Readiness provider erişimine bağlı olsun istiyorsanız ayrı bir readiness route ekleyin; liveness'ı Dubbo provider durumuna bağlamayın.
+- Static Service DNS modunda provider rolling restart toparlanması K8s readiness/EndpointSlice davranışına bağlıdır. Readiness düzgünse Service sağlıksız pod'u endpoint listesinden çıkarır.
 - Provider rolling restart sırasında yeni provider URL'i ZooKeeper'a yazılmalı ve consumer discovery üzerinden yeniden bağlanmalıdır. Bu olmazsa `/dubbo/{interface}/providers` altındaki provider registration'ı kontrol edin.
 
 ## Önerilen Lokal Çalıştırma Sırası
