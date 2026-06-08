@@ -2045,6 +2045,276 @@ curl -X DELETE http://127.0.0.1:8080/api/v1/customers/3 `
 For production, prefer soft-delete/deactivate when audit or recovery matters. Hard delete is included
 because users need a concrete `DELETE` verb example.
 
+## Endpoint Pattern Catalog
+
+This section adds copy/paste handler patterns beyond the concrete sample endpoints. The goal is to
+make it clear which request body and response type should be used for each HTTP verb.
+
+| Verb | Request type | Response type | When to use it |
+|------|--------------|---------------|----------------|
+| `GET` | No body, `@PathVariable`, `@RequestParam` | Java `record`, `List<record>`, `RawResponse` | Read endpoints, lookup, listing, pass-through JSON. |
+| `POST` | `byte[]` | `RawResponse.json(bytes)` or `RawResponse.bytes(...)` | JSON/binary payload should pass through to the provider. |
+| `POST` | Java `record` | Java `record` | Consumer must make typed validation or a business decision before Dubbo. |
+| `POST` | Java `record` | `List<record>` | Search/query endpoint receives filters in the body. |
+| `PUT` | Java `record` | Java `record` or error body | Full replace/update operations. |
+| `PATCH` | Java `record` or `byte[]` | Java `record` or `RawResponse` | Small partial commands: status, segment, address, flag. |
+| `DELETE` | No body or optional `byte[]` | `204 No Content`, error body, or audit JSON | Delete, deactivate, cancel, or carry audit reason. |
+
+Notes:
+
+- For real HTTP raw byte responses, prefer `RawResponse.bytes(...)` over `ResponseEntity<byte[]>`.
+- For ready JSON byte responses, use `RawResponse.json(bytes)`.
+- For normal HTTP JSON DTOs, use Java `record`; do not make POJO classes the default DTO shape.
+- Since `List<CustomerDto>.class` does not exist in Java, list response examples use `responseType = List.class`; the method return type should still be `ResponseEntity<List<CustomerView>>`.
+- If success and error bodies use different record types, the examples use `ResponseEntity<?>` and `responseType = Object.class`. For stricter production contracts, use a shared `ApiResult` envelope record.
+
+### Copy/Paste: All Verb And Type Combinations
+
+Put the following class into your own handler package and change the base path as needed. The
+in-memory map exists only so the example can run by itself; in a real project, replace it with a
+service or Dubbo client call.
+
+```java
+package com.example.orders;
+
+import com.reactor.rust.annotations.DeleteMapping;
+import com.reactor.rust.annotations.GetMapping;
+import com.reactor.rust.annotations.MaxRequestBodySize;
+import com.reactor.rust.annotations.PatchMapping;
+import com.reactor.rust.annotations.PathVariable;
+import com.reactor.rust.annotations.PostMapping;
+import com.reactor.rust.annotations.PutMapping;
+import com.reactor.rust.annotations.RequestBody;
+import com.reactor.rust.annotations.RequestMapping;
+import com.reactor.rust.annotations.RequestParam;
+import com.reactor.rust.annotations.RouteAdmission;
+import com.reactor.rust.di.annotation.Component;
+import com.reactor.rust.http.HttpStatus;
+import com.reactor.rust.http.RawResponse;
+import com.reactor.rust.http.ResponseEntity;
+
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
+
+@Component
+@RequestMapping("/api/v1/orders-demo")
+public final class OrderEndpointExamples {
+
+    private final AtomicLong ids = new AtomicLong(1000);
+    private final Map<Long, OrderView> orders = new ConcurrentHashMap<>();
+
+    public record OrderLine(String sku, int quantity) {}
+
+    public record OrderView(long id, String customerNo, String status, List<OrderLine> lines) {}
+
+    public record CreateOrderRequest(String requestId, String customerNo, List<OrderLine> lines) {}
+
+    public record ReplaceOrderRequest(String customerNo, String status, List<OrderLine> lines) {}
+
+    public record PatchStatusRequest(String requestId, String status, String reason) {}
+
+    public record SearchOrdersRequest(String customerNo, String status) {}
+
+    public record CreateReceipt(long id, String status) {}
+
+    public record StatusResponse(String status, long orderCount) {}
+
+    public record ErrorBody(String code, String message) {}
+
+    @GetMapping(value = "/status", responseType = StatusResponse.class)
+    public ResponseEntity<StatusResponse> status() {
+        return ResponseEntity.ok(new StatusResponse("UP", orders.size()));
+    }
+
+    @GetMapping(value = "/{id}", responseType = Object.class)
+    public ResponseEntity<?> getById(@PathVariable("id") long id) {
+        OrderView order = orders.get(id);
+        if (order == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(new ErrorBody("order_not_found", "Order " + id + " was not found"));
+        }
+        return ResponseEntity.ok(order);
+    }
+
+    @GetMapping(value = "", responseType = List.class)
+    @RouteAdmission(maxConcurrent = 32, queueTimeoutMs = 100)
+    public ResponseEntity<List<OrderView>> list(
+            @RequestParam(value = "status", required = false, defaultValue = "") String status) {
+        List<OrderView> result = orders.values().stream()
+                .filter(order -> status.isBlank() || order.status().equalsIgnoreCase(status))
+                .toList();
+        return ResponseEntity.ok(result);
+    }
+
+    @GetMapping(value = "/raw-dashboard", responseType = RawResponse.class)
+    public ResponseEntity<RawResponse> rawDashboard() {
+        byte[] json = "{\"screen\":\"orders\",\"enabled\":true}".getBytes(StandardCharsets.UTF_8);
+        return ResponseEntity.ok(RawResponse.json(json));
+    }
+
+    @PostMapping(value = "/raw-json", requestType = byte[].class, responseType = RawResponse.class)
+    @MaxRequestBodySize(32768)
+    @RouteAdmission(maxConcurrent = 16, queueTimeoutMs = 100)
+    public ResponseEntity<RawResponse> postByteArrayReturnJsonBytes(@RequestBody byte[] body) {
+        if (body.length == 0) {
+            return ResponseEntity.badRequest(errorJson("empty_body", "JSON body is required"));
+        }
+        return ResponseEntity.created(RawResponse.json(body));
+    }
+
+    @PostMapping(value = "/binary-echo", requestType = byte[].class, responseType = RawResponse.class)
+    @MaxRequestBodySize(65536)
+    public ResponseEntity<RawResponse> postByteArrayReturnBinary(@RequestBody byte[] body) {
+        return ResponseEntity.ok(RawResponse.bytes(body, "application/octet-stream"));
+    }
+
+    @PostMapping(value = "/raw-to-record", requestType = byte[].class, responseType = Object.class)
+    @MaxRequestBodySize(32768)
+    public ResponseEntity<?> postByteArrayReturnRecord(@RequestBody byte[] body) {
+        if (body.length == 0) {
+            return ResponseEntity.badRequest(new ErrorBody("empty_body", "Body is required"));
+        }
+        long id = ids.incrementAndGet();
+        return ResponseEntity.created(new CreateReceipt(id, "accepted"));
+    }
+
+    @PostMapping(value = "", requestType = CreateOrderRequest.class, responseType = Object.class)
+    @MaxRequestBodySize(32768)
+    @RouteAdmission(maxConcurrent = 8, queueTimeoutMs = 150)
+    public ResponseEntity<?> postRecordReturnRecord(@RequestBody CreateOrderRequest request) {
+        if (request.customerNo() == null || request.customerNo().isBlank()) {
+            return ResponseEntity.badRequest(new ErrorBody("customer_required", "customerNo is required"));
+        }
+        long id = ids.incrementAndGet();
+        OrderView created = new OrderView(id, request.customerNo(), "created", request.lines());
+        orders.put(id, created);
+        return ResponseEntity.created(created);
+    }
+
+    @PostMapping(value = "/search", requestType = SearchOrdersRequest.class, responseType = List.class)
+    public ResponseEntity<List<OrderView>> postRecordReturnList(@RequestBody SearchOrdersRequest request) {
+        List<OrderView> result = orders.values().stream()
+                .filter(order -> request.customerNo() == null || request.customerNo().equals(order.customerNo()))
+                .filter(order -> request.status() == null || request.status().equalsIgnoreCase(order.status()))
+                .toList();
+        return ResponseEntity.ok(result);
+    }
+
+    @PutMapping(value = "/{id}", requestType = ReplaceOrderRequest.class, responseType = Object.class)
+    @MaxRequestBodySize(32768)
+    public ResponseEntity<?> putRecordReturnRecord(
+            @PathVariable("id") long id,
+            @RequestBody ReplaceOrderRequest request) {
+        if (!orders.containsKey(id)) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(new ErrorBody("order_not_found", "Order " + id + " was not found"));
+        }
+        OrderView replaced = new OrderView(id, request.customerNo(), request.status(), request.lines());
+        orders.put(id, replaced);
+        return ResponseEntity.ok(replaced);
+    }
+
+    @PatchMapping(value = "/{id}/status", requestType = PatchStatusRequest.class, responseType = Object.class)
+    @MaxRequestBodySize(8192)
+    public ResponseEntity<?> patchRecordReturnRecord(
+            @PathVariable("id") long id,
+            @RequestBody PatchStatusRequest request) {
+        OrderView current = orders.get(id);
+        if (current == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(new ErrorBody("order_not_found", "Order " + id + " was not found"));
+        }
+        OrderView updated = new OrderView(id, current.customerNo(), request.status(), current.lines());
+        orders.put(id, updated);
+        return ResponseEntity.ok(updated);
+    }
+
+    @DeleteMapping(value = "/{id}", responseType = Void.class)
+    public ResponseEntity<Void> deleteNoBody(@PathVariable("id") long id) {
+        orders.remove(id);
+        return ResponseEntity.noContent();
+    }
+
+    @DeleteMapping(value = "/{id}/audit", requestType = byte[].class, responseType = RawResponse.class)
+    @MaxRequestBodySize(8192)
+    public ResponseEntity<RawResponse> deleteWithOptionalByteBody(
+            @PathVariable("id") long id,
+            @RequestBody(required = false) byte[] auditBody) {
+        orders.remove(id);
+        byte[] audit = auditBody == null ? "{}".getBytes(StandardCharsets.UTF_8) : auditBody;
+        return ResponseEntity.ok(RawResponse.json(audit));
+    }
+
+    private static RawResponse errorJson(String code, String message) {
+        String json = "{\"code\":\"" + code + "\",\"message\":\"" + message + "\"}";
+        return RawResponse.json(json.getBytes(StandardCharsets.UTF_8));
+    }
+}
+```
+
+Quick PowerShell checks:
+
+```powershell
+curl http://127.0.0.1:8080/api/v1/orders-demo/status
+curl "http://127.0.0.1:8080/api/v1/orders-demo?status=created"
+curl http://127.0.0.1:8080/api/v1/orders-demo/raw-dashboard
+
+curl -X POST http://127.0.0.1:8080/api/v1/orders-demo/raw-json `
+  -H "Content-Type: application/json" `
+  -d "{\"requestId\":\"r1\",\"raw\":true}"
+
+curl -X POST http://127.0.0.1:8080/api/v1/orders-demo/binary-echo `
+  -H "Content-Type: application/octet-stream" `
+  --data-binary "binary-payload"
+
+curl -X POST http://127.0.0.1:8080/api/v1/orders-demo `
+  -H "Content-Type: application/json" `
+  -d "{\"requestId\":\"r2\",\"customerNo\":\"CUST-1\",\"lines\":[{\"sku\":\"SKU-1\",\"quantity\":2}]}"
+
+curl -X POST http://127.0.0.1:8080/api/v1/orders-demo/search `
+  -H "Content-Type: application/json" `
+  -d "{\"customerNo\":\"CUST-1\",\"status\":\"created\"}"
+
+curl -X PUT http://127.0.0.1:8080/api/v1/orders-demo/1001 `
+  -H "Content-Type: application/json" `
+  -d "{\"customerNo\":\"CUST-1\",\"status\":\"paid\",\"lines\":[{\"sku\":\"SKU-1\",\"quantity\":2}]}"
+
+curl -X PATCH http://127.0.0.1:8080/api/v1/orders-demo/1001/status `
+  -H "Content-Type: application/json" `
+  -d "{\"requestId\":\"r3\",\"status\":\"cancelled\",\"reason\":\"customer request\"}"
+
+curl -X DELETE http://127.0.0.1:8080/api/v1/orders-demo/1001
+
+curl -X DELETE http://127.0.0.1:8080/api/v1/orders-demo/1001/audit `
+  -H "Content-Type: application/json" `
+  -d "{\"requestId\":\"r4\",\"reason\":\"audit cleanup\"}"
+```
+
+Error scenario examples:
+
+```powershell
+# Returns 404 ErrorBody
+curl http://127.0.0.1:8080/api/v1/orders-demo/999999
+
+# Returns 400 ErrorBody
+curl -X POST http://127.0.0.1:8080/api/v1/orders-demo `
+  -H "Content-Type: application/json" `
+  -d "{\"requestId\":\"bad\",\"lines\":[]}"
+
+# Returns 400 RawResponse JSON error
+curl -X POST http://127.0.0.1:8080/api/v1/orders-demo/raw-json `
+  -H "Content-Type: application/json" `
+  -d ""
+```
+
+Production decision: for high-traffic pass-through endpoints, `byte[] + RawResponse` is the lowest
+allocation path. If the consumer must make a business decision from the request, use `record request
+-> record response`. Do not increase concurrency for large lists or large JSON responses without
+tuning route budget and in-flight byte limits separately.
+
 ### Profile And Property Selection
 
 | User problem | Recommended starting profile | Key properties |
