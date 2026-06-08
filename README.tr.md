@@ -304,7 +304,7 @@ path farklıysa property key'i de kendi path'inize göre değiştirin.
 
 ### E-Ticaret Müşteri ve Sipariş Servisi: 5 Endpoint, 3 Yoğun Endpoint
 
-Hikaye: Bir e-ticaret uygulamasında REST consumer var. Mobil uygulama sık sık müşteri bilgisi,
+Bir e-ticaret uygulamasında REST consumer var. Mobil uygulama sık sık müşteri bilgisi,
 sipariş özeti ve katalog bilgisi istiyor. Aynı servis müşteri yaratma, statü değiştirme ve silme
 işlemlerini de Dubbo provider üzerinden yapıyor. Provider tarafında PostgreSQL ve Hikari pool var.
 
@@ -362,7 +362,7 @@ oranı, provider DB pool wait süresi ve trafik durduktan 30-60 saniye sonra con
 
 ### Sadakat Puan Servisi: Küçük Pod, 4 Endpoint, 2 Yoğun Endpoint
 
-Hikaye: Kubernetes'te çok sayıda küçük pod koşuyor. Bu consumer sadece sadakat puanı ve müşteri
+Kubernetes'te çok sayıda küçük pod koşuyor. Bu consumer sadece sadakat puanı ve müşteri
 özeti gibi iki read endpoint'ini yoğun kullanıyor. İki command endpoint seyrek çalışıyor. Ortamda
 memory limiti sıkı; amaç her spike'ı taşımak değil, pod'u küçük tutmak.
 
@@ -422,7 +422,7 @@ mutlaka 200 dönmeli diyorsanız bu artık memory-first senaryo değildir.
 
 ### Raporlama ve Snapshot Servisi: 10 Endpoint, 4 Yoğun Endpoint, 1 Büyük JSON
 
-Hikaye: Bir iç operasyon ekranı consumer üzerinden müşteri snapshot, kampanya listesi, sipariş
+Bir iç operasyon ekranı consumer üzerinden müşteri snapshot, kampanya listesi, sipariş
 durumu ve büyük rapor JSON'u istiyor. Toplam 10 endpoint var. Trafiğin çoğu 4 endpoint'e gidiyor.
 Bu 4 endpoint'ten biri büyük JSON döndürüyor.
 
@@ -478,7 +478,7 @@ byte metriği, warm load sonrası RSS ve 30-60 saniye idle sonrası RSS.
 
 ### CRM Komut Servisi: Create, Patch, Delete Trafiği Yüksek
 
-Hikaye: Çağrı merkezi veya CRM ekranı müşteri yaratıyor, segment değiştiriyor, statü güncelliyor ve
+Çağrı merkezi veya CRM ekranı müşteri yaratıyor, segment değiştiriyor, statü güncelliyor ve
 bazen müşteri siliyor. Bunlar read değil, veri değiştiren command işlemleridir. Provider DB'ye yazar.
 Bazı client'lar timeout görünce kendi tarafında tekrar deneyebilir.
 
@@ -526,7 +526,7 @@ tarafı kısa timeout ve düşük concurrency ile provider/DB limitini görünü
 
 ### Kampanya Listeleme Servisi: Çok Pod, Sıkı Memory, Kontrollü 503
 
-Hikaye: Aynı namespace içinde çok sayıda küçük consumer pod var. Her pod kampanya listesi ve müşteri
+Aynı namespace içinde çok sayıda küçük consumer pod var. Her pod kampanya listesi ve müşteri
 özetini yoğun okuyor. Bazı admin veya command endpoint'ler seyrek çağrılıyor. Hedef maksimum RPS
 değil, pod başına düşük RSS ile yatay ölçeklenmek.
 
@@ -582,7 +582,7 @@ yükseltmektir.
 
 ### Çağrı Merkezi Lookup API'si: Memory Rahat, p99 Yüksek
 
-Hikaye: Çağrı merkezi ekranı müşteri ve sipariş bilgisini sürekli okuyor. Pod memory limiti rahat,
+Çağrı merkezi ekranı müşteri ve sipariş bilgisini sürekli okuyor. Pod memory limiti rahat,
 ama kullanıcı ekranda bekleme görüyor. Burada hedef memory'yi en aşağı çekmek değil, p99'u makul
 seviyeye indirmektir.
 
