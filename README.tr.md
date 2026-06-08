@@ -945,20 +945,22 @@ Runtime davranış/resource sahibi nesne = Java class
 Hazır JSON/RPC payload = RawResponse
 ```
 
-Bu örnekteki class'lar response DTO değildir:
+Bu örnekteki class ve interface'ler response DTO değildir. DTO gerekiyorsa normal tercih Java
+`record` olmalıdır; runtime davranışı, config, handler ve Dubbo interface'leri Java `class` veya
+`interface` olarak kalır.
 
-| Tip | Rol | JSON DTO mu? |
-|-----|-----|--------------|
-| `RestSampleDubboConsumerApplication` | Process ve HTTP server başlatır. | Hayır |
-| `ConsumerProperties` | Runtime property okur ve validate eder. | Hayır |
-| `DubboConsumerConfiguration` | Dubbo client bean'lerini oluşturur/kapatır. | Hayır |
-| `NestedCatalogClient` | Native Dubbo method invoker adapter'ıdır. | Hayır |
-| `CustomerQueryClient` | Customer Dubbo interface adapter'ıdır. | Hayır |
-| `CatalogHandler` | REST endpoint davranışını taşır. | Hayır |
-| `CustomerHandler` | Customer REST endpoint davranışını taşır. | Hayır |
-| `HealthHandler` | Health endpoint davranışını taşır. | Hayır |
-| `NestedCatalogService` | Dubbo interface kontratıdır. | HTTP JSON DTO değil |
-| `CustomerQueryService` | İkinci Dubbo interface kontratıdır. | HTTP JSON DTO değil |
+| Tip | Rol | HTTP JSON contract tipi |
+|-----|-----|-------------------------|
+| `RestSampleDubboConsumerApplication` | Process ve HTTP server başlatır. | Java class (startup/runtime); HTTP JSON body üretmez. |
+| `ConsumerProperties` | Runtime property okur ve validate eder. | Java class (config); HTTP JSON body üretmez. |
+| `DubboConsumerConfiguration` | Dubbo client bean'lerini oluşturur/kapatır. | Java class (resource/config); HTTP JSON body üretmez. |
+| `NestedCatalogClient` | Native Dubbo method invoker adapter'ıdır. | Java class (RPC adapter); JSON DTO veya POJO response contract değildir. |
+| `CustomerQueryClient` | Customer Dubbo interface adapter'ıdır. | Java class (RPC adapter); JSON DTO veya POJO response contract değildir. |
+| `CatalogHandler` | REST endpoint davranışını taşır. | Java class (HTTP handler/controller); body tipi değildir. Response `RawResponse` veya Java `record` DTO olabilir. |
+| `CustomerHandler` | Customer REST endpoint davranışını taşır. | Java class (HTTP handler/controller); body tipi değildir. Request/response DTO ayrı Java `record` olmalıdır. |
+| `HealthHandler` | Health endpoint davranışını taşır. | Java class (HTTP handler/controller); body tipi değildir. |
+| `NestedCatalogService` | Dubbo interface kontratıdır. | Java interface (Dubbo RPC contract); HTTP JSON body tipi değildir. |
+| `CustomerQueryService` | İkinci Dubbo interface kontratıdır. | Java interface (Dubbo RPC contract); HTTP JSON body tipi değildir. |
 
 ### Use Case: Normal REST DTO
 

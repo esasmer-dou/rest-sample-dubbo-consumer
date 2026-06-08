@@ -946,20 +946,22 @@ Runtime behavior/resource owner = Java class
 Already serialized JSON/RPC payload = RawResponse
 ```
 
-Classes in this sample are not response DTOs:
+The classes and interfaces in this sample are not response DTOs. When a DTO is needed, the normal
+choice is a Java `record`; runtime behavior, config, handlers, and Dubbo interfaces stay as Java
+`class` or `interface` types.
 
-| Type | Role | JSON DTO? |
-|------|------|-----------|
-| `RestSampleDubboConsumerApplication` | Starts the process and HTTP server. | No |
-| `ConsumerProperties` | Reads and validates runtime properties. | No |
-| `DubboConsumerConfiguration` | Creates and closes Dubbo client beans. | No |
-| `NestedCatalogClient` | Adapter around native Dubbo method invokers. | No |
-| `CustomerQueryClient` | Adapter around the customer Dubbo interface. | No |
-| `CatalogHandler` | REST endpoint behavior. | No |
-| `CustomerHandler` | Customer REST endpoint behavior. | No |
-| `HealthHandler` | Health endpoint behavior. | No |
-| `NestedCatalogService` | Dubbo interface contract. | Not an HTTP JSON DTO |
-| `CustomerQueryService` | Second Dubbo interface contract. | Not an HTTP JSON DTO |
+| Type | Role | HTTP JSON contract type |
+|------|------|-------------------------|
+| `RestSampleDubboConsumerApplication` | Starts the process and HTTP server. | Java class (startup/runtime); does not produce an HTTP JSON body. |
+| `ConsumerProperties` | Reads and validates runtime properties. | Java class (config); does not produce an HTTP JSON body. |
+| `DubboConsumerConfiguration` | Creates and closes Dubbo client beans. | Java class (resource/config); does not produce an HTTP JSON body. |
+| `NestedCatalogClient` | Adapter around native Dubbo method invokers. | Java class (RPC adapter); not a JSON DTO or POJO response contract. |
+| `CustomerQueryClient` | Adapter around the customer Dubbo interface. | Java class (RPC adapter); not a JSON DTO or POJO response contract. |
+| `CatalogHandler` | REST endpoint behavior. | Java class (HTTP handler/controller); not a body type. It can return `RawResponse` or a Java `record` DTO. |
+| `CustomerHandler` | Customer REST endpoint behavior. | Java class (HTTP handler/controller); not a body type. Request/response DTOs should be separate Java `record` types. |
+| `HealthHandler` | Health endpoint behavior. | Java class (HTTP handler/controller); not a body type. |
+| `NestedCatalogService` | Dubbo interface contract. | Java interface (Dubbo RPC contract); not an HTTP JSON body type. |
+| `CustomerQueryService` | Second Dubbo interface contract. | Java interface (Dubbo RPC contract); not an HTTP JSON body type. |
 
 ### Use Case: Normal REST DTO
 
