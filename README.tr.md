@@ -273,29 +273,61 @@ curl http://localhost:8080/api/v1/catalog/dubbo-metrics
 Etkisi: liveness ZooKeeper, provider CPU veya DB latency'ye bağımlı olmaz. Deployment politikanız
 gerektiriyorsa readiness Dubbo/provider durumunu ayrıca kontrol edebilir.
 
-## Production Senaryo Playbookları
+## Production Senaryo Rehberi
 
-Tek bir property tablosu çoğu zaman yeterli olmaz. Gerçek sistemlerde aynı servis içinde hot read,
-DB-backed command, büyük JSON response, düşük trafikli admin endpoint ve memory baskısı aynı anda
-bulunur. Aşağıdaki senaryolar bu örneği production'a taşırken hangi profili, hangi route budget'ı ve
-hangi Dubbo ayarını nereden başlatacağınızı gösterir.
+Bu bölüm tek tek property ezberletmek için değil, gerçek hayatta karşılaşacağınız servis
+şekillerine göre karar vermeniz için hazırlandı. Aynı consumer içinde müşteri okuma, sipariş
+getirme, katalog listeleme, müşteri yaratma, statü güncelleme ve silme endpoint'leri birlikte
+çalışabilir. Her endpoint aynı maliyette değildir; bu yüzden her endpoint'e aynı kuyruk, aynı
+timeout ve aynı concurrency vermek production'da doğru davranış değildir.
 
-### Senaryo A: Arkada DB Olan API, 5 Endpoint, 3 Hot Route
+### Önce Terimleri Netleştirelim
 
-Servis şekli:
+| Terim | Basit açıklama | Bu projede neye etki eder? |
+|-------|----------------|----------------------------|
+| `p99` | 100 isteğin 99 tanesi bu sürenin altında biter demektir. Örnek: p99 120 ms ise isteklerin çoğu hızlıdır, ama en yavaş yüzde 1 için 120 ms görüyorsunuz. | Kullanıcının hissettiği yavaşlamayı average latency'den daha iyi gösterir. |
+| `503` | Servisin "şu anda bu isteği alamam" demesidir. Hata gibi görünür ama kontrollü overload için bilinçli kullanılır. | Kuyruk şişip memory ve latency patlamasın diye bazı istekler erken reddedilir. |
+| Hot read | Çok çağrılan okuma endpoint'i. Örnek: müşteri getir, sipariş getir, katalog getir. | Daha fazla route budget alabilir ama DB/provider kapasitesini aşmamalıdır. |
+| Cold route | Seyrek çağrılan endpoint. Örnek: admin işlem, seyrek patch, silme. | Hot endpoint'lerin kapasitesini çalmamalıdır. |
+| Write command | Veri değiştiren işlem. Örnek: müşteri yarat, sipariş iptal et, müşteri statüsü değiştir. | Retry ve derin kuyruk tehlikelidir; idempotency gerekir. |
+| Route budget | Bir endpoint'in aynı anda kaç işi içeri alabileceğidir. | `reactor.rust.route-admission...max-concurrent` ile ayarlanır. |
+| Queue timeout | Route budget doluyken isteğin ne kadar bekleyebileceğidir. | `queue-timeout-ms` büyürse 503 azalabilir ama p99 ve memory artabilir. |
+| In-flight | Şu anda işlenmekte olan istek veya response demektir. | Çok büyürse RSS ve p99 yükselir. |
+| RSS | Pod'un işletim sistemi gözünden tuttuğu gerçek memory miktarıdır. | Kubernetes memory limitini asıl etkileyen değerdir. |
+| Consumer | Bu proje: REST isteğini alır, gerekiyorsa Dubbo provider'a gider ve response döner. | REST + Dubbo ayarları bu tarafta yapılır. |
+| Provider | Arkadaki Dubbo servisidir. DB'ye gider, iş mantığını çalıştırır veya JSON üretir. | Provider yavaşsa consumer kuyruğunu büyütmek tek başına çözüm değildir. |
+| RawResponse | Provider'dan gelen JSON byte'larını Java DTO parse/serialize yapmadan direkt response olarak döndürme yoludur. | Düşük allocation, düşük CPU ve daha düşük RSS için önerilir. |
 
-| Endpoint | Trafik | Backend | Önerilen response yolu |
-|----------|--------|---------|------------------------|
-| `GET /api/v1/catalog/nested` | Çok yüksek | Dubbo read provider | `RawResponse.json(bytes)` |
-| `GET /api/v1/customers/db` | Çok yüksek | Dubbo -> PostgreSQL | `RawResponse.json(bytes)` |
-| `POST /api/v1/customers` | Çok yüksek | Dubbo write command -> PostgreSQL | `RawResponse.json(bytes)` |
-| `PATCH /api/v1/customers/{id}/status` | Düşük | Dubbo write command -> PostgreSQL | `RawResponse.json(bytes)` |
-| `DELETE /api/v1/customers/{id}` | Düşük | Dubbo write command -> PostgreSQL | `RawResponse.json(bytes)` |
+Route admission key'leri path'e göre üretilir. Örneğin `GET /api/v1/customers/db` için örnek key
+`reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent` şeklindedir. Kendi projenizde
+path farklıysa property key'i de kendi path'inize göre değiştirin.
 
-Tipik problem: üç hot endpoint aynı anda kuyruğu doldurur, DB-backed read yavaşlar ve write
-command'larda p99 yükselir. Çözüm tek bir global kuyruğu büyütmek değildir. Her route'a kendi
-kapasite bütçesini verin ve consumer tarafındaki Dubbo kapasitesini provider/DB kapasitesiyle aynı
-hizada tutun.
+### E-Ticaret Müşteri ve Sipariş Servisi: 5 Endpoint, 3 Yoğun Endpoint
+
+Hikaye: Bir e-ticaret uygulamasında REST consumer var. Mobil uygulama sık sık müşteri bilgisi,
+sipariş özeti ve katalog bilgisi istiyor. Aynı servis müşteri yaratma, statü değiştirme ve silme
+işlemlerini de Dubbo provider üzerinden yapıyor. Provider tarafında PostgreSQL ve Hikari pool var.
+
+API'lerin anlamı:
+
+| Gerçek hayattaki iş | Sample endpoint | Trafik | Arkadaki iş |
+|---------------------|-----------------|--------|-------------|
+| Katalog veya sipariş özeti getir | `GET /api/v1/catalog/nested` | Çok yüksek | Dubbo read provider JSON döner |
+| Müşteri bilgisi getir | `GET /api/v1/customers/db` | Çok yüksek | Dubbo provider PostgreSQL'den okur |
+| Müşteri yarat | `POST /api/v1/customers` | Yüksek | Dubbo provider PostgreSQL'e yazar |
+| Müşteri statüsü değiştir | `PATCH /api/v1/customers/{id}/status` | Düşük | Dubbo write command |
+| Müşteri sil | `DELETE /api/v1/customers/{id}` | Düşük | Dubbo write command |
+
+Zaman akışı:
+
+| Zaman | Ne oldu? | Gördüğünüz belirti |
+|-------|----------|--------------------|
+| İlk gün | Servisi `micro-dubbo` ile açtınız. | RSS düşük, endpoint'ler sağlıklı. |
+| Trafik arttı | Üç yoğun endpoint aynı anda provider'a yük bindirdi. | `GET /customers/db` p99 yükseldi, `POST /customers` yavaşladı. |
+| İlk yanlış hamle | Sadece global queue büyütüldü. | 503 azaldı ama p99 ve memory yükseldi. |
+| Doğru hamle | Her endpoint'e ayrı route budget verildi. | Okuma endpoint'leri üretken kaldı, write command'lar provider'ı boğmadı. |
+
+Başlangıç ayarı:
 
 ```properties
 reactor.runtime.profile=micro-dubbo
@@ -321,27 +353,38 @@ reactor.rust.route-admission.patch.api.v1.customers.id.status.max-concurrent=2
 reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent=2
 ```
 
-Bu ayar neden işe yarar:
+Neden böyle: katalog/sipariş özeti ucuz bir read ise daha büyük budget alır. DB'den müşteri okuma
+daha pahalıdır, bu yüzden `8` ile başlar. Write command'lar daha düşük kalır çünkü provider ve DB
+yazma kapasitesi sınırsız değildir. `retries=0` command tarafında retry storm'u önler.
 
-| Karar | Etki |
-|-------|------|
-| Catalog read en büyük budget'ı alır | Ucuz read endpoint üretken kalır; DB/write route'ları tüm kapasiteyi yutmaz. |
-| DB read `8` ile başlar | Consumer, küçük bir provider DB pool'unun bitiremeyeceği kadar işi ileri itmez. |
-| Write command budget'ı daha düşük kalır | Duplicate write baskısı azalır ve overload hızlı görünür hale gelir. |
-| `retries=0` | Command method'larında retry storm oluşmasını engeller. |
+Ölçmeniz gerekenler: endpoint bazlı başarılı `200` RPS, endpoint bazlı p99, endpoint bazlı `503`
+oranı, provider DB pool wait süresi ve trafik durduktan 30-60 saniye sonra consumer RSS.
 
-Sonraki ölçüm: endpoint bazlı başarılı `200` RPS, endpoint bazlı p99, endpoint bazlı `503` oranı,
-provider DB pool wait süresi ve trafik kesildikten 30-60 saniye sonra consumer RSS.
+### Sadakat Puan Servisi: Küçük Pod, 4 Endpoint, 2 Yoğun Endpoint
 
-### Senaryo B: Memory Baskısı Olan Pod, 4 Endpoint, 2 Hot Route
+Hikaye: Kubernetes'te çok sayıda küçük pod koşuyor. Bu consumer sadece sadakat puanı ve müşteri
+özeti gibi iki read endpoint'ini yoğun kullanıyor. İki command endpoint seyrek çalışıyor. Ortamda
+memory limiti sıkı; amaç her spike'ı taşımak değil, pod'u küçük tutmak.
 
-Servis şekli: küçük bir Kubernetes pod'u var. Dört REST endpoint çalışıyor, iki tanesi hot read, iki
-tanesi seyrek command. Ana hedef maksimum throughput değil, pod memory limitinin altında kalmak.
+API'lerin anlamı:
 
-| Endpoint grubu | Trafik | Önerilen seçim |
-|----------------|--------|----------------|
-| 2 read endpoint | Çok yüksek | `RawResponse.json(bytes)` ve küçük response pool |
-| 2 command endpoint | Düşük | Düşük route concurrency ve `retries=0` |
+| Gerçek hayattaki iş | Sample endpoint | Trafik | Karar |
+|---------------------|-----------------|--------|-------|
+| Puan/katalog özeti getir | `GET /api/v1/catalog/nested` | Çok yüksek | Raw JSON dön |
+| Müşteri puan bilgisi getir | `GET /api/v1/customers/db` | Çok yüksek | DB-backed read budget düşük başlasın |
+| Puan hesabı yarat | `POST /api/v1/customers` | Düşük | Command concurrency düşük |
+| Hesabı pasifleştir | `DELETE /api/v1/customers/{id}` | Düşük | Hızlı fail kabul edilebilir |
+
+Zaman akışı:
+
+| Zaman | Ne oldu? | Gördüğünüz belirti |
+|-------|----------|--------------------|
+| İlk kurulum | Pod memory limiti düşük verildi. | Servis açılıyor ama warm load sonrası RSS önem kazanıyor. |
+| Trafik spike aldı | İki hot read aynı anda geldi. | Bazı isteklerde 503 var ama pod memory sabit kalıyor. |
+| Kullanıcı beklentisi netleşti | Bu servis memory-first çalışacak. | Kontrollü 503 kabul, limitsiz kuyruk kabul değil. |
+| Idle dönem başladı | Servis uzun süre az çağrı aldı. | Native trim açılırsa idle RSS daha aşağı iner. |
+
+Başlangıç ayarı:
 
 ```properties
 reactor.runtime.profile=micro-dubbo
@@ -360,7 +403,7 @@ reactor.dubbo.native-connections-per-endpoint=1
 reactor.dubbo.native-async-workers=1
 ```
 
-Servis uzun süre idle kalıyorsa ve p99 gate'iniz geçiyorsa aşağıdaki opt-in trim ayarını ekleyin:
+Servis uzun süre idle kalıyorsa ve kendi p99 testiniz geçiyorsa bu ayarı ayrıca açın:
 
 ```properties
 reactor.rust.native-trim.enabled=true
@@ -373,23 +416,36 @@ reactor.rust.native-trim.retain-small=16
 reactor.rust.native-trim.allocator-trim-enabled=true
 ```
 
-Beklenen davranış: idle RSS düşer, ani yükte kontrollü overload oluşur. Bu profilde spike altında
-bir miktar `503` kabul edilebilir. Eğer her çağrı mutlaka `200` dönmek zorundaysa servis artık
-strict memory-first değildir; Senaryo C veya F tarafına geçin.
+Neden böyle: thread sayısı, response pool ve Dubbo connection sayısı küçük tutulur. Bu sayede RSS
+kontrol altında kalır. Bedel olarak yüksek concurrency'de bazı istekler 503 alabilir. Eğer her istek
+mutlaka 200 dönmeli diyorsanız bu artık memory-first senaryo değildir.
 
-### Senaryo C: Latency Baskısı, 10 Endpoint, 4 Hot Route, 1 Büyük JSON Route
+### Raporlama ve Snapshot Servisi: 10 Endpoint, 4 Yoğun Endpoint, 1 Büyük JSON
 
-Servis şekli: uygulamada 10 endpoint var. Trafiğin çoğunu 4 endpoint alıyor. Bu 4 endpoint'ten biri
-daha büyük provider JSON response döndürüyor. Latency yükseliyor ama pod memory bütçesi hâlâ bir
-miktar esnek.
+Hikaye: Bir iç operasyon ekranı consumer üzerinden müşteri snapshot, kampanya listesi, sipariş
+durumu ve büyük rapor JSON'u istiyor. Toplam 10 endpoint var. Trafiğin çoğu 4 endpoint'e gidiyor.
+Bu 4 endpoint'ten biri büyük JSON döndürüyor.
 
-Endpoint ayrımı:
+API'lerin anlamı:
 
-| Grup | Örnek | Risk |
-|------|-------|------|
-| 3 hot küçük read | catalog/customer/status lookup | Hepsi aynı küçük kuyruğu paylaşırsa p99 yükselir. |
-| 1 hot büyük JSON read | report/snapshot | In-flight response byte ve retained buffer baskısı yapar. |
-| 6 cold route | command veya admin route | Hot read kapasitesini çalmamalı. |
+| Gerçek hayattaki iş | Sample endpoint | Trafik | Risk |
+|---------------------|-----------------|--------|------|
+| Katalog/snapshot getir | `GET /api/v1/catalog/nested` | Çok yüksek | Ucuzsa yüksek budget alabilir |
+| Müşteri DB bilgisi getir | `GET /api/v1/customers/db` | Çok yüksek | Provider DB pool'u bekletebilir |
+| Müşteri+kampanya büyük JSON getir | `GET /api/v1/catalog/db/customers` | Yüksek | Büyük response aynı anda memory tutar |
+| Metrik/health oku | `GET /api/v1/catalog/dubbo-metrics` | Orta | Hot route kapasitesini çalmamalı |
+| Diğer 6 endpoint | Admin veya command | Düşük | Küçük budget ile kalmalı |
+
+Zaman akışı:
+
+| Zaman | Ne oldu? | Gördüğünüz belirti |
+|-------|----------|--------------------|
+| Başlangıç | Tüm endpoint'ler aynı ayarla çalıştı. | Küçük response'lar iyi, büyük JSON endpoint dalgalı. |
+| Trafik arttı | Büyük JSON endpoint aynı anda fazla çağrı aldı. | RSS yükseldi, p99 kötüleşti. |
+| Yanlış hamle | `max-connections` artırıldı. | Daha fazla büyük response aynı anda memory tuttu. |
+| Doğru hamle | Büyük JSON limitleri birlikte ayarlandı ve route concurrency düşürüldü. | Memory kontrol edildi, küçük hot read endpoint'ler korunur hale geldi. |
+
+Başlangıç ayarı:
 
 ```properties
 reactor.runtime.profile=micro-dubbo
@@ -413,21 +469,38 @@ reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6
 reactor.rust.route-admission.get.api.v1.catalog.db.customers.queue-timeout-ms=150
 ```
 
-Büyük JSON kuralı: Dubbo response limiti, HTTP tek response limiti ve toplam in-flight response byte
-limiti birlikte artırılmalıdır. İlk hamle olarak `reactor.rust.http.max-connections` büyütmeyin.
-Daha fazla connection, büyük JSON route'unun aynı anda daha fazla memory tutmasına neden olabilir.
+Neden böyle: büyük JSON için sadece tek response limiti yetmez. Dubbo response limiti, HTTP response
+limiti ve toplam in-flight response byte limiti birlikte düşünülür. Büyük JSON endpoint'e düşük
+concurrency verilir; aksi halde aynı anda çok sayıda büyük response RSS'i yükseltir.
 
-Sonraki ölçüm: hot route'ların p99 değerlerini ayrı ayrı izleyin. Sadece büyük JSON route yavaşsa
-önce o route'un concurrency değerini düşürün. Tüm hot read'ler yavaşsa ve provider CPU sağlıklıysa
-Java worker artırmadan önce native connection sayısını deneyin.
+Ölçmeniz gerekenler: büyük JSON endpoint p99, küçük hot read endpoint p99, `503` oranı, response
+byte metriği, warm load sonrası RSS ve 30-60 saniye idle sonrası RSS.
 
-### Senaryo D: Gerçek Business Command'larda Yüksek Write Baskısı
+### CRM Komut Servisi: Create, Patch, Delete Trafiği Yüksek
 
-Servis şekli: REST tarafında create, update, patch, delete ve read API'leri var. Write işlemleri DB
-arkasındaki Dubbo provider'a gidiyor. Bazı client'lar kendi tarafında retry yapıyor.
+Hikaye: Çağrı merkezi veya CRM ekranı müşteri yaratıyor, segment değiştiriyor, statü güncelliyor ve
+bazen müşteri siliyor. Bunlar read değil, veri değiştiren command işlemleridir. Provider DB'ye yazar.
+Bazı client'lar timeout görünce kendi tarafında tekrar deneyebilir.
 
-Ana risk: duplicate write, retry storm ve görünmeyen derin kuyruk. Write route'larını tahmin
-edilebilir tutun.
+API'lerin anlamı:
+
+| Gerçek hayattaki iş | Sample endpoint | Trafik | Risk |
+|---------------------|-----------------|--------|------|
+| Müşteri yarat | `POST /api/v1/customers` | Yüksek | Duplicate create |
+| Segment değiştir | `PATCH /api/v1/customers/{id}/segment` | Orta | Aynı müşteriye yarışan update |
+| Statü değiştir | `PATCH /api/v1/customers/{id}/status` | Orta | Retry ile çakışan state |
+| Müşteri sil | `DELETE /api/v1/customers/{id}` | Düşük | Geri alınması zor command |
+
+Zaman akışı:
+
+| Zaman | Ne oldu? | Gördüğünüz belirti |
+|-------|----------|--------------------|
+| İlk canlı kullanım | Read endpoint'ler iyi çalıştı. | Command route'larda occasional timeout görüldü. |
+| Client retry yaptı | Aynı command tekrar geldi. | Provider ve DB üzerinde duplicate write baskısı oluştu. |
+| Yanlış hamle | Consumer kuyruğu büyütüldü. | Problem gizlendi, p99 ve memory arttı. |
+| Doğru hamle | Command concurrency düşük tutuldu, retry kapalı kaldı, idempotency planlandı. | Sistem daha tahmin edilebilir hale geldi. |
+
+Başlangıç ayarı:
 
 ```properties
 reactor.dubbo.retries=0
@@ -447,14 +520,26 @@ reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent=2
 reactor.rust.route-admission.delete.api.v1.customers.id.queue-timeout-ms=100
 ```
 
-Operasyon kuralı: caller garantili tamamlanma istiyorsa provider önüne idempotency key veya durable
-workflow koyun. Consumer'ı derin bir write queue'ya çevirmeyin. Derin queue p99 ve memory kullanımını
-artırır, asıl provider/DB limitini gizler.
+Production kararı: command endpoint için "kuyruğa al, nasılsa sonra işler" yaklaşımı anti-pattern'dir.
+Garantili tamamlanma gerekiyorsa idempotency key, outbox veya durable workflow ekleyin. Consumer
+tarafı kısa timeout ve düşük concurrency ile provider/DB limitini görünür tutmalıdır.
 
-### Senaryo E: Karışık Trafik, Sıkı Memory Limiti ve Kontrollü Overload
+### Kampanya Listeleme Servisi: Çok Pod, Sıkı Memory, Kontrollü 503
 
-Servis şekli: trafik dengesiz. İki endpoint çağrıların çoğunu alıyor, iki endpoint seyrek çalışıyor
-ve aynı namespace içinde çok sayıda küçük pod koştuğu için deployment küçük kalmalı.
+Hikaye: Aynı namespace içinde çok sayıda küçük consumer pod var. Her pod kampanya listesi ve müşteri
+özetini yoğun okuyor. Bazı admin veya command endpoint'ler seyrek çağrılıyor. Hedef maksimum RPS
+değil, pod başına düşük RSS ile yatay ölçeklenmek.
+
+API'lerin anlamı:
+
+| Gerçek hayattaki iş | Sample endpoint | Trafik | Karar |
+|---------------------|-----------------|--------|-------|
+| Kampanya/katalog getir | `GET /api/v1/catalog/nested` | Çok yüksek | Orta budget |
+| Müşteri özetini getir | `GET /api/v1/customers/db` | Yüksek | DB kapasitesine göre budget |
+| Müşteri yarat | `POST /api/v1/customers` | Düşük | Küçük command budget |
+| Müşteri sil | `DELETE /api/v1/customers/{id}` | Düşük | En küçük budget |
+
+Kubernetes başlangıç ayarı:
 
 ```yaml
 env:
@@ -474,8 +559,7 @@ env:
     value: "2"
 ```
 
-İki hot endpoint read-only ise orta seviyede route budget verin. Seyrek write/admin route'ları küçük
-tutun:
+Route budget:
 
 ```properties
 reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=16
@@ -484,13 +568,34 @@ reactor.rust.route-admission.post.api.v1.customers.max-concurrent=2
 reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent=1
 ```
 
-Başarı sinyali: hot read endpoint'ler faydalı `200` response üretmeye devam eder, seyrek route'lar
-overload altında hızlı fail eder ve trafik sakinleştiğinde RSS beklenen idle seviyeye geri döner.
+Zaman akışı:
 
-### Senaryo F: Aynı API, Memory Sorun Değil Ama Latency Sorun
+| Zaman | Ne oldu? | Gördüğünüz belirti |
+|-------|----------|--------------------|
+| İlk deployment | Çok sayıda küçük pod açıldı. | Toplam kapasite yüksek, pod başı RSS düşük. |
+| Kampanya anı | İki hot read endpoint spike aldı. | Bazı cold route'lar 503 alabilir. |
+| Trafik sakinleşti | Pod'lar idle kaldı. | RSS beklenen idle seviyeye geri dönmeli. |
 
-Bu reçeteyi servis artık memory-bound değilse ve normal business yükünde ana problem yüksek p99 ise
-kullanın.
+Doğru yorum: bu senaryoda 503 tamamen kötü değildir. 503, pod memory limitini korumak için erken
+reddetme sinyalidir. Asıl kötü olan, 503'ü gizlemek için kuyruğu büyütüp tüm servislerin p99'unu
+yükseltmektir.
+
+### Çağrı Merkezi Lookup API'si: Memory Rahat, p99 Yüksek
+
+Hikaye: Çağrı merkezi ekranı müşteri ve sipariş bilgisini sürekli okuyor. Pod memory limiti rahat,
+ama kullanıcı ekranda bekleme görüyor. Burada hedef memory'yi en aşağı çekmek değil, p99'u makul
+seviyeye indirmektir.
+
+API'lerin anlamı:
+
+| Gerçek hayattaki iş | Sample endpoint | Trafik | Karar |
+|---------------------|-----------------|--------|-------|
+| Müşteri lookup | `GET /api/v1/customers/db` | Çok yüksek | Daha fazla Dubbo kapasitesi |
+| Sipariş/katalog lookup | `GET /api/v1/catalog/nested` | Çok yüksek | Daha fazla route budget |
+| Büyük müşteri geçmişi | `GET /api/v1/catalog/db/customers` | Orta | Ayrı büyük JSON budget |
+| Command endpoint'ler | `POST/PATCH/DELETE` | Düşük | Küçük budget korunur |
+
+Başlangıç ayarı:
 
 ```properties
 reactor.runtime.profile=micro-dubbo
@@ -501,10 +606,16 @@ reactor.dubbo.native-async-workers=2
 reactor.rust.http.max-connections=768
 ```
 
-Route'a özel budget'ları koruyun. Memory yeterli diye admission control'ü kaldırmayın. Admission
-control, tek bir yavaş provider route'unun tüm endpoint'leri yavaşlatmasını engelleyen sınırdır.
+Zaman akışı:
 
-Bu senaryoyu seçmeden önce şunları kontrol edin:
+| Zaman | Ne oldu? | Gördüğünüz belirti |
+|-------|----------|--------------------|
+| İlk ölçüm | Average latency iyi görünür. | p99 kötü olduğu için kullanıcı bekleme hisseder. |
+| Kapasite artırıldı | Dubbo inflight ve native connection artırıldı. | Hot read p99 iyileşebilir. |
+| Admission kaldırıldı | Tüm endpoint'ler serbest bırakıldı. | Bir yavaş provider route'u tüm servisi yavaşlatır. |
+| Doğru hamle | Route budget korunur, sadece hot read kapasitesi artırılır. | p99 dengelenir, cold route'lar sistemi boğmaz. |
+
+Bu profile geçmeden önce şunları kontrol edin:
 
 | Kontrol | Gerekli sinyal |
 |---------|----------------|
