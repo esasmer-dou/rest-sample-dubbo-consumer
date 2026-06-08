@@ -273,6 +273,247 @@ curl http://localhost:8080/api/v1/catalog/dubbo-metrics
 Etkisi: liveness ZooKeeper, provider CPU veya DB latency'ye bağımlı olmaz. Deployment politikanız
 gerektiriyorsa readiness Dubbo/provider durumunu ayrıca kontrol edebilir.
 
+## Production Senaryo Playbookları
+
+Tek bir property tablosu çoğu zaman yeterli olmaz. Gerçek sistemlerde aynı servis içinde hot read,
+DB-backed command, büyük JSON response, düşük trafikli admin endpoint ve memory baskısı aynı anda
+bulunur. Aşağıdaki senaryolar bu örneği production'a taşırken hangi profili, hangi route budget'ı ve
+hangi Dubbo ayarını nereden başlatacağınızı gösterir.
+
+### Senaryo A: Arkada DB Olan API, 5 Endpoint, 3 Hot Route
+
+Servis şekli:
+
+| Endpoint | Trafik | Backend | Önerilen response yolu |
+|----------|--------|---------|------------------------|
+| `GET /api/v1/catalog/nested` | Çok yüksek | Dubbo read provider | `RawResponse.json(bytes)` |
+| `GET /api/v1/customers/db` | Çok yüksek | Dubbo -> PostgreSQL | `RawResponse.json(bytes)` |
+| `POST /api/v1/customers` | Çok yüksek | Dubbo write command -> PostgreSQL | `RawResponse.json(bytes)` |
+| `PATCH /api/v1/customers/{id}/status` | Düşük | Dubbo write command -> PostgreSQL | `RawResponse.json(bytes)` |
+| `DELETE /api/v1/customers/{id}` | Düşük | Dubbo write command -> PostgreSQL | `RawResponse.json(bytes)` |
+
+Tipik problem: üç hot endpoint aynı anda kuyruğu doldurur, DB-backed read yavaşlar ve write
+command'larda p99 yükselir. Çözüm tek bir global kuyruğu büyütmek değildir. Her route'a kendi
+kapasite bütçesini verin ve consumer tarafındaki Dubbo kapasitesini provider/DB kapasitesiyle aynı
+hizada tutun.
+
+```properties
+reactor.runtime.profile=micro-dubbo
+reactor.rust.jni.workers=1
+reactor.rust.jni.queue-capacity=128
+
+reactor.dubbo.max-inflight=24
+reactor.dubbo.timeout-ms=1000
+reactor.dubbo.retries=0
+reactor.dubbo.native-connections-per-endpoint=2
+reactor.dubbo.native-async-workers=1
+
+reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=24
+reactor.rust.route-admission.get.api.v1.catalog.nested.queue-timeout-ms=100
+
+reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=8
+reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms=150
+
+reactor.rust.route-admission.post.api.v1.customers.max-concurrent=6
+reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms=150
+
+reactor.rust.route-admission.patch.api.v1.customers.id.status.max-concurrent=2
+reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent=2
+```
+
+Bu ayar neden işe yarar:
+
+| Karar | Etki |
+|-------|------|
+| Catalog read en büyük budget'ı alır | Ucuz read endpoint üretken kalır; DB/write route'ları tüm kapasiteyi yutmaz. |
+| DB read `8` ile başlar | Consumer, küçük bir provider DB pool'unun bitiremeyeceği kadar işi ileri itmez. |
+| Write command budget'ı daha düşük kalır | Duplicate write baskısı azalır ve overload hızlı görünür hale gelir. |
+| `retries=0` | Command method'larında retry storm oluşmasını engeller. |
+
+Sonraki ölçüm: endpoint bazlı başarılı `200` RPS, endpoint bazlı p99, endpoint bazlı `503` oranı,
+provider DB pool wait süresi ve trafik kesildikten 30-60 saniye sonra consumer RSS.
+
+### Senaryo B: Memory Baskısı Olan Pod, 4 Endpoint, 2 Hot Route
+
+Servis şekli: küçük bir Kubernetes pod'u var. Dört REST endpoint çalışıyor, iki tanesi hot read, iki
+tanesi seyrek command. Ana hedef maksimum throughput değil, pod memory limitinin altında kalmak.
+
+| Endpoint grubu | Trafik | Önerilen seçim |
+|----------------|--------|----------------|
+| 2 read endpoint | Çok yüksek | `RawResponse.json(bytes)` ve küçük response pool |
+| 2 command endpoint | Düşük | Düşük route concurrency ve `retries=0` |
+
+```properties
+reactor.runtime.profile=micro-dubbo
+reactor.rust.runtime.worker-threads=1
+reactor.rust.runtime.max-blocking-threads=1
+reactor.rust.runtime.thread-stack-bytes=262144
+reactor.rust.jni.workers=1
+reactor.rust.response-pool.small-capacity=8
+reactor.rust.response-pool.medium-capacity=2
+reactor.rust.response-pool.large-capacity=1
+reactor.rust.json.writer-retain-max-bytes=32768
+reactor.rust.http.max-connections=256
+
+reactor.dubbo.max-inflight=8
+reactor.dubbo.native-connections-per-endpoint=1
+reactor.dubbo.native-async-workers=1
+```
+
+Servis uzun süre idle kalıyorsa ve p99 gate'iniz geçiyorsa aşağıdaki opt-in trim ayarını ekleyin:
+
+```properties
+reactor.rust.native-trim.enabled=true
+reactor.rust.native-trim.initial-delay-ms=30000
+reactor.rust.native-trim.interval-ms=60000
+reactor.rust.native-trim.min-idle-ms=10000
+reactor.rust.native-trim.max-active-connections=0
+reactor.rust.native-trim.max-active-requests=0
+reactor.rust.native-trim.retain-small=16
+reactor.rust.native-trim.allocator-trim-enabled=true
+```
+
+Beklenen davranış: idle RSS düşer, ani yükte kontrollü overload oluşur. Bu profilde spike altında
+bir miktar `503` kabul edilebilir. Eğer her çağrı mutlaka `200` dönmek zorundaysa servis artık
+strict memory-first değildir; Senaryo C veya F tarafına geçin.
+
+### Senaryo C: Latency Baskısı, 10 Endpoint, 4 Hot Route, 1 Büyük JSON Route
+
+Servis şekli: uygulamada 10 endpoint var. Trafiğin çoğunu 4 endpoint alıyor. Bu 4 endpoint'ten biri
+daha büyük provider JSON response döndürüyor. Latency yükseliyor ama pod memory bütçesi hâlâ bir
+miktar esnek.
+
+Endpoint ayrımı:
+
+| Grup | Örnek | Risk |
+|------|-------|------|
+| 3 hot küçük read | catalog/customer/status lookup | Hepsi aynı küçük kuyruğu paylaşırsa p99 yükselir. |
+| 1 hot büyük JSON read | report/snapshot | In-flight response byte ve retained buffer baskısı yapar. |
+| 6 cold route | command veya admin route | Hot read kapasitesini çalmamalı. |
+
+```properties
+reactor.runtime.profile=micro-dubbo
+reactor.rust.jni.workers=2
+reactor.rust.jni.queue-capacity=128
+reactor.dubbo.max-inflight=48
+reactor.dubbo.native-connections-per-endpoint=3
+reactor.dubbo.native-async-workers=2
+
+reactor.rust.http.max-response-body-bytes=16777216
+reactor.rust.http.max-inflight-response-bytes=33554432
+reactor.dubbo.max-response-bytes=16777216
+
+reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=32
+reactor.rust.route-admission.get.api.v1.catalog.nested.queue-timeout-ms=125
+
+reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=12
+reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms=125
+
+reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6
+reactor.rust.route-admission.get.api.v1.catalog.db.customers.queue-timeout-ms=150
+```
+
+Büyük JSON kuralı: Dubbo response limiti, HTTP tek response limiti ve toplam in-flight response byte
+limiti birlikte artırılmalıdır. İlk hamle olarak `reactor.rust.http.max-connections` büyütmeyin.
+Daha fazla connection, büyük JSON route'unun aynı anda daha fazla memory tutmasına neden olabilir.
+
+Sonraki ölçüm: hot route'ların p99 değerlerini ayrı ayrı izleyin. Sadece büyük JSON route yavaşsa
+önce o route'un concurrency değerini düşürün. Tüm hot read'ler yavaşsa ve provider CPU sağlıklıysa
+Java worker artırmadan önce native connection sayısını deneyin.
+
+### Senaryo D: Gerçek Business Command'larda Yüksek Write Baskısı
+
+Servis şekli: REST tarafında create, update, patch, delete ve read API'leri var. Write işlemleri DB
+arkasındaki Dubbo provider'a gidiyor. Bazı client'lar kendi tarafında retry yapıyor.
+
+Ana risk: duplicate write, retry storm ve görünmeyen derin kuyruk. Write route'larını tahmin
+edilebilir tutun.
+
+```properties
+reactor.dubbo.retries=0
+reactor.dubbo.timeout-ms=1000
+reactor.dubbo.max-inflight=16
+
+reactor.rust.route-admission.post.api.v1.customers.max-concurrent=4
+reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms=100
+
+reactor.rust.route-admission.patch.api.v1.customers.id.segment.max-concurrent=4
+reactor.rust.route-admission.patch.api.v1.customers.id.segment.queue-timeout-ms=100
+
+reactor.rust.route-admission.patch.api.v1.customers.id.status.max-concurrent=4
+reactor.rust.route-admission.patch.api.v1.customers.id.status.queue-timeout-ms=100
+
+reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent=2
+reactor.rust.route-admission.delete.api.v1.customers.id.queue-timeout-ms=100
+```
+
+Operasyon kuralı: caller garantili tamamlanma istiyorsa provider önüne idempotency key veya durable
+workflow koyun. Consumer'ı derin bir write queue'ya çevirmeyin. Derin queue p99 ve memory kullanımını
+artırır, asıl provider/DB limitini gizler.
+
+### Senaryo E: Karışık Trafik, Sıkı Memory Limiti ve Kontrollü Overload
+
+Servis şekli: trafik dengesiz. İki endpoint çağrıların çoğunu alıyor, iki endpoint seyrek çalışıyor
+ve aynı namespace içinde çok sayıda küçük pod koştuğu için deployment küçük kalmalı.
+
+```yaml
+env:
+  - name: REACTOR_RUNTIME_PROFILE
+    value: "micro-dubbo"
+  - name: REACTOR_RUST_JNI_WORKERS
+    value: "1"
+  - name: REACTOR_DUBBO_MAX_INFLIGHT
+    value: "8"
+  - name: REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT
+    value: "1"
+  - name: REACTOR_RUST_HTTP_MAX_CONNECTIONS
+    value: "256"
+  - name: REACTOR_RUST_RESPONSE_POOL_SMALL_CAPACITY
+    value: "8"
+  - name: REACTOR_RUST_RESPONSE_POOL_MEDIUM_CAPACITY
+    value: "2"
+```
+
+İki hot endpoint read-only ise orta seviyede route budget verin. Seyrek write/admin route'ları küçük
+tutun:
+
+```properties
+reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=16
+reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=8
+reactor.rust.route-admission.post.api.v1.customers.max-concurrent=2
+reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent=1
+```
+
+Başarı sinyali: hot read endpoint'ler faydalı `200` response üretmeye devam eder, seyrek route'lar
+overload altında hızlı fail eder ve trafik sakinleştiğinde RSS beklenen idle seviyeye geri döner.
+
+### Senaryo F: Aynı API, Memory Sorun Değil Ama Latency Sorun
+
+Bu reçeteyi servis artık memory-bound değilse ve normal business yükünde ana problem yüksek p99 ise
+kullanın.
+
+```properties
+reactor.runtime.profile=micro-dubbo
+reactor.rust.jni.workers=2
+reactor.dubbo.max-inflight=64
+reactor.dubbo.native-connections-per-endpoint=4
+reactor.dubbo.native-async-workers=2
+reactor.rust.http.max-connections=768
+```
+
+Route'a özel budget'ları koruyun. Memory yeterli diye admission control'ü kaldırmayın. Admission
+control, tek bir yavaş provider route'unun tüm endpoint'leri yavaşlatmasını engelleyen sınırdır.
+
+Bu senaryoyu seçmeden önce şunları kontrol edin:
+
+| Kontrol | Gerekli sinyal |
+|---------|----------------|
+| Provider CPU | Headroom var. |
+| Provider DB pool | Saturated değil. |
+| Consumer RSS | Warm load sonrası pod limitinin altında. |
+| `503` oranı | Ayar sonrası azalıyor; sadece daha büyük kuyrukla gizlenmiyor. |
+| p99 | Sadece average latency değil, hot endpoint p99 değerleri de iyileşiyor. |
+
 ## `rust-java-rest` 3.2.2 Bu Örnekte Ne Değiştiriyor?
 
 Bu örnek artık `rust-java-rest` `3.2.2` kullanır. Uygulama kodu modeli değişmez: handler'lar,

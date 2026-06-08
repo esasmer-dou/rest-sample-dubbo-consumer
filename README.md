@@ -271,6 +271,243 @@ curl http://localhost:8080/api/v1/catalog/dubbo-metrics
 Effect: liveness does not become dependent on ZooKeeper, provider CPU, or DB latency. Readiness can
 still verify Dubbo/provider state when your deployment policy needs it.
 
+## Production Scenario Playbooks
+
+Use these larger scenarios when a single property table is not enough. Each scenario maps a real
+service shape to the first property set you should try, the problem it solves, and the measurement
+you should run before changing the next knob.
+
+### Scenario A: DB-Backed API, 5 Endpoints, 3 Hot Routes
+
+Service shape:
+
+| Endpoint | Traffic | Backend | Recommended response path |
+|----------|---------|---------|---------------------------|
+| `GET /api/v1/catalog/nested` | Hot | Dubbo read provider | `RawResponse.json(bytes)` |
+| `GET /api/v1/customers/db` | Hot | Dubbo -> PostgreSQL | `RawResponse.json(bytes)` |
+| `POST /api/v1/customers` | Hot | Dubbo write command -> PostgreSQL | `RawResponse.json(bytes)` |
+| `PATCH /api/v1/customers/{id}/status` | Low | Dubbo write command -> PostgreSQL | `RawResponse.json(bytes)` |
+| `DELETE /api/v1/customers/{id}` | Low | Dubbo write command -> PostgreSQL | `RawResponse.json(bytes)` |
+
+Typical problem: the three hot endpoints fill queues, DB-backed reads slow down, and write commands
+start increasing p99. The fix is not one larger global queue. Give each route its own budget and keep
+Dubbo/DB capacity aligned.
+
+```properties
+reactor.runtime.profile=micro-dubbo
+reactor.rust.jni.workers=1
+reactor.rust.jni.queue-capacity=128
+
+reactor.dubbo.max-inflight=24
+reactor.dubbo.timeout-ms=1000
+reactor.dubbo.retries=0
+reactor.dubbo.native-connections-per-endpoint=2
+reactor.dubbo.native-async-workers=1
+
+reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=24
+reactor.rust.route-admission.get.api.v1.catalog.nested.queue-timeout-ms=100
+
+reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=8
+reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms=150
+
+reactor.rust.route-admission.post.api.v1.customers.max-concurrent=6
+reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms=150
+
+reactor.rust.route-admission.patch.api.v1.customers.id.status.max-concurrent=2
+reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent=2
+```
+
+Why this works:
+
+| Decision | Effect |
+|----------|--------|
+| Catalog read gets the largest budget | Cheap reads stay productive without letting DB/write routes dominate. |
+| DB read stays at `8` | Consumer does not send much more work than a small provider DB pool can finish. |
+| Write commands stay lower | Reduces duplicate-write pressure and makes overload visible quickly. |
+| `retries=0` | Avoids retry storms for command methods. |
+
+Measure next: successful 200 RPS per endpoint, p99 per endpoint, 503 rate per endpoint, provider DB
+pool wait, and consumer RSS after a quiet 30-60 second idle window.
+
+### Scenario B: Memory-Constrained Pod, 4 Endpoints, 2 Hot Routes
+
+Service shape: a small Kubernetes pod has four REST endpoints, two of them are hot reads, two are
+rare commands. The main constraint is memory, not maximum throughput.
+
+| Endpoint group | Traffic | Recommended choice |
+|----------------|---------|--------------------|
+| 2 read endpoints | Hot | Keep `RawResponse.json(bytes)` and small response pools |
+| 2 command endpoints | Low | Keep low route concurrency and `retries=0` |
+
+```properties
+reactor.runtime.profile=micro-dubbo
+reactor.rust.runtime.worker-threads=1
+reactor.rust.runtime.max-blocking-threads=1
+reactor.rust.runtime.thread-stack-bytes=262144
+reactor.rust.jni.workers=1
+reactor.rust.response-pool.small-capacity=8
+reactor.rust.response-pool.medium-capacity=2
+reactor.rust.response-pool.large-capacity=1
+reactor.rust.json.writer-retain-max-bytes=32768
+reactor.rust.http.max-connections=256
+
+reactor.dubbo.max-inflight=8
+reactor.dubbo.native-connections-per-endpoint=1
+reactor.dubbo.native-async-workers=1
+```
+
+If the service spends long time idle, add this after your p99 gate passes:
+
+```properties
+reactor.rust.native-trim.enabled=true
+reactor.rust.native-trim.initial-delay-ms=30000
+reactor.rust.native-trim.interval-ms=60000
+reactor.rust.native-trim.min-idle-ms=10000
+reactor.rust.native-trim.max-active-connections=0
+reactor.rust.native-trim.max-active-requests=0
+reactor.rust.native-trim.retain-small=16
+reactor.rust.native-trim.allocator-trim-enabled=true
+```
+
+What to expect: lower idle RSS and controlled overload under spikes. Some `503` under sudden high
+concurrency is acceptable in this profile. If every request must return `200`, this is no longer a
+strict memory-first service; move toward Scenario C.
+
+### Scenario C: Latency Pressure, 10 Endpoints, 4 Hot Routes, 1 Large JSON Route
+
+Service shape: the app has 10 endpoints. Four endpoints receive most traffic. One of those four
+returns a larger provider JSON response. Latency is rising, but the pod still has a memory budget.
+
+Endpoint split:
+
+| Group | Example | Risk |
+|-------|---------|------|
+| 3 hot small reads | catalog/customer/status lookups | Queueing if all share one small budget |
+| 1 hot large JSON read | report/snapshot | In-flight response bytes and retained buffers |
+| 6 cold routes | command or admin routes | Should not steal budget from hot reads |
+
+```properties
+reactor.runtime.profile=micro-dubbo
+reactor.rust.jni.workers=2
+reactor.rust.jni.queue-capacity=128
+reactor.dubbo.max-inflight=48
+reactor.dubbo.native-connections-per-endpoint=3
+reactor.dubbo.native-async-workers=2
+
+reactor.rust.http.max-response-body-bytes=16777216
+reactor.rust.http.max-inflight-response-bytes=33554432
+reactor.dubbo.max-response-bytes=16777216
+
+reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=32
+reactor.rust.route-admission.get.api.v1.catalog.nested.queue-timeout-ms=125
+
+reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=12
+reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms=125
+
+reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6
+reactor.rust.route-admission.get.api.v1.catalog.db.customers.queue-timeout-ms=150
+```
+
+Large JSON rule: raise the Dubbo response limit, HTTP single response limit, and total in-flight
+response limit together. Do not raise `reactor.rust.http.max-connections` first; more connections can
+make the large JSON route retain more memory at the same time.
+
+Measure next: p99 for each hot route separately. If only the large JSON route is slow, lower its
+route concurrency before changing the whole process. If all hot reads are slow and provider CPU is
+healthy, increase native connections before increasing Java workers again.
+
+### Scenario D: High Write Pressure With Real Business Commands
+
+Service shape: REST exposes create, update, patch, delete, and read APIs. Writes go through Dubbo to
+a DB-backed provider. Some clients retry on their side.
+
+Main risk: duplicate writes, retry storms, and hidden queues. Keep write routes predictable.
+
+```properties
+reactor.dubbo.retries=0
+reactor.dubbo.timeout-ms=1000
+reactor.dubbo.max-inflight=16
+
+reactor.rust.route-admission.post.api.v1.customers.max-concurrent=4
+reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms=100
+
+reactor.rust.route-admission.patch.api.v1.customers.id.segment.max-concurrent=4
+reactor.rust.route-admission.patch.api.v1.customers.id.segment.queue-timeout-ms=100
+
+reactor.rust.route-admission.patch.api.v1.customers.id.status.max-concurrent=4
+reactor.rust.route-admission.patch.api.v1.customers.id.status.queue-timeout-ms=100
+
+reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent=2
+reactor.rust.route-admission.delete.api.v1.customers.id.queue-timeout-ms=100
+```
+
+Operational rule: if the caller needs guaranteed completion, add idempotency keys or a durable
+workflow before the provider. Do not turn the consumer into a deep write queue. Deep queues increase
+p99 and memory while hiding the real provider/DB limit.
+
+### Scenario E: Mixed Traffic With Strict Memory and Acceptable Controlled Overload
+
+Service shape: traffic is uneven. Two endpoints receive most calls, two endpoints are occasional, and
+the deployment must stay small because many pods run in the same namespace.
+
+```yaml
+env:
+  - name: REACTOR_RUNTIME_PROFILE
+    value: "micro-dubbo"
+  - name: REACTOR_RUST_JNI_WORKERS
+    value: "1"
+  - name: REACTOR_DUBBO_MAX_INFLIGHT
+    value: "8"
+  - name: REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT
+    value: "1"
+  - name: REACTOR_RUST_HTTP_MAX_CONNECTIONS
+    value: "256"
+  - name: REACTOR_RUST_RESPONSE_POOL_SMALL_CAPACITY
+    value: "8"
+  - name: REACTOR_RUST_RESPONSE_POOL_MEDIUM_CAPACITY
+    value: "2"
+```
+
+If the two hot endpoints are read-only, give them moderate route budgets. Keep occasional write/admin
+routes small:
+
+```properties
+reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=16
+reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=8
+reactor.rust.route-admission.post.api.v1.customers.max-concurrent=2
+reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent=1
+```
+
+What success looks like: hot reads continue to return useful `200` responses, occasional routes fail
+fast under overload, and RSS returns near the expected idle level after traffic quiets down.
+
+### Scenario F: Same API, But Memory Is Fine And Latency Is The Problem
+
+Use this when the service is not memory-bound anymore and the real problem is high p99 under normal
+business load.
+
+```properties
+reactor.runtime.profile=micro-dubbo
+reactor.rust.jni.workers=2
+reactor.dubbo.max-inflight=64
+reactor.dubbo.native-connections-per-endpoint=4
+reactor.dubbo.native-async-workers=2
+reactor.rust.http.max-connections=768
+```
+
+Keep the route-specific budgets. Do not remove admission control just because memory is available.
+Admission is still the line that prevents one slow provider route from making every endpoint slow.
+
+Use this scenario only after checking:
+
+| Check | Required signal |
+|-------|-----------------|
+| Provider CPU | Has headroom |
+| Provider DB pool | Not saturated |
+| Consumer RSS | Still below pod limit after warm load |
+| 503 rate | Lower after tuning, not just hidden by a bigger queue |
+| p99 | Improves for hot endpoints, not only average latency |
+
 ## What `rust-java-rest` 3.2.2 Changes Here
 
 This sample now targets `rust-java-rest` `3.2.2`. The application code model does not change:
