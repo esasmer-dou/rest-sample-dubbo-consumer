@@ -873,6 +873,137 @@ Repo içindeki değerler bilinçli olarak low-RSS yönlüdür; bu değerleri anc
 | `reactor.dubbo.max-inflight` | Bounded RPC concurrency. |
 | `reactor.dubbo.native-connections-per-endpoint` | Provider başına native Dubbo TCP connection pool boyutu. Memory-first servislerde düşük tutun; sadece p99/RSS ölçümüyle artırın. |
 
+Hızlı semptom rehberi:
+
+| Bunu görüyorsanız | Önce şu key'lere bakın | İlk kontrol |
+|-------------------|-------------------------|-------------|
+| Request body reject oluyor veya create/patch payload küçük kalıyor | `reactor.rust.http.max-request-body-bytes`, `reactor.rust.http.max-inflight-body-bytes` | Tek body ve toplam in-flight body limitini birlikte artırın. |
+| Provider JSON çok büyük diye reject oluyor | `reactor.dubbo.max-response-bytes`, `reactor.rust.http.max-response-body-bytes`, `reactor.rust.http.max-inflight-response-bytes` | Üç limit de payload'a izin vermeli. |
+| Trafik spike altında çok `503` var | Route-specific `reactor.rust.route-admission.*`, `reactor.dubbo.max-inflight` | Provider CPU/DB pool boşluğu varsa route budget artırın. |
+| p99 büyüyor ama RSS hâlâ düşük | `reactor.dubbo.native-connections-per-endpoint`, `reactor.dubbo.native-async-workers`, route queue timeout | Çok Java worker eklemeden önce connection reuse iyileştirin. |
+| Trafik durduktan sonra RSS yüksek kalıyor | `reactor.rust.response-pool.*`, `reactor.rust.json.writer-retain-max-bytes`, opsiyonel `reactor.rust.native-trim.*` | Idle trim sadece düşük trafikli podlarda açılmalı ve p99 ölçülmeli. |
+| Startup component/route index hatası veriyor | `reactor.startup.component-index.*`, `reactor.startup.route-index.*`, `reactor.startup.scan.fallback-enabled` | Handler/route ekledikten sonra index dosyalarını güncelleyin. |
+| Kubernetes'te consumer provider bulamıyor | `sample.dubbo.discovery`, `reactor.dubbo.registry-address`, `reactor.dubbo.registry-root` | `zookeeper-discovery` ile build edin ve registry DNS'i doğru verin. |
+| Docker static consumer yanlış yere bağlanıyor | `reactor.dubbo.providers` | Docker network içinde `127.0.0.1` değil container/service DNS kullanın. |
+| Write command yavaş veya dengesiz | `reactor.dubbo.retries`, command route admission key'leri, `reactor.dubbo.timeout-ms` | Retry `0` kalsın; bounded queue ve timeout'u tune edin. |
+| Çok sayıda idle HTTP client kaynak tutuyor | `reactor.rust.http.max-connections`, `reactor.rust.http.idle-timeout-ms`, `reactor.rust.http.keep-alive-enabled` | Keep-alive kapatmadan önce idle timeout'u düşürün. |
+
+### Tam Runtime Property Rehberi
+
+Bu bölüm sample içindeki `src/main/resources/rust-spring.properties` dosyasındaki tüm key setidir.
+Bu değerleri packaged baseline olarak düşünün. Kubernetes veya standalone runtime'da sadece
+senaryonuza uyan değerleri `-D...` veya environment variable ile override edin.
+
+Server ve startup:
+
+| Property | Default | Ne işe yarar / ne zaman değişir? |
+|----------|---------|----------------------------------|
+| `server.port` | `8080` | HTTP portu. Pod/container portu farklıysa değiştirin. |
+| `server.host` | `0.0.0.0` | Bind adresi. Container içinde `0.0.0.0` kalsın; sadece lokal-only testte `127.0.0.1` kullanın. |
+| `reactor.runtime.profile` | `micro-dubbo` | Memory-first REST + native Dubbo preset. Sadece bilinçli olarak daha büyük/balanced runtime'a geçerken değiştirin. |
+| `reactor.startup.component-index.enabled` | `true` | Broad classpath scan yerine `components.idx` kullanır. Production-like startup için açık kalsın. |
+| `reactor.startup.component-index.required` | `true` | Component index yoksa startup fail eder. Sadece lokal prototipte kapatın. |
+| `reactor.startup.route-index.validate` | `true` | Actual route listesini `routes.idx` ile doğrular. Eski route metadata'yı yakalamak için açık kalsın. |
+| `reactor.startup.route-index.required` | `true` | Route index yoksa startup fail eder. Sadece lokal deneylerde kapatın. |
+| `reactor.startup.scan.fallback-enabled` | `false` | Sessiz classpath scan fallback'i engeller. RSS/startup predictability önemliyse `false` kalsın. |
+
+HTTP ve request/response limitleri:
+
+| Property | Default | Ne işe yarar / ne zaman değişir? |
+|----------|---------|----------------------------------|
+| `reactor.rust.http.max-request-body-bytes` | `1048576` | Maksimum request body. Büyük POST/PATCH payload varsa artırın; upload yolu gibi sınırsız kullanmayın. |
+| `reactor.rust.http.max-response-body-bytes` | `8388608` | Tek REST response üst limiti. Büyük provider JSON için Dubbo ve in-flight response limitleriyle birlikte artırın. |
+| `reactor.rust.http.max-inflight-body-bytes` | `16777216` | Toplam in-flight request body bütçesi. Küçük pod için düşürülebilir; 413/503 davranışını ölçerek artırın. |
+| `reactor.rust.http.max-inflight-response-bytes` | `16777216` | Toplam in-flight response byte bütçesi. Büyük response reject oluyorsa global worker artırmadan önce buna bakın. |
+| `reactor.rust.http.max-connections` | `512` | Kabul edilen HTTP connection üst limiti. Gerçek connection baskısı varsa artırın; çok yüksek değer RSS artırabilir. |
+| `reactor.rust.http.max-request-header-bytes` | `16384` | Request header byte limiti. Büyük token/header varsa artırın. |
+| `reactor.rust.http.max-request-headers` | `64` | Header sayısı limiti. Çok sayıda tracing/security header gönderen client'lar için kullanılır. |
+| `reactor.rust.http.header-read-timeout-ms` | `5000` | Header okuma timeout'u. Slow client'ları daha hızlı düşürmek için azaltın; yavaş networkte artırın. |
+| `reactor.rust.http.request-body-timeout-ms` | `10000` | Body okuma timeout'u. Büyük command body veya yavaş client varsa tune edilir. |
+| `reactor.rust.http.idle-timeout-ms` | `30000` | Keep-alive idle timeout. Çok idle client olan küçük podlarda düşürün; connection reuse için artırın. |
+| `reactor.rust.http.http1-only-enabled` | `true` | Sample'ı daha küçük HTTP/1 surface üzerinde tutar. HTTP/2 bilinçli gerekiyorsa değiştirin. |
+| `reactor.rust.http.keep-alive-enabled` | `true` | Connection reuse sağlar. Sadece tek-request connection testlerinde kapatın. |
+
+Runtime, queue, pool ve memory:
+
+| Property | Default | Ne işe yarar / ne zaman değişir? |
+|----------|---------|----------------------------------|
+| `reactor.rust.log.level` | `error` | Native log seviyesi. Diagnose için geçici artırın; hot path'te düşük kalsın. |
+| `reactor.rust.java.log.level` | `warn` | Java framework log seviyesi. Startup/config debug için artırın; steady production'da düşük tutun. |
+| `reactor.rust.jni.workers` | `1` | Java handler worker sayısı. Daha çok concurrent Java iş için artırılır; RSS ve CPU contention artar. |
+| `reactor.rust.jni.queue-capacity` | `128` | Global JNI queue limiti. Artırmak overload'u saklayabilir; önce route admission kullanın. |
+| `reactor.rust.response-pool.small-capacity` | `8` | Küçük native response buffer retention. Büyük değer allocation churn azaltır; küçük değer idle RSS düşürür. |
+| `reactor.rust.response-pool.medium-capacity` | `2` | Medium response buffer retention. Küçük podlarda düşük kalsın. |
+| `reactor.rust.response-pool.large-capacity` | `1` | Large response buffer retention. Sadece tekrar eden büyük response churn ölçülürse artırın. |
+| `reactor.rust.response-pool.huge-capacity` | `1` | Huge response buffer retention. Servis sık sık büyük bounded payload dönmüyorsa düşük kalsın. |
+| `reactor.rust.websocket.max-frame-bytes` | `262144` | WebSocket frame limiti. Bu sample REST/Dubbo-first; WebSocket route eklenirse tune edilir. |
+| `reactor.rust.websocket.outbound-queue-capacity` | `16` | Session başına outbound WebSocket queue. Slow consumer memory büyütmesin diye bounded kalmalı. |
+| `reactor.rust.websocket.send-timeout-ms` | `1000` | WebSocket send timeout. Slow client kabul ediliyorsa artırın. |
+| `reactor.rust.runtime.worker-threads` | `1` | Native runtime worker sayısı. Daha yüksek I/O concurrency için RSS/p99 ölçerek artırın. |
+| `reactor.rust.runtime.max-blocking-threads` | `1` | Native blocking worker limiti. File/blocking iş bilinçli kullanılmıyorsa düşük kalsın. |
+| `reactor.rust.runtime.thread-stack-bytes` | `262144` | Native runtime thread stack. Daha küçüğünü sadece stack-depth smoke test geçerse kullanın. |
+| `reactor.rust.native-cache.max-entries` | `0` | Native response cache entry sayısı. `0` disabled demektir; sadece bilinçli cacheable response'larda açın. |
+| `reactor.rust.native-cache.max-bytes` | `0` | Native response cache byte limiti. Cache açılırsa `max-entries` ile birlikte set edilmeli. |
+| `reactor.rust.native-cache.ttl-ms` | `300000` | Native cache TTL. Cache disabled ise etkisizdir. |
+| `reactor.rust.async.max-inflight` | `64` | Framework async response limiti. Async completion queue büyüyorsa artırın; p99 ve memory ölçün. |
+| `reactor.rust.async.response-timeout-ms` | `1500` | Async response timeout. Dubbo timeout ve HTTP budget ile hizalı olmalı. |
+| `reactor.rust.json.writer-initial-bytes` | `4096` | Direct JSON writer başlangıç buffer'ı. Sürekli büyük direct JSON üretiliyorsa artırın. |
+| `reactor.rust.json.writer-retain-max-bytes` | `32768` | Retain edilecek maksimum JSON writer buffer. Idle RSS için düşürün; tekrar eden medium JSON için artırın. |
+
+Route admission:
+
+| Property | Default | Ne işe yarar / ne zaman değişir? |
+|----------|---------|----------------------------------|
+| `reactor.rust.route-admission.enabled` | `true` | Route-level bounded overload kontrolünü açar. Dubbo-backed route'larda açık kalsın. |
+| `reactor.rust.route-admission.default-max-concurrent` | `0` | Global default route limiti. `0` default cap yok demektir; sample explicit route key kullanır. |
+| `reactor.rust.route-admission.default-queue-timeout-ms` | `0` | Global default queue wait. `0` default olarak queue yapılmaz demektir. |
+| `reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent` | `16` | Read-heavy nested catalog cap. Provider hızlıysa artırın; provider CPU/RSS artıyorsa düşürün. |
+| `reactor.rust.route-admission.get.api.v1.catalog.nested.queue-timeout-ms` | `100` | Catalog wait budget. Daha az 503 için artırın, daha sıkı p99 için düşürün. |
+| `reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent` | `8` | DB-backed catalog route cap. Provider DB pool ve method bulkhead ile hizalayın. |
+| `reactor.rust.route-admission.get.api.v1.catalog.db.customers.queue-timeout-ms` | `150` | DB-backed catalog wait budget. p99 yüksekse worker artırmadan önce bunu düşürün. |
+| `reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent` | `8` | Customer DB read route cap. Provider `CustomerQueryService` concurrency ile tune edilir. |
+| `reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms` | `150` | Customer DB read queue wait. DB saturation altında hızlı fail-fast için düşürün. |
+| `reactor.rust.route-admission.post.api.v1.customers.max-concurrent` | `8` | Create command cap. Duplicate write baskısı ve DB queue büyümesini önlemek için bounded kalmalı. |
+| `reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms` | `150` | Create command wait budget. Write p99 burst absorption'dan önemliyse düşürün. |
+| `reactor.rust.route-admission.patch.api.v1.customers.id.segment.max-concurrent` | `8` | Segment patch cap. Command provider kapasitesiyle hizalayın. |
+| `reactor.rust.route-admission.patch.api.v1.customers.id.segment.queue-timeout-ms` | `150` | Segment patch queue wait. Sadece idempotent caller ve p99 ölçümü varsa artırın. |
+| `reactor.rust.route-admission.patch.api.v1.customers.id.status.max-concurrent` | `8` | Status patch cap. Write-side stabilite için bounded kalmalı. |
+| `reactor.rust.route-admission.patch.api.v1.customers.id.status.queue-timeout-ms` | `150` | Status patch queue wait. Overload hızlı görünmeli ise düşürün. |
+| `reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent` | `8` | Delete command cap. Delete side-effect route olduğu için konservatif kalmalı. |
+| `reactor.rust.route-admission.delete.api.v1.customers.id.queue-timeout-ms` | `150` | Delete command wait budget. Daha strict fail-fast için düşürün. |
+
+Dubbo consumer:
+
+| Property | Default | Ne işe yarar / ne zaman değişir? |
+|----------|---------|----------------------------------|
+| `sample.dubbo.discovery` | `static` | Sample switch: `static` `reactor.dubbo.providers` kullanır; `zookeeper` registry discovery kullanır. |
+| `reactor.dubbo.enabled` | `true` | Dubbo consumer adapter'ını açar. Bu sample için true kalmalı. |
+| `reactor.dubbo.application-name` | `rest-sample-dubbo-consumer` | Dubbo client metadata içindeki uygulama adı. Servise göre değiştirin. |
+| `reactor.dubbo.transport` | `native` | Lightweight native data-plane kullanır. Low-overhead path için native kalsın. |
+| `reactor.dubbo.runtime-profile` | `micro-dubbo` | Dubbo runtime sizing preset. RPC p99/RSS ölçerek artırın. |
+| `reactor.dubbo.registry-address` | `zookeeper://127.0.0.1:2181` | Discovery modunda ZooKeeper adresi. Kubernetes'te override edilmeli. |
+| `reactor.dubbo.registry-root` | `dubbo` | ZooKeeper registry root. Provider registration ile aynı olmalı. |
+| `reactor.dubbo.registry-timeout-ms` | `3000` | ZooKeeper operation timeout. Registry network yavaşsa artırın. |
+| `reactor.dubbo.registry-session-timeout-ms` | `30000` | ZooKeeper session timeout. Ölü provider'ın ne kadar hızlı kaybolacağını etkiler. |
+| `reactor.dubbo.registry-check` | `false` | True olursa registry yokken startup fail edebilir. Rolling deploy için false kalsın. |
+| `reactor.dubbo.providers` | `127.0.0.1:20880` | Static provider listesi. Docker/controlled static ortamda service/container DNS ile override edin. |
+| `reactor.dubbo.timeout-ms` | `1000` | RPC timeout. HTTP route timeout budget'ından düşük olmalı. |
+| `reactor.dubbo.retries` | `0` | Retry sayısı. Write/command route'larında duplicate execution riskini azaltmak için `0` kalsın. |
+| `reactor.dubbo.check` | `false` | True olursa provider yokken reference startup fail edebilir. Provider rolling restart için false kalsın. |
+| `reactor.dubbo.lazy` | `true` | Bazı connection/reference işlerini erteler. Daha küçük startup için true kalsın. |
+| `reactor.dubbo.protocol` | `dubbo` | Protocol adı. Bu sample classic `dubbo://` içindir. |
+| `reactor.dubbo.serialization` | `hessian2` | Serialization. Argüman taşıyan command method'ları için gereklidir. |
+| `reactor.dubbo.cluster` | `failfast` | Failure stratejisi. Bounded low-latency çağrılar için uygundur; deep retry ile hatayı saklamayın. |
+| `reactor.dubbo.loadbalance` | `random` | Birden fazla provider varsa seçim stratejisi. Tek provider'da etkisi sınırlıdır. |
+| `reactor.dubbo.connections` | `1` | Logical connection sayısı. Native pool sizing ağırlıklı olarak native connection key'leriyle yapılır. |
+| `reactor.dubbo.share-connections` | `1` | Compatibility için shared connection ayarı. Küçük kalsın. |
+| `reactor.dubbo.refer-thread-num` | `1` | Reference thread sayısı. RSS için düşük tutulur. |
+| `reactor.dubbo.max-inflight` | `32` | Concurrent RPC üst limiti. Throughput için artırın; low-RSS/fail-fast için düşürün. |
+| `reactor.dubbo.max-response-bytes` | `8388608` | Dubbo response üst limiti. Büyük provider JSON için HTTP response limitleriyle birlikte artırın. |
+| `reactor.dubbo.native-connections-per-endpoint` | `1` | Provider başına native TCP connection sayısı. Read-heavy p99 iyileştirmede ilk artırılacak knob budur. |
+| `reactor.dubbo.native-async-workers` | `1` | Native Dubbo async worker sayısı. Yüksek concurrency için artırılır; her worker thread/native maliyet getirir. |
+| `reactor.dubbo.native-async-queue-capacity` | `32` | Native Dubbo async queue. Artırmak burst emer ama overload'u saklayabilir ve tail latency artırabilir. |
+
 <details>
 <summary>Tüm sample property -> environment variable map'i</summary>
 

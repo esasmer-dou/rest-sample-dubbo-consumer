@@ -872,6 +872,137 @@ Important properties:
 | `reactor.dubbo.max-inflight` | Bounded RPC concurrency. |
 | `reactor.dubbo.native-connections-per-endpoint` | Native Dubbo TCP connection pool size per provider. Keep it low for memory-first services; increase only with p99/RSS measurements. |
 
+Quick symptom lookup:
+
+| If you see this | Start with these keys | What to check first |
+|-----------------|-----------------------|---------------------|
+| Request body rejected or create/patch payload is too small | `reactor.rust.http.max-request-body-bytes`, `reactor.rust.http.max-inflight-body-bytes` | Increase per-body and total in-flight body limits together. |
+| Provider JSON is rejected as too large | `reactor.dubbo.max-response-bytes`, `reactor.rust.http.max-response-body-bytes`, `reactor.rust.http.max-inflight-response-bytes` | All three limits must allow the payload. |
+| Many `503` under traffic spike | Route-specific `reactor.rust.route-admission.*`, `reactor.dubbo.max-inflight` | Raise route budget only if provider CPU/DB pool has headroom. |
+| p99 grows but RSS is still low | `reactor.dubbo.native-connections-per-endpoint`, `reactor.dubbo.native-async-workers`, route queue timeout | Improve connection reuse before adding many Java workers. |
+| RSS stays high after traffic stops | `reactor.rust.response-pool.*`, `reactor.rust.json.writer-retain-max-bytes`, optional `reactor.rust.native-trim.*` | Use idle trim only for low-traffic pods and measure p99. |
+| Startup fails with component/route index error | `reactor.startup.component-index.*`, `reactor.startup.route-index.*`, `reactor.startup.scan.fallback-enabled` | Regenerate/update index files after adding handlers/routes. |
+| Consumer cannot find provider in Kubernetes | `sample.dubbo.discovery`, `reactor.dubbo.registry-address`, `reactor.dubbo.registry-root` | Build with `zookeeper-discovery` and set registry DNS correctly. |
+| Static Docker consumer connects to the wrong place | `reactor.dubbo.providers` | Use container/service DNS, not `127.0.0.1`, inside Docker networks. |
+| Slow/unstable write commands | `reactor.dubbo.retries`, command route admission keys, `reactor.dubbo.timeout-ms` | Keep retries `0`; tune bounded queue and timeout. |
+| Too many idle HTTP clients hold resources | `reactor.rust.http.max-connections`, `reactor.rust.http.idle-timeout-ms`, `reactor.rust.http.keep-alive-enabled` | Lower idle timeout before disabling keep-alive. |
+
+### Complete Runtime Property Guide
+
+This is the full `src/main/resources/rust-spring.properties` key set for this sample. Treat these
+values as the packaged baseline. In Kubernetes or standalone runtime, override only the keys that
+match your scenario with `-D...` or environment variables.
+
+Server and startup:
+
+| Property | Default | What it means / when to change |
+|----------|---------|--------------------------------|
+| `server.port` | `8080` | HTTP port. Change when the pod/container port is different. |
+| `server.host` | `0.0.0.0` | Bind address. Keep `0.0.0.0` in containers; use `127.0.0.1` only for local-only tests. |
+| `reactor.runtime.profile` | `micro-dubbo` | Memory-first REST + native Dubbo preset. Change only when you intentionally move to a larger/balanced runtime. |
+| `reactor.startup.component-index.enabled` | `true` | Uses `components.idx` instead of broad classpath scan. Keep on for production-like startup. |
+| `reactor.startup.component-index.required` | `true` | Fails startup if component index is missing. Turn off only while prototyping new classes locally. |
+| `reactor.startup.route-index.validate` | `true` | Validates actual routes against `routes.idx`. Keep on to catch stale route metadata. |
+| `reactor.startup.route-index.required` | `true` | Fails startup if route index is missing. Turn off only for local experiments. |
+| `reactor.startup.scan.fallback-enabled` | `false` | Prevents silent classpath scan fallback. Keep `false` when RSS/startup predictability matters. |
+
+HTTP and request/response bounds:
+
+| Property | Default | What it means / when to change |
+|----------|---------|--------------------------------|
+| `reactor.rust.http.max-request-body-bytes` | `1048576` | Maximum request body. Increase for larger POST/PATCH payloads; do not use it as an unlimited upload path. |
+| `reactor.rust.http.max-response-body-bytes` | `8388608` | Maximum single REST response. Increase together with Dubbo and in-flight response limits for larger provider JSON. |
+| `reactor.rust.http.max-inflight-body-bytes` | `16777216` | Total in-flight request body budget. Lower for small pods; raise only after measuring 413/503 behavior. |
+| `reactor.rust.http.max-inflight-response-bytes` | `16777216` | Total in-flight response byte budget. If large responses get rejected, raise this before raising global workers. |
+| `reactor.rust.http.max-connections` | `512` | Accepted HTTP connection cap. Increase only if connection pressure is real; too high can raise RSS. |
+| `reactor.rust.http.max-request-header-bytes` | `16384` | Maximum header bytes per request. Increase only for known large headers/tokens. |
+| `reactor.rust.http.max-request-headers` | `64` | Maximum header count. Useful when clients send many tracing/security headers. |
+| `reactor.rust.http.header-read-timeout-ms` | `5000` | Header read timeout. Lower to reject slow clients faster; raise only for slow networks. |
+| `reactor.rust.http.request-body-timeout-ms` | `10000` | Body read timeout. Tune for large command bodies or slow clients. |
+| `reactor.rust.http.idle-timeout-ms` | `30000` | Keep-alive idle timeout. Lower for tiny pods with many idle clients; raise for connection reuse. |
+| `reactor.rust.http.http1-only-enabled` | `true` | Keeps the sample on a smaller HTTP/1 surface. Change only if you intentionally need HTTP/2 behavior. |
+| `reactor.rust.http.keep-alive-enabled` | `true` | Keeps connections reusable. Disable only for strict one-request connection tests. |
+
+Runtime, queues, pools, and memory:
+
+| Property | Default | What it means / when to change |
+|----------|---------|--------------------------------|
+| `reactor.rust.log.level` | `error` | Native log level. Raise temporarily for diagnostics; keep low on hot paths. |
+| `reactor.rust.java.log.level` | `warn` | Java framework log level. Raise for debugging startup/config, not for steady production. |
+| `reactor.rust.jni.workers` | `1` | Java handler worker count. Increase for more concurrent Java work; RSS and CPU contention rise. |
+| `reactor.rust.jni.queue-capacity` | `128` | Global JNI queue cap. Raising can hide overload; prefer route admission first. |
+| `reactor.rust.response-pool.small-capacity` | `8` | Small native response buffer retention. Higher reduces allocation churn; lower reduces idle RSS. |
+| `reactor.rust.response-pool.medium-capacity` | `2` | Medium response buffer retention. Keep low for small pods. |
+| `reactor.rust.response-pool.large-capacity` | `1` | Large response buffer retention. Raise only for repeated large responses with measured churn. |
+| `reactor.rust.response-pool.huge-capacity` | `1` | Huge response buffer retention. Keep low unless the service repeatedly returns huge bounded payloads. |
+| `reactor.rust.websocket.max-frame-bytes` | `262144` | WebSocket frame limit. This sample is REST/Dubbo-first; tune only if WebSocket routes are added. |
+| `reactor.rust.websocket.outbound-queue-capacity` | `16` | Per-session outbound WebSocket queue. Keep bounded to avoid slow-consumer memory growth. |
+| `reactor.rust.websocket.send-timeout-ms` | `1000` | WebSocket send timeout. Raise only when slow clients are acceptable. |
+| `reactor.rust.runtime.worker-threads` | `1` | Native runtime worker threads. Increase for higher I/O concurrency after measuring RSS/p99. |
+| `reactor.rust.runtime.max-blocking-threads` | `1` | Native blocking worker cap. Keep low unless file/blocking work is intentionally used. |
+| `reactor.rust.runtime.thread-stack-bytes` | `262144` | Native runtime stack size. Keep the tested value unless stack-depth smoke tests prove smaller is safe. |
+| `reactor.rust.native-cache.max-entries` | `0` | Native response cache entries. `0` means disabled; enable only for explicit read-heavy cacheable responses. |
+| `reactor.rust.native-cache.max-bytes` | `0` | Native response cache byte cap. Must be set with `max-entries` if cache is enabled. |
+| `reactor.rust.native-cache.ttl-ms` | `300000` | Native cache TTL. Relevant only when native cache is enabled. |
+| `reactor.rust.async.max-inflight` | `64` | Framework async response cap. Raise if async completions queue up; measure p99 and memory. |
+| `reactor.rust.async.response-timeout-ms` | `1500` | Async response timeout. Keep aligned with Dubbo timeout and HTTP budget. |
+| `reactor.rust.json.writer-initial-bytes` | `4096` | Initial direct JSON writer buffer. Increase for consistently larger direct JSON responses. |
+| `reactor.rust.json.writer-retain-max-bytes` | `32768` | Maximum retained JSON writer buffer. Lower for idle RSS; raise for repeated medium JSON generation. |
+
+Route admission:
+
+| Property | Default | What it means / when to change |
+|----------|---------|--------------------------------|
+| `reactor.rust.route-admission.enabled` | `true` | Enables bounded route-level overload control. Keep on for Dubbo-backed routes. |
+| `reactor.rust.route-admission.default-max-concurrent` | `0` | Global default route limit. `0` means no default cap; this sample uses explicit route keys instead. |
+| `reactor.rust.route-admission.default-queue-timeout-ms` | `0` | Global default queue wait. `0` means do not queue by default. |
+| `reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent` | `16` | Read-heavy nested catalog cap. Raise for fast provider reads; lower if provider CPU/RSS rises. |
+| `reactor.rust.route-admission.get.api.v1.catalog.nested.queue-timeout-ms` | `100` | Catalog wait budget before controlled overload. Raise for fewer 503s, lower for tighter p99. |
+| `reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent` | `8` | DB-backed catalog route cap. Keep aligned with provider DB pool and method bulkhead. |
+| `reactor.rust.route-admission.get.api.v1.catalog.db.customers.queue-timeout-ms` | `150` | DB-backed catalog wait budget. If p99 is high, lower this before increasing workers. |
+| `reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent` | `8` | Customer DB read route cap. Tune with provider `CustomerQueryService` concurrency. |
+| `reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms` | `150` | Customer DB read queue wait. Lower for faster fail-fast under DB saturation. |
+| `reactor.rust.route-admission.post.api.v1.customers.max-concurrent` | `8` | Create command cap. Keep bounded to avoid duplicate-write pressure and DB queue buildup. |
+| `reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms` | `150` | Create command wait budget. Lower if write p99 matters more than absorbing bursts. |
+| `reactor.rust.route-admission.patch.api.v1.customers.id.segment.max-concurrent` | `8` | Segment patch cap. Keep aligned with command provider capacity. |
+| `reactor.rust.route-admission.patch.api.v1.customers.id.segment.queue-timeout-ms` | `150` | Segment patch queue wait. Raise only with idempotent caller behavior and measured p99. |
+| `reactor.rust.route-admission.patch.api.v1.customers.id.status.max-concurrent` | `8` | Status patch cap. Keep bounded for write-side stability. |
+| `reactor.rust.route-admission.patch.api.v1.customers.id.status.queue-timeout-ms` | `150` | Status patch queue wait. Lower when overload should be visible quickly. |
+| `reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent` | `8` | Delete command cap. Keep conservative; delete is usually a write/side-effect route. |
+| `reactor.rust.route-admission.delete.api.v1.customers.id.queue-timeout-ms` | `150` | Delete command wait budget. Lower for stricter fail-fast behavior. |
+
+Dubbo consumer:
+
+| Property | Default | What it means / when to change |
+|----------|---------|--------------------------------|
+| `sample.dubbo.discovery` | `static` | Sample switch: `static` uses `reactor.dubbo.providers`; `zookeeper` uses registry discovery. |
+| `reactor.dubbo.enabled` | `true` | Enables the Dubbo consumer adapter. Keep true for this sample. |
+| `reactor.dubbo.application-name` | `rest-sample-dubbo-consumer` | Dubbo application name used in client metadata. Change per service. |
+| `reactor.dubbo.transport` | `native` | Uses the lightweight native data-plane. Keep native for the low-overhead path. |
+| `reactor.dubbo.runtime-profile` | `micro-dubbo` | Dubbo runtime sizing preset. Increase only after measuring RPC p99/RSS. |
+| `reactor.dubbo.registry-address` | `zookeeper://127.0.0.1:2181` | ZooKeeper address for discovery mode. Override in Kubernetes. |
+| `reactor.dubbo.registry-root` | `dubbo` | ZooKeeper registry root. Must match provider registration. |
+| `reactor.dubbo.registry-timeout-ms` | `3000` | ZooKeeper operation timeout. Raise only for slow registry networks. |
+| `reactor.dubbo.registry-session-timeout-ms` | `30000` | ZooKeeper session timeout. Controls how quickly dead providers disappear. |
+| `reactor.dubbo.registry-check` | `false` | If true, startup can fail when registry is unavailable. Keep false for rolling deploys. |
+| `reactor.dubbo.providers` | `127.0.0.1:20880` | Static provider list. Override with service/container DNS in Docker or controlled static deployments. |
+| `reactor.dubbo.timeout-ms` | `1000` | Per-RPC timeout. Keep below the HTTP route timeout budget. |
+| `reactor.dubbo.retries` | `0` | Retry count. Keep `0` for write/command routes to avoid duplicate execution. |
+| `reactor.dubbo.check` | `false` | If true, reference startup can fail when provider is absent. Keep false for provider rolling restarts. |
+| `reactor.dubbo.lazy` | `true` | Defers some connection/reference work. Keep true for smaller startup. |
+| `reactor.dubbo.protocol` | `dubbo` | Protocol name. This sample is for classic `dubbo://`. |
+| `reactor.dubbo.serialization` | `hessian2` | Serialization. Required for argument-carrying command methods. |
+| `reactor.dubbo.cluster` | `failfast` | Failure strategy. Good for bounded low-latency calls; do not hide errors with deep retries. |
+| `reactor.dubbo.loadbalance` | `random` | Provider selection when multiple providers exist. For one provider this has little effect. |
+| `reactor.dubbo.connections` | `1` | Logical connection count. Native pool sizing is mainly controlled by native connection keys. |
+| `reactor.dubbo.share-connections` | `1` | Shared connection setting for compatibility. Keep small. |
+| `reactor.dubbo.refer-thread-num` | `1` | Reference thread count. Keep low for RSS. |
+| `reactor.dubbo.max-inflight` | `32` | Bounded concurrent RPC calls. Raise for more throughput; lower for low-RSS/fail-fast behavior. |
+| `reactor.dubbo.max-response-bytes` | `8388608` | Maximum Dubbo response. Raise with HTTP response limits for larger provider JSON. |
+| `reactor.dubbo.native-connections-per-endpoint` | `1` | Native TCP connections per provider. First knob to raise for read-heavy p99 improvement. |
+| `reactor.dubbo.native-async-workers` | `1` | Native Dubbo async workers. Raise for high concurrency; each worker adds thread/native cost. |
+| `reactor.dubbo.native-async-queue-capacity` | `32` | Native Dubbo async queue. Raising absorbs bursts but can hide overload and increase tail latency. |
+
 <details>
 <summary>Complete sample property to environment variable map</summary>
 
