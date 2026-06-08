@@ -31,16 +31,69 @@ Java owns business logic, Rust owns HTTP I/O and selected low-level transport wo
 Most users should not start by reading every property. Start from the shape of your service, copy the
 closest profile, then tune only the few values that affect your traffic.
 
-| Your scenario | Use this Maven profile | Use this runtime profile | Key response path | What you gain | Main trade-off |
-|---------------|------------------------|--------------------------|-------------------|---------------|----------------|
-| Local smoke test with all sample verbs | Default `full-dubbo-consumer` | `micro-dubbo` | `RawResponse.json(bytes)` | GET/POST/PATCH/DELETE examples work immediately | Larger classpath than read-only mode |
-| Lowest-memory read-only consumer | `native-static-consumer` | `micro-dubbo` | No-arg Dubbo method returns UTF-8 JSON `byte[]` | No ZooKeeper or Hessian classes in the consumer | Only no-argument read calls |
-| Kubernetes static consumer through Service DNS | Default or `native-static-consumer` | `micro-dubbo` | Provider address is a K8s Service DNS | No Java ZooKeeper client/thread/class cost in the consumer | No Dubbo registry/governance; distribution is TCP-connection based |
-| Kubernetes consumer that must use ZooKeeper | `zookeeper-discovery` | `micro-dubbo` | Provider URL comes from ZooKeeper | Handles provider restart/re-register flow | ZooKeeper client adds threads/classes |
-| Read-heavy catalog or lookup API | Default or `zookeeper-discovery` | `micro-dubbo` | Provider returns ready JSON, consumer forwards raw bytes | Avoids DTO graph and JSON reserialization in the REST JVM | Provider must own JSON shape/versioning |
-| Typed Dubbo DTO examples | Default or `zookeeper-discovery` | `micro-dubbo` | Provider returns record/list/map/scalar values | Shows normal Dubbo object contracts | Hessian encode/decode and Java object graph allocation |
-| Write/command API over Dubbo | Default or `zookeeper-discovery` | `micro-dubbo` | `byte[]` request body forwarded to provider command method | Keeps REST handler thin and explicit | Requires Hessian request encoding |
-| Higher concurrency RPC service | Default or `zookeeper-discovery` | Start `micro-dubbo`, measure toward balanced settings | Same API path, larger route budgets | Fewer overload rejects | Higher RSS and possible provider/DB pressure |
+**Local smoke test with all sample verbs**
+
+- Maven profile: default `full-dubbo-consumer`
+- Runtime profile: `micro-dubbo`
+- Response path: `RawResponse.json(bytes)`
+- Gain: GET, POST, PATCH, and DELETE examples work immediately.
+- Trade-off: larger classpath than read-only mode.
+
+**Lowest-memory read-only consumer**
+
+- Maven profile: `native-static-consumer`
+- Runtime profile: `micro-dubbo`
+- Response path: no-argument Dubbo method returns UTF-8 JSON `byte[]`.
+- Gain: no ZooKeeper or Hessian classes in the consumer.
+- Trade-off: only no-argument read calls.
+
+**Kubernetes static consumer through Service DNS**
+
+- Maven profile: default or `native-static-consumer`
+- Runtime profile: `micro-dubbo`
+- Response path: provider address is a K8s Service DNS.
+- Gain: no Java ZooKeeper client/thread/class cost in the consumer.
+- Trade-off: no Dubbo registry/governance; distribution is TCP-connection based.
+
+**Kubernetes consumer that must use ZooKeeper**
+
+- Maven profile: `zookeeper-discovery`
+- Runtime profile: `micro-dubbo`
+- Response path: provider URL comes from ZooKeeper.
+- Gain: handles provider restart/re-register flow.
+- Trade-off: ZooKeeper client adds threads/classes.
+
+**Read-heavy catalog or lookup API**
+
+- Maven profile: default or `zookeeper-discovery`
+- Runtime profile: `micro-dubbo`
+- Response path: provider returns ready JSON, consumer forwards raw bytes.
+- Gain: avoids DTO graph and JSON reserialization in the REST JVM.
+- Trade-off: provider must own JSON shape/versioning.
+
+**Typed Dubbo DTO examples**
+
+- Maven profile: default or `zookeeper-discovery`
+- Runtime profile: `micro-dubbo`
+- Response path: provider returns record/list/map/scalar values.
+- Gain: shows normal Dubbo object contracts.
+- Trade-off: Hessian encode/decode and Java object graph allocation.
+
+**Write/command API over Dubbo**
+
+- Maven profile: default or `zookeeper-discovery`
+- Runtime profile: `micro-dubbo`
+- Response path: `byte[]` request body is forwarded to provider command method.
+- Gain: keeps the REST handler thin and explicit.
+- Trade-off: requires Hessian request encoding.
+
+**Higher concurrency RPC service**
+
+- Maven profile: default or `zookeeper-discovery`
+- Runtime profile: start with `micro-dubbo`, then measure toward balanced settings.
+- Response path: same API path with larger route budgets.
+- Gain: fewer overload rejects.
+- Trade-off: higher RSS and possible provider/DB pressure.
 
 Recommended starting point: if your provider is already behind a stable Kubernetes `Service` DNS and
 you do not need Dubbo registry/governance, start with static provider mode. It is smaller and easier
@@ -348,20 +401,65 @@ production-safe design.
 
 ### First, The Terms
 
-| Term | Plain meaning | What it affects here |
-|------|---------------|----------------------|
-| `p99` | 99 of 100 requests finish below this latency. Example: p99 120 ms means most requests are fast, but the slowest 1 percent still reaches 120 ms. | Shows user-visible tail latency better than average latency. |
-| `503` | The service says "I cannot accept this request right now". It is an error response, but it can be intentional controlled overload. | Prevents queues from growing until memory and latency explode. |
-| Hot read | A heavily called read endpoint, such as get customer, get order, or get catalog. | Can receive a larger route budget, but must not exceed provider/DB capacity. |
-| Cold route | A rarely called endpoint, such as admin actions, rare patch, or delete. | Should not steal capacity from hot endpoints. |
-| Write command | A data-changing operation, such as create customer, cancel order, or change customer status. | Retries and deep queues are dangerous; idempotency is required. |
-| Route budget | How many requests one endpoint may process at the same time. | Controlled by `reactor.rust.route-admission...max-concurrent`. |
-| Queue timeout | How long a request may wait when the route budget is full. | Increasing `queue-timeout-ms` can reduce 503, but can increase p99 and memory. |
-| In-flight | Requests or responses currently being processed. | Too much in-flight work increases RSS and p99. |
-| RSS | The real memory seen by the operating system and Kubernetes. | This is the number your pod memory limit cares about. |
-| Consumer | This sample: receives REST requests, optionally calls Dubbo provider, and returns HTTP responses. | REST and Dubbo settings are applied here. |
-| Provider | The backend Dubbo service. It may call DB, execute business logic, or produce JSON. | If the provider is slow, making the consumer queue larger is not a real fix. |
-| RawResponse | Returning provider JSON bytes directly without Java DTO parse/serialize work. | Preferred for lower allocation, lower CPU, and lower RSS. |
+**`p99`**
+
+- Plain meaning: 99 of 100 requests finish below this latency. Example: p99 120 ms means most requests are fast, but the slowest 1 percent still reaches 120 ms.
+- What it affects here: shows user-visible tail latency better than average latency.
+
+**`503`**
+
+- Plain meaning: the service says "I cannot accept this request right now". It is an error response, but it can be intentional controlled overload.
+- What it affects here: prevents queues from growing until memory and latency explode.
+
+**Hot read**
+
+- Plain meaning: a heavily called read endpoint, such as get customer, get order, or get catalog.
+- What it affects here: can receive a larger route budget, but must not exceed provider/DB capacity.
+
+**Cold route**
+
+- Plain meaning: a rarely called endpoint, such as admin actions, rare patch, or delete.
+- What it affects here: should not steal capacity from hot endpoints.
+
+**Write command**
+
+- Plain meaning: a data-changing operation, such as create customer, cancel order, or change customer status.
+- What it affects here: retries and deep queues are dangerous; idempotency is required.
+
+**Route budget**
+
+- Plain meaning: how many requests one endpoint may process at the same time.
+- What it affects here: controlled by `reactor.rust.route-admission...max-concurrent`.
+
+**Queue timeout**
+
+- Plain meaning: how long a request may wait when the route budget is full.
+- What it affects here: increasing `queue-timeout-ms` can reduce 503, but can increase p99 and memory.
+
+**In-flight**
+
+- Plain meaning: requests or responses currently being processed.
+- What it affects here: too much in-flight work increases RSS and p99.
+
+**RSS**
+
+- Plain meaning: the real memory seen by the operating system and Kubernetes.
+- What it affects here: this is the number your pod memory limit cares about.
+
+**Consumer**
+
+- Plain meaning: this sample receives REST requests, optionally calls Dubbo provider, and returns HTTP responses.
+- What it affects here: REST and Dubbo settings are applied here.
+
+**Provider**
+
+- Plain meaning: the backend Dubbo service. It may call DB, execute business logic, or produce JSON.
+- What it affects here: if the provider is slow, making the consumer queue larger is not a real fix.
+
+**RawResponse**
+
+- Plain meaning: returning provider JSON bytes directly without Java DTO parse/serialize work.
+- What it affects here: preferred for lower allocation, lower CPU, and lower RSS.
 
 Route admission keys are generated from the HTTP method and path. For example,
 `GET /api/v1/customers/db` maps to
@@ -428,12 +526,37 @@ pool wait, and consumer RSS after 30-60 seconds of quiet idle time.
 
 Different problems in this scenario and the exact property actions:
 
-| Situation | Previous value | Change | Expected improvement | Cost / watch-out |
-|-----------|----------------|--------|----------------------|------------------|
-| `GET /api/v1/customers/db` p99 rises and provider DB pool wait increases | `customers.db.max-concurrent=12` or higher | `reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=8` | Consumer sends DB-backed reads at a rate the provider can finish. | Some `503` may increase; this is acceptable when protecting DB. |
-| `POST /api/v1/customers` slows down and duplicate write risk appears | `post.customers.max-concurrent=10`, `reactor.dubbo.retries=1` | `post.customers.max-concurrent=6`, `reactor.dubbo.retries=0` | Write commands become more predictable and retry storms decrease. | If clients do not use idempotency, duplicate risk still needs a domain fix. |
-| Catalog/order summary is cheap but receives 503 | `catalog.nested.max-concurrent=16`, `native-connections-per-endpoint=1` | `catalog.nested.max-concurrent=24`, `native-connections-per-endpoint=2` | Cheap hot read receives more useful throughput. | If provider CPU is not healthy, this can make p99 worse. |
-| All endpoints see p99 rise at the same time | Only `jni.queue-capacity` was increased | Revert the global queue increase; split budgets per route | One slow endpoint stops dominating the whole service. | Do not grow one global setting without endpoint-level metrics. |
+**DB-backed customer read p99 rises**
+
+- Situation: `GET /api/v1/customers/db` p99 rises and provider DB pool wait increases.
+- Previous value: `customers.db.max-concurrent=12` or higher.
+- Change: `reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=8`
+- Expected improvement: consumer sends DB-backed reads at a rate the provider can finish.
+- Cost/watch-out: some `503` may increase; this is acceptable when protecting DB.
+
+**Create customer slows down**
+
+- Situation: `POST /api/v1/customers` slows down and duplicate write risk appears.
+- Previous value: `post.customers.max-concurrent=10`, `reactor.dubbo.retries=1`
+- Change: `post.customers.max-concurrent=6`, `reactor.dubbo.retries=0`
+- Expected improvement: write commands become more predictable and retry storms decrease.
+- Cost/watch-out: if clients do not use idempotency, duplicate risk still needs a domain fix.
+
+**Catalog/order summary is cheap but receives 503**
+
+- Situation: provider CPU is healthy, but a cheap hot read is rejected too early.
+- Previous value: `catalog.nested.max-concurrent=16`, `native-connections-per-endpoint=1`
+- Change: `catalog.nested.max-concurrent=24`, `native-connections-per-endpoint=2`
+- Expected improvement: cheap hot read receives more useful throughput.
+- Cost/watch-out: if provider CPU is not healthy, this can make p99 worse.
+
+**All endpoints see p99 rise at the same time**
+
+- Situation: one global queue increases waiting time for every endpoint.
+- Previous value: only `jni.queue-capacity` was increased.
+- Change: revert the global queue increase; split budgets per route.
+- Expected improvement: one slow endpoint stops dominating the whole service.
+- Cost/watch-out: do not grow one global setting without endpoint-level metrics.
 
 ### Loyalty Points Service: Small Pod, 4 Endpoints, 2 Busy Endpoints
 
@@ -497,12 +620,33 @@ memory-first scenario anymore.
 
 Different problems in this scenario and the exact property actions:
 
-| Situation | Previous value | Change | Expected improvement | Cost / watch-out |
-|-----------|----------------|--------|----------------------|------------------|
-| Idle RSS is higher than expected | `native-trim.enabled=false`, wider pools | `native-trim.enabled=true`, `small-capacity=8`, `medium-capacity=2`, `large-capacity=1` | Warmed native memory is released better after traffic becomes quiet. | Trim must run only during idle; hot-path trim can cause p99 spikes. |
-| Too many 503 under two hot reads, while RSS is still safe | `catalog.nested.max-concurrent=12`, `customers.db.max-concurrent=6` | `catalog.nested.max-concurrent=16`, `customers.db.max-concurrent=8` | Useful `200` RPS increases. | Re-measure RSS and provider DB wait before increasing more. |
-| Pod memory limit becomes tighter | `max-connections=512`, `dubbo.max-inflight=16` | `max-connections=256`, `dubbo.max-inflight=8` | Less work is accepted at once, keeping RSS controlled. | 503 increases during spikes; this is intentional for this profile. |
-| p99 becomes unstable after trim | Aggressive `native-trim.interval-ms=15000` | `initial-delay-ms=30000`, `interval-ms=60000`, `min-idle-ms=10000` | Trim becomes more conservative and latency impact drops. | RSS reduction may appear more slowly. |
+**Idle RSS is higher than expected**
+
+- Previous value: `native-trim.enabled=false`, wider pools.
+- Change: `native-trim.enabled=true`, `small-capacity=8`, `medium-capacity=2`, `large-capacity=1`
+- Expected improvement: warmed native memory is released better after traffic becomes quiet.
+- Cost/watch-out: trim must run only during idle; hot-path trim can cause p99 spikes.
+
+**Too many 503 under two hot reads, while RSS is still safe**
+
+- Previous value: `catalog.nested.max-concurrent=12`, `customers.db.max-concurrent=6`
+- Change: `catalog.nested.max-concurrent=16`, `customers.db.max-concurrent=8`
+- Expected improvement: useful `200` RPS increases.
+- Cost/watch-out: re-measure RSS and provider DB wait before increasing more.
+
+**Pod memory limit becomes tighter**
+
+- Previous value: `max-connections=512`, `dubbo.max-inflight=16`
+- Change: `max-connections=256`, `dubbo.max-inflight=8`
+- Expected improvement: less work is accepted at once, keeping RSS controlled.
+- Cost/watch-out: 503 increases during spikes; this is intentional for this profile.
+
+**p99 becomes unstable after trim**
+
+- Previous value: aggressive `native-trim.interval-ms=15000`.
+- Change: `initial-delay-ms=30000`, `interval-ms=60000`, `min-idle-ms=10000`
+- Expected improvement: trim becomes more conservative and latency impact drops.
+- Cost/watch-out: RSS reduction may appear more slowly.
 
 ### Reporting And Snapshot Service: 10 Endpoints, 4 Busy Endpoints, 1 Large JSON
 
@@ -562,12 +706,33 @@ after 30-60 seconds.
 
 Different problems in this scenario and the exact property actions:
 
-| Situation | Previous value | Change | Expected improvement | Cost / watch-out |
-|-----------|----------------|--------|----------------------|------------------|
-| Large JSON hits the response limit | `max-response-body-bytes=8388608`, `dubbo.max-response-bytes=8388608` | Set both to `16777216`; set total limit `max-inflight-response-bytes=33554432` | Large response can return without being rejected. | Raising only one response limit is not enough; total in-flight bytes must stay bounded. |
-| Large JSON route increases RSS | `catalog.db.customers.max-concurrent=10` or `12` | `catalog.db.customers.max-concurrent=6` | Fewer large bodies are retained at the same time. | Large endpoint RPS may drop, but pod memory is protected. |
-| Small hot reads slow down because of large JSON | All routes have similar budgets | Small read `catalog.nested.max-concurrent=32`, large JSON `catalog.db.customers.max-concurrent=6` | Small responses are separated from the large-response queue. | Route keys must match the real path. |
-| Provider CPU is free but consumer p99 is high | `native-connections-per-endpoint=1`, `native-async-workers=1` | `native-connections-per-endpoint=3`, `native-async-workers=2` | Native Dubbo data-plane can carry more parallel work. | If provider CPU/DB is saturated, this will not help. |
+**Large JSON hits the response limit**
+
+- Previous value: `max-response-body-bytes=8388608`, `dubbo.max-response-bytes=8388608`
+- Change: set both to `16777216`; set total limit `max-inflight-response-bytes=33554432`
+- Expected improvement: large response can return without being rejected.
+- Cost/watch-out: raising only one response limit is not enough; total in-flight bytes must stay bounded.
+
+**Large JSON route increases RSS**
+
+- Previous value: `catalog.db.customers.max-concurrent=10` or `12`
+- Change: `catalog.db.customers.max-concurrent=6`
+- Expected improvement: fewer large bodies are retained at the same time.
+- Cost/watch-out: large endpoint RPS may drop, but pod memory is protected.
+
+**Small hot reads slow down because of large JSON**
+
+- Previous value: all routes have similar budgets.
+- Change: small read `catalog.nested.max-concurrent=32`, large JSON `catalog.db.customers.max-concurrent=6`
+- Expected improvement: small responses are separated from the large-response queue.
+- Cost/watch-out: route keys must match the real path.
+
+**Provider CPU is free but consumer p99 is high**
+
+- Previous value: `native-connections-per-endpoint=1`, `native-async-workers=1`
+- Change: `native-connections-per-endpoint=3`, `native-async-workers=2`
+- Expected improvement: native Dubbo data-plane can carry more parallel work.
+- Cost/watch-out: if provider CPU/DB is saturated, this will not help.
 
 ### CRM Command Service: High Create, Patch, And Delete Pressure
 
@@ -619,12 +784,33 @@ The consumer should keep short timeouts and low concurrency so provider/DB limit
 
 Different problems in this scenario and the exact property actions:
 
-| Situation | Previous value | Change | Expected improvement | Cost / watch-out |
-|-----------|----------------|--------|----------------------|------------------|
-| Create customer overloads DB | `post.customers.max-concurrent=8` or `10` | `post.customers.max-concurrent=4`, `queue-timeout-ms=100` | DB write pressure drops and p99 becomes more predictable. | Peak write RPS drops; this is correct backpressure. |
-| Same command repeats after timeout | `reactor.dubbo.retries=1` or blind client retry | `reactor.dubbo.retries=0`, require client idempotency key | Duplicate write risk decreases. | If completion must be guaranteed, use durable workflow instead of consumer queue. |
-| Patch endpoints hurt each other | Segment/status routes share one high budget | Separate segment and status budgets with `max-concurrent=4` | One patch type cannot fully block another. | Real domain still needs optimistic locking or idempotency for same-customer updates. |
-| Delete route is rare but expensive | `delete.customers.id.max-concurrent=4` | `delete.customers.id.max-concurrent=2` | Hard-to-revert command flows more carefully. | Admin users can see 503 during spikes. |
+**Create customer overloads DB**
+
+- Previous value: `post.customers.max-concurrent=8` or `10`
+- Change: `post.customers.max-concurrent=4`, `queue-timeout-ms=100`
+- Expected improvement: DB write pressure drops and p99 becomes more predictable.
+- Cost/watch-out: peak write RPS drops; this is correct backpressure.
+
+**Same command repeats after timeout**
+
+- Previous value: `reactor.dubbo.retries=1` or blind client retry.
+- Change: `reactor.dubbo.retries=0`, require client idempotency key.
+- Expected improvement: duplicate write risk decreases.
+- Cost/watch-out: if completion must be guaranteed, use durable workflow instead of consumer queue.
+
+**Patch endpoints hurt each other**
+
+- Previous value: segment/status routes share one high budget.
+- Change: separate segment and status budgets with `max-concurrent=4`.
+- Expected improvement: one patch type cannot fully block another.
+- Cost/watch-out: real domain still needs optimistic locking or idempotency for same-customer updates.
+
+**Delete route is rare but expensive**
+
+- Previous value: `delete.customers.id.max-concurrent=4`
+- Change: `delete.customers.id.max-concurrent=2`
+- Expected improvement: hard-to-revert command flows more carefully.
+- Cost/watch-out: admin users can see 503 during spikes.
 
 ### Campaign Listing Service: Many Pods, Strict Memory, Controlled 503
 
@@ -688,12 +874,33 @@ p99 for the whole service.
 
 Different problems in this scenario and the exact property actions:
 
-| Situation | Previous value | Change | Expected improvement | Cost / watch-out |
-|-----------|----------------|--------|----------------------|------------------|
-| Per-pod RSS is too high and namespace memory is full | `max-connections=512`, `small-capacity=32`, `medium-capacity=8` | `max-connections=256`, `small-capacity=8`, `medium-capacity=2` | Each pod retains fewer idle/native buffers. | Single-pod throughput drops; scale horizontally. |
-| Hot read 503 rate is unacceptable during campaign burst | `catalog.nested.max-concurrent=8` | `catalog.nested.max-concurrent=16` | Hot read accepts more requests. | Measure RSS and provider CPU after the change. |
-| Admin/write route affects hot reads | Admin/write route budget is high | `post.customers.max-concurrent=2`, `delete.customers.id.max-concurrent=1` | Rare routes stop stealing hot-read capacity. | Admin operations fail fast during spikes. |
-| 503 was reduced by growing the global queue | `jni.queue-capacity=512` | `jni.queue-capacity=128`, split with route budgets | Prevents global queue growth and p99 increase. | You must define route budgets for each hot endpoint. |
+**Per-pod RSS is too high and namespace memory is full**
+
+- Previous value: `max-connections=512`, `small-capacity=32`, `medium-capacity=8`
+- Change: `max-connections=256`, `small-capacity=8`, `medium-capacity=2`
+- Expected improvement: each pod retains fewer idle/native buffers.
+- Cost/watch-out: single-pod throughput drops; scale horizontally.
+
+**Hot read 503 rate is unacceptable during campaign burst**
+
+- Previous value: `catalog.nested.max-concurrent=8`
+- Change: `catalog.nested.max-concurrent=16`
+- Expected improvement: hot read accepts more requests.
+- Cost/watch-out: measure RSS and provider CPU after the change.
+
+**Admin/write route affects hot reads**
+
+- Previous value: admin/write route budget is high.
+- Change: `post.customers.max-concurrent=2`, `delete.customers.id.max-concurrent=1`
+- Expected improvement: rare routes stop stealing hot-read capacity.
+- Cost/watch-out: admin operations fail fast during spikes.
+
+**503 was reduced by growing the global queue**
+
+- Previous value: `jni.queue-capacity=512`
+- Change: `jni.queue-capacity=128`, split with route budgets.
+- Expected improvement: prevents global queue growth and p99 increase.
+- Cost/watch-out: you must define route budgets for each hot endpoint.
 
 ### Call-Center Lookup API: Memory Is Fine, p99 Is High
 
@@ -742,12 +949,33 @@ Before using this profile, check:
 
 Different problems in this scenario and the exact property actions:
 
-| Situation | Previous value | Change | Expected improvement | Cost / watch-out |
-|-----------|----------------|--------|----------------------|------------------|
-| Provider CPU is free but consumer p99 is high | `dubbo.max-inflight=24`, `native-connections-per-endpoint=2` | `dubbo.max-inflight=64`, `native-connections-per-endpoint=4` | Hot lookup endpoints can carry more parallel Dubbo calls. | Re-measure RSS and provider DB pool. |
-| Only customer lookup is slow | All hot routes share similar budget | `customers.db.max-concurrent=12`, keep catalog budget unchanged | Problem route is tuned without affecting other endpoints. | If DB wait rises, reduce it again. |
-| Large customer history hurts small lookups | Large JSON route `max-concurrent=12` | Large JSON route `max-concurrent=6`, keep small lookup routes higher | Small lookup p99 is protected. | Large JSON endpoint gets lower useful RPS. |
-| Admission was removed completely | No route budgets | Restore route budgets, increase only hot-read values | One slow provider route cannot lock the whole service. | Config becomes more detailed, but safer in production. |
+**Provider CPU is free but consumer p99 is high**
+
+- Previous value: `dubbo.max-inflight=24`, `native-connections-per-endpoint=2`
+- Change: `dubbo.max-inflight=64`, `native-connections-per-endpoint=4`
+- Expected improvement: hot lookup endpoints can carry more parallel Dubbo calls.
+- Cost/watch-out: re-measure RSS and provider DB pool.
+
+**Only customer lookup is slow**
+
+- Previous value: all hot routes share similar budget.
+- Change: `customers.db.max-concurrent=12`, keep catalog budget unchanged.
+- Expected improvement: problem route is tuned without affecting other endpoints.
+- Cost/watch-out: if DB wait rises, reduce it again.
+
+**Large customer history hurts small lookups**
+
+- Previous value: large JSON route `max-concurrent=12`
+- Change: large JSON route `max-concurrent=6`, keep small lookup routes higher.
+- Expected improvement: small lookup p99 is protected.
+- Cost/watch-out: large JSON endpoint gets lower useful RPS.
+
+**Admission was removed completely**
+
+- Previous value: no route budgets.
+- Change: restore route budgets, increase only hot-read values.
+- Expected improvement: one slow provider route cannot lock the whole service.
+- Cost/watch-out: config becomes more detailed, but safer in production.
 
 ## What `rust-java-rest` 3.2.2 Changes Here
 
@@ -828,11 +1056,23 @@ This repository depends on:
 
 The sample has three consumer dependency shapes:
 
-| Profile | What it uses | Best for | Limitation |
-|---------|--------------|----------|------------|
-| `full-dubbo-consumer` | Full `java-rust-dubbo` artifact plus `hessian-lite`. Active by default. | Running every sample endpoint, including POST/PATCH/DELETE command methods. | Larger classpath than the smallest read-only path. |
-| `native-static-consumer` | `java-rust-dubbo` with the `native-static` classifier. No Hessian or ZooKeeper dependency. | Lowest classpath surface for static-provider, no-arg `byte[]` read endpoints. | Argument-carrying Dubbo methods need the full profile. |
-| `zookeeper-discovery` | Full `java-rust-dubbo`, `hessian-lite`, and ZooKeeper client dependency. | Kubernetes or any environment where provider discovery must come from ZooKeeper. | Adds Java ZooKeeper classes and threads to the consumer process. |
+**`full-dubbo-consumer`**
+
+- What it uses: full `java-rust-dubbo` artifact plus `hessian-lite`; active by default.
+- Best for: running every sample endpoint, including POST/PATCH/DELETE command methods.
+- Limitation: larger classpath than the smallest read-only path.
+
+**`native-static-consumer`**
+
+- What it uses: `java-rust-dubbo` with the `native-static` classifier; no Hessian or ZooKeeper dependency.
+- Best for: lowest classpath surface for static-provider, no-arg `byte[]` read endpoints.
+- Limitation: argument-carrying Dubbo methods need the full profile.
+
+**`zookeeper-discovery`**
+
+- What it uses: full `java-rust-dubbo`, `hessian-lite`, and ZooKeeper client dependency.
+- Best for: Kubernetes or any environment where provider discovery must come from ZooKeeper.
+- Limitation: adds Java ZooKeeper classes and threads to the consumer process.
 
 Use the default/full profile when you want to copy and run all examples:
 
@@ -898,12 +1138,25 @@ These values are not promises; they are safe starting limits for this exact samp
 with JVM, container base image, CPU limit, traffic, response size, and whether ZooKeeper discovery is
 enabled.
 
-| Service shape | Start with | Why |
-|---------------|-----------:|-----|
-| Static provider, low traffic, JSON pass-through only | `128Mi` | Rust-Java REST stays small and the consumer avoids Java ZooKeeper/Dubbo Netty runtime. |
-| Static provider with DB-backed Dubbo route under moderate load | `160Mi` | DB calls increase queue pressure and retained buffers during spikes. |
-| ZooKeeper discovery enabled inside the consumer process | `160Mi` or more | Java ZooKeeper client adds threads/classes/session state. Use only when discovery is required. |
-| Higher concurrency Dubbo workload | Measure from `192Mi` | Increase route admission and native connections together, then check p99, 503 rate, and RSS. |
+**Static provider, low traffic, JSON pass-through only**
+
+- Start with: `128Mi`
+- Why: Rust-Java REST stays small and the consumer avoids Java ZooKeeper/Dubbo Netty runtime.
+
+**Static provider with DB-backed Dubbo route under moderate load**
+
+- Start with: `160Mi`
+- Why: DB calls increase queue pressure and retained buffers during spikes.
+
+**ZooKeeper discovery enabled inside the consumer process**
+
+- Start with: `160Mi` or more
+- Why: Java ZooKeeper client adds threads/classes/session state. Use only when discovery is required.
+
+**Higher concurrency Dubbo workload**
+
+- Start with: measure from `192Mi`
+- Why: increase route admission and native connections together, then check p99, 503 rate, and RSS.
 
 If the service receives only occasional calls, do not size it from a c1000 benchmark. Start with the
 static provider mode, keep route admission bounded, and verify idle RSS after a 30-60 second quiet
@@ -1248,16 +1501,61 @@ consumer. Do not copy/paste slightly different versions into separate services.
 
 ### Dubbo Method Shape Catalog
 
-| Provider method shape | Example in this sample | Consumer endpoint | When to use | Runtime cost |
-|-----------------------|------------------------|-------------------|-------------|--------------|
-| `byte[]` UTF-8 JSON, no args | `getNestedCatalogJson()` | `GET /api/v1/catalog/nested` | Read-heavy pass-through JSON where provider owns the JSON shape. | Lowest. Native no-arg byte-array fast path, no DTO graph in consumer. |
-| `String` | `getCatalogTitle()` | `GET /api/v1/catalog/title` | Tiny scalar values or labels. | Small String allocation plus JSON wrapping in REST. |
-| Primitive/scalar | `countCatalogItems()`, `customerExists(id)` | `GET /api/v1/catalog/count`, `GET /api/v1/customers/{id}/exists` | Counts, flags, cheap lookup decisions. | Hessian decode for typed calls; no large object graph. |
-| Java `record` | `getCatalogInfo()`, `getCustomer(id)` | `GET /api/v1/catalog/info`, `GET /api/v1/customers/db/{id}` | Consumer needs typed fields for branching, validation, or enrichment. | Hessian materializes a record, then REST serializes JSON. |
-| `List<record>` | `listFeaturedItems(limit)`, `findCustomersBySegment(segment, limit)` | `GET /api/v1/catalog/items`, `GET /api/v1/customers/db/by-segment` | Small, bounded pages. | List plus one record per item; always keep `limit` bounded. |
-| `Map<String,String>` | `getCatalogAttributes()` | `GET /api/v1/catalog/attributes` | Small metadata bags. | Map allocation and JSON wrapping; avoid for large dynamic payloads. |
-| `record` command input and `record` output | `createCustomerTyped(CreateCustomerCommand)` | `POST /api/v1/customers/typed` | Clear typed contract for business commands. | Request encode + response decode + REST serialization. |
-| `byte[]` command input and `byte[]` JSON output | `createCustomer(byte[])` | `POST /api/v1/customers` | Lowest-allocation command pass-through. | Request/response bytes are carried; validation stays with provider. |
+**1. `byte[]` UTF-8 JSON, no args**
+
+- Example method: `getNestedCatalogJson()`
+- Consumer endpoint: `GET /api/v1/catalog/nested`
+- Use when: read-heavy pass-through JSON where provider owns the JSON shape.
+- Cost: lowest. Native no-arg byte-array fast path, no DTO graph in consumer.
+
+**2. `String`**
+
+- Example method: `getCatalogTitle()`
+- Consumer endpoint: `GET /api/v1/catalog/title`
+- Use when: tiny scalar values or labels.
+- Cost: small String allocation plus JSON wrapping in REST.
+
+**3. Primitive/scalar**
+
+- Example method: `countCatalogItems()`, `customerExists(id)`
+- Consumer endpoint: `GET /api/v1/catalog/count`, `GET /api/v1/customers/{id}/exists`
+- Use when: counts, flags, cheap lookup decisions.
+- Cost: Hessian decode for typed calls; no large object graph.
+
+**4. Java `record`**
+
+- Example method: `getCatalogInfo()`, `getCustomer(id)`
+- Consumer endpoint: `GET /api/v1/catalog/info`, `GET /api/v1/customers/db/{id}`
+- Use when: consumer needs typed fields for branching, validation, or enrichment.
+- Cost: Hessian materializes a record, then REST serializes JSON.
+
+**5. `List<record>`**
+
+- Example method: `listFeaturedItems(limit)`, `findCustomersBySegment(segment, limit)`
+- Consumer endpoint: `GET /api/v1/catalog/items`, `GET /api/v1/customers/db/by-segment`
+- Use when: small, bounded pages.
+- Cost: list plus one record per item; always keep `limit` bounded.
+
+**6. `Map<String,String>`**
+
+- Example method: `getCatalogAttributes()`
+- Consumer endpoint: `GET /api/v1/catalog/attributes`
+- Use when: small metadata bags.
+- Cost: Map allocation and JSON wrapping; avoid for large dynamic payloads.
+
+**7. `record` command input and `record` output**
+
+- Example method: `createCustomerTyped(CreateCustomerCommand)`
+- Consumer endpoint: `POST /api/v1/customers/typed`
+- Use when: you want a clear typed contract for business commands.
+- Cost: request encode + response decode + REST serialization.
+
+**8. `byte[]` command input and `byte[]` JSON output**
+
+- Example method: `createCustomer(byte[])`
+- Consumer endpoint: `POST /api/v1/customers`
+- Use when: you need the lowest-allocation command pass-through.
+- Cost: request/response bytes are carried; validation stays with provider.
 
 Production rule: do not replace every `byte[]` method with records just because records are easier to
 read. Use typed records when the consumer needs typed business data. Keep `byte[] + RawResponse` for
@@ -1641,17 +1939,70 @@ Dubbo consumer:
 Tune one bottleneck at a time. Every change should be measured with successful RPS, p95/p99 latency,
 503 rate, provider error rate, and RSS after idle.
 
-| Use case | Starting property set | Why |
-|----------|-----------------------|-----|
-| Low-memory static Kubernetes consumer through Service DNS | `SAMPLE_DUBBO_DISCOVERY=static`, `REACTOR_DUBBO_PROVIDERS=customer-provider:20880,order-provider:20880`, `REACTOR_RUNTIME_PROFILE=micro-dubbo`, `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=2`, `REACTOR_DUBBO_MAX_INFLIGHT=8-16` | Keeps ZooKeeper client/thread/class cost out of the consumer. Each interface is managed explicitly through its own Service DNS. |
-| Low-traffic Kubernetes service with mandatory ZooKeeper | `SAMPLE_DUBBO_DISCOVERY=zookeeper`, `REACTOR_RUNTIME_PROFILE=micro-dubbo`, `REACTOR_DUBBO_RUNTIME_PROFILE=micro-dubbo`, `REACTOR_RUST_JNI_WORKERS=1`, `REACTOR_DUBBO_MAX_INFLIGHT=8`, `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=1` | Keeps the REST process small and accepts controlled 503 under overload instead of retaining memory. |
-| Read-heavy catalog or dashboard JSON | `REACTOR_DUBBO_MAX_INFLIGHT=16-32`, `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=2-4`, route admission for the read route `16-64` | Improves useful 200 RPS when provider responses are fast and already JSON bytes. |
-| DB-backed query through provider | Keep consumer route max concurrent close to provider capacity, usually `4-8` per consumer pod; set `REACTOR_DUBBO_TIMEOUT_MS=800-1500`; queue timeout `50-150ms` | Prevents the consumer from amplifying provider DB pool saturation. |
-| POST/PATCH/DELETE command methods | `REACTOR_DUBBO_RETRIES=0`, command route max concurrent `4-8`, queue timeout `100-200ms` | Avoids accidental double execution and bounds write pressure. |
-| Large JSON response from provider | Raise `REACTOR_DUBBO_MAX_RESPONSE_BYTES`, `REACTOR_RUST_HTTP_MAX_RESPONSE_BODY_BYTES`, and `REACTOR_RUST_HTTP_MAX_INFLIGHT_RESPONSE_BYTES` together | A Dubbo response limit alone is not enough; the HTTP response and total in-flight caps must also allow the payload. |
-| Higher concurrency but memory still constrained | Increase `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT` first, then `REACTOR_DUBBO_MAX_INFLIGHT`, then `REACTOR_RUST_JNI_WORKERS`; keep response pools small | Connection reuse often improves p99 before extra Java worker threads are needed. |
-| Provider rolling restart, K8s Service DNS | `SAMPLE_DUBBO_DISCOVERY=static`, correct provider readiness probe, `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=2`, explicit RPC timeout | Kubernetes removes unhealthy pods from the Service endpoint list. The consumer does not hold registry state; recovery depends on readiness and EndpointSlice behavior. |
-| Provider rolling restart, ZooKeeper registry | `SAMPLE_DUBBO_DISCOVERY=zookeeper`, `REACTOR_DUBBO_REGISTRY_CHECK=false`, `REACTOR_DUBBO_CHECK=false`, explicit RPC timeout | The pod can start while providers are moving; routes return bounded failures until discovery catches up. |
+**Low-memory static Kubernetes consumer through Service DNS**
+
+- Start with: `SAMPLE_DUBBO_DISCOVERY=static`
+- Provider list: `REACTOR_DUBBO_PROVIDERS=customer-provider:20880,order-provider:20880`
+- Runtime: `REACTOR_RUNTIME_PROFILE=micro-dubbo`
+- RPC budget: `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=2`, `REACTOR_DUBBO_MAX_INFLIGHT=8-16`
+- Why: keeps ZooKeeper client/thread/class cost out of the consumer. Each interface is managed explicitly through its own Service DNS.
+
+**Low-traffic Kubernetes service with mandatory ZooKeeper**
+
+- Start with: `SAMPLE_DUBBO_DISCOVERY=zookeeper`
+- Runtime: `REACTOR_RUNTIME_PROFILE=micro-dubbo`, `REACTOR_DUBBO_RUNTIME_PROFILE=micro-dubbo`
+- Small worker set: `REACTOR_RUST_JNI_WORKERS=1`
+- RPC budget: `REACTOR_DUBBO_MAX_INFLIGHT=8`, `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=1`
+- Why: keeps the REST process small and accepts controlled 503 under overload instead of retaining memory.
+
+**Read-heavy catalog or dashboard JSON**
+
+- Start with: `REACTOR_DUBBO_MAX_INFLIGHT=16-32`
+- Connection reuse: `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=2-4`
+- Route admission: `16-64` for the read route.
+- Why: improves useful 200 RPS when provider responses are fast and already JSON bytes.
+
+**DB-backed query through provider**
+
+- Route budget: keep consumer route max concurrent close to provider capacity, usually `4-8` per consumer pod.
+- Timeout: `REACTOR_DUBBO_TIMEOUT_MS=800-1500`
+- Queue timeout: `50-150ms`
+- Why: prevents the consumer from amplifying provider DB pool saturation.
+
+**POST/PATCH/DELETE command methods**
+
+- Retry: `REACTOR_DUBBO_RETRIES=0`
+- Command route budget: `4-8`
+- Queue timeout: `100-200ms`
+- Why: avoids accidental double execution and bounds write pressure.
+
+**Large JSON response from provider**
+
+- Dubbo limit: `REACTOR_DUBBO_MAX_RESPONSE_BYTES`
+- HTTP limit: `REACTOR_RUST_HTTP_MAX_RESPONSE_BODY_BYTES`
+- Total in-flight limit: `REACTOR_RUST_HTTP_MAX_INFLIGHT_RESPONSE_BYTES`
+- Why: a Dubbo response limit alone is not enough; the HTTP response and total in-flight caps must also allow the payload.
+
+**Higher concurrency but memory still constrained**
+
+- First tune: `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT`
+- Then tune: `REACTOR_DUBBO_MAX_INFLIGHT`
+- Last tune: `REACTOR_RUST_JNI_WORKERS`
+- Why: connection reuse often improves p99 before extra Java worker threads are needed.
+
+**Provider rolling restart, K8s Service DNS**
+
+- Discovery: `SAMPLE_DUBBO_DISCOVERY=static`
+- Provider side: correct readiness probe.
+- Consumer side: `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=2`, explicit RPC timeout.
+- Why: Kubernetes removes unhealthy pods from the Service endpoint list. The consumer does not hold registry state; recovery depends on readiness and EndpointSlice behavior.
+
+**Provider rolling restart, ZooKeeper registry**
+
+- Discovery: `SAMPLE_DUBBO_DISCOVERY=zookeeper`
+- Startup tolerance: `REACTOR_DUBBO_REGISTRY_CHECK=false`, `REACTOR_DUBBO_CHECK=false`
+- Timeout: explicit RPC timeout.
+- Why: the pod can start while providers are moving; routes return bounded failures until discovery catches up.
 
 ### Recipe: Low-Memory Kubernetes Consumer With ZooKeeper
 
@@ -2286,21 +2637,122 @@ because users need a concrete `DELETE` verb example.
 This section adds copy/paste handler patterns beyond the concrete sample endpoints. The goal is to
 make it clear which request body and response type should be used for each HTTP verb.
 
-| Verb | Request type | Response type | When to use it | Java heap / GC impact | JSON parse / serialize cost | Rust / JNI / body impact |
-|------|--------------|---------------|----------------|-----------------------|-----------------------------|--------------------------|
-| `GET` | No body, `@PathVariable`, `@RequestParam` | `RawResponse.json(bytes)` | Provider or cache already produces JSON. | Very low; no DTO object graph. | None; JSON is not parsed or serialized again. | Cheapest read path. Body byte[] is sent to Rust HTTP response; native static/cache can reduce per-request body transfer further. |
-| `GET` | No body, path/query parameters | Java `record` | Small status, lookup, or consumer-computed response. | Low; response record allocation only. | Response serialization only. | Good for small JSON; at high traffic DTO serialization can affect p99. |
-| `GET` | No body, query filters | `List<record>` | Listing, search result, small paged response. | Medium/high; list plus one record per item. | Entire list is serialized. | Large lists increase RSS and p99; pagination, route budget, and response byte limits are required. |
-| `POST` | `byte[]` | `RawResponse.json(bytes)` | JSON command passes through to provider and provider returns JSON. | Low; no request DTO graph. | No consumer-side JSON parse; provider response is not serialized again. | Request body byte[] is transferred. Lowest-allocation command pass-through path. |
-| `POST` | `byte[]` | `RawResponse.bytes(...)` | Binary upload, signature payload, small binary echo/download. | Low; no body DTO. | None. | Raw binary is transferred; large binary should use `FileResponse`/streaming. |
-| `POST` | `byte[]` | Java `record` | Consumer does not parse request but returns an accepted id/receipt. | Low/medium; no request DTO, response record exists. | Response serialization only. | Good middle ground for command accept/receipt endpoints. |
-| `POST` | Java `record` | Java `record` | Consumer needs typed validation or a business decision before Dubbo. | Medium; request record plus response record allocation. | Request parse plus response serialization. | Clean normal REST DTO path; not as cheap as `byte[] + RawResponse` on hot paths. |
-| `POST` | Java `record` | `List<record>` | Search/query endpoint receives filters in the body. | High; request record plus list and item records. | Request parse plus list serialization. | Expensive for high traffic and large result sets; require pagination and max-result limits. |
-| `PUT` | Java `record` | Java `record` or error body | Full replace/update. | Medium; request and response DTOs are created. | Request parse plus response serialization. | Clear idempotent update contract; add body limits and route admission. |
-| `PATCH` | Java `record` | Java `record` | Typed partial update such as status, segment, address. | Low/medium; small command record plus response record. | Request parse plus response serialization. | Acceptable for small payloads; keep command concurrency low. |
-| `PATCH` | `byte[]` | `RawResponse.json(bytes)` | Provider processes command JSON as-is. | Low; no consumer DTO graph. | No consumer parse/serialize. | Lower-RSS partial command pass-through; validation moves to provider. |
-| `DELETE` | No body | `204 No Content` | Delete/deactivate does not need a body. | Lowest; no response object graph. | None. | Cheapest delete path; use header/log/outbox for audit when possible. |
-| `DELETE` | Optional `byte[]` | `RawResponse.json(bytes)` or error body | Audit reason/requestId must be carried. | Low; only byte[] is carried if body exists. | No JSON cost if consumer does not parse it. | Keep audit JSON small; destructive command concurrency should stay low. |
+**GET, ready JSON pass-through**
+
+- Request type: no body; `@PathVariable` and `@RequestParam` are supported.
+- Response type: `RawResponse.json(bytes)`
+- Use when: provider or cache already produces JSON.
+- Java heap/GC: very low; no DTO object graph.
+- JSON cost: no parse and no reserialization.
+- Rust/JNI/body impact: cheapest read path. Native static/cache can reduce per-request body transfer further.
+
+**GET, small typed response**
+
+- Request type: no body; path/query parameters.
+- Response type: Java `record`
+- Use when: small status, lookup, or consumer-computed response.
+- Java heap/GC: low; response record allocation only.
+- JSON cost: response serialization only.
+- Rust/JNI/body impact: good for small JSON; at high traffic DTO serialization can affect p99.
+
+**GET, small paged list**
+
+- Request type: no body; query filters.
+- Response type: `List<record>`
+- Use when: listing, search result, or small paged response.
+- Java heap/GC: medium/high; list plus one record per item.
+- JSON cost: entire list is serialized.
+- Rust/JNI/body impact: large lists increase RSS and p99; pagination, route budget, and response byte limits are required.
+
+**POST, JSON command pass-through**
+
+- Request type: `byte[]`
+- Response type: `RawResponse.json(bytes)`
+- Use when: JSON command passes through to provider and provider returns JSON.
+- Java heap/GC: low; no request DTO graph.
+- JSON cost: no consumer-side JSON parse; provider response is not serialized again.
+- Rust/JNI/body impact: request body byte[] is transferred. Lowest-allocation command pass-through path.
+
+**POST, binary payload**
+
+- Request type: `byte[]`
+- Response type: `RawResponse.bytes(...)`
+- Use when: binary upload, signature payload, small binary echo/download.
+- Java heap/GC: low; no body DTO.
+- JSON cost: none.
+- Rust/JNI/body impact: raw binary is transferred; large binary should use `FileResponse` or streaming.
+
+**POST, receipt without parsing request**
+
+- Request type: `byte[]`
+- Response type: Java `record`
+- Use when: the consumer does not parse request but returns an accepted id/receipt.
+- Java heap/GC: low/medium; no request DTO, response record exists.
+- JSON cost: response serialization only.
+- Rust/JNI/body impact: good middle ground for command accept/receipt endpoints.
+
+**POST, typed command**
+
+- Request type: Java `record`
+- Response type: Java `record`
+- Use when: consumer needs typed validation or a business decision before Dubbo.
+- Java heap/GC: medium; request record plus response record allocation.
+- JSON cost: request parse plus response serialization.
+- Rust/JNI/body impact: clean normal REST DTO path; not as cheap as `byte[] + RawResponse` on hot paths.
+
+**POST, body-driven search/list response**
+
+- Request type: Java `record`
+- Response type: `List<record>`
+- Use when: search/query endpoint receives filters in the body.
+- Java heap/GC: high; request record plus list and item records.
+- JSON cost: request parse plus list serialization.
+- Rust/JNI/body impact: expensive for high traffic and large result sets; require pagination and max-result limits.
+
+**PUT, full update/replace**
+
+- Request type: Java `record`
+- Response type: Java `record` or error body.
+- Use when: full replace/update.
+- Java heap/GC: medium; request and response DTOs are created.
+- JSON cost: request parse plus response serialization.
+- Rust/JNI/body impact: clear idempotent update contract; add body limits and route admission.
+
+**PATCH, typed partial update**
+
+- Request type: Java `record`
+- Response type: Java `record`
+- Use when: typed partial update such as status, segment, address.
+- Java heap/GC: low/medium; small command record plus response record.
+- JSON cost: request parse plus response serialization.
+- Rust/JNI/body impact: acceptable for small payloads; keep command concurrency low.
+
+**PATCH, command pass-through**
+
+- Request type: `byte[]`
+- Response type: `RawResponse.json(bytes)`
+- Use when: provider processes command JSON as-is.
+- Java heap/GC: low; no consumer DTO graph.
+- JSON cost: no consumer parse/serialize.
+- Rust/JNI/body impact: lower-RSS partial command pass-through; validation moves to provider.
+
+**DELETE, no-body command**
+
+- Request type: no body.
+- Response type: `204 No Content`
+- Use when: delete/deactivate does not need a body.
+- Java heap/GC: lowest; no response object graph.
+- JSON cost: none.
+- Rust/JNI/body impact: cheapest delete path; use header/log/outbox for audit when possible.
+
+**DELETE, command with audit body**
+
+- Request type: optional `byte[]`
+- Response type: `RawResponse.json(bytes)` or error body.
+- Use when: audit reason/requestId must be carried.
+- Java heap/GC: low; only byte[] is carried if body exists.
+- JSON cost: no JSON cost if consumer does not parse it.
+- Rust/JNI/body impact: keep audit JSON small; destructive command concurrency should stay low.
 
 Notes:
 
@@ -2559,13 +3011,32 @@ tuning route budget and in-flight byte limits separately.
 
 ### Profile And Property Selection
 
-| User problem | Recommended starting profile | Key properties |
-|--------------|------------------------------|----------------|
-| "I need the smallest pod for occasional traffic" | `micro-dubbo`, static provider | `reactor.rust.jni.workers=1`, `reactor.dubbo.native-async-workers=1`, `reactor.rust.response-pool.small-capacity=8` |
-| "I need more successful writes at c256" | `micro-dubbo` plus route-specific tuning | Increase `reactor.rust.route-admission.post.api.v1.customers.max-concurrent`, then measure RSS/p99/503. |
-| "I need dynamic provider discovery" | `micro-dubbo` + `zookeeper-discovery` Maven profile | Set `SAMPLE_DUBBO_DISCOVERY=zookeeper`; expect a small RSS increase. |
-| "Provider DB is slow" | Keep consumer bounded, tune provider first | Check `sample.db.maximum-pool-size`, provider method limits, PostgreSQL latency. |
-| "I need a best-practice code template" | Copy this sample structure | `handler` -> `dubbo client` -> `shared interface` -> `provider service` -> `repository`. |
+**I need the smallest pod for occasional traffic**
+
+- Starting profile: `micro-dubbo`, static provider.
+- Key properties: `reactor.rust.jni.workers=1`, `reactor.dubbo.native-async-workers=1`, `reactor.rust.response-pool.small-capacity=8`.
+
+**I need more successful writes at c256**
+
+- Starting profile: `micro-dubbo` plus route-specific tuning.
+- Key property: `reactor.rust.route-admission.post.api.v1.customers.max-concurrent`.
+- Decision rule: increase it only with RSS, p99, and 503 measurements.
+
+**I need dynamic provider discovery**
+
+- Starting profile: `micro-dubbo` + `zookeeper-discovery` Maven profile.
+- Key property: `SAMPLE_DUBBO_DISCOVERY=zookeeper`.
+- Expectation: a small RSS increase is normal.
+
+**Provider DB is slow**
+
+- Starting profile: keep consumer bounded and tune provider first.
+- Key areas: `sample.db.maximum-pool-size`, provider method limits, PostgreSQL latency.
+
+**I need a best-practice code template**
+
+- Starting profile: copy this sample structure.
+- Flow: `handler` -> `dubbo client` -> `shared interface` -> `provider service` -> `repository`.
 
 Do not turn every problem into a bigger thread pool. For this framework, the safer production order is
 usually: bounded route admission, explicit timeout, provider bulkhead, DB pool tuning, then worker
