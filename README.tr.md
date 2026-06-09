@@ -32,69 +32,16 @@ Kullanıcı için en doğru başlangıç tüm property listesini ezberlemek değ
 şeklini seçin, en yakın profile'ı kopyalayın, sonra sadece trafiğinizi etkileyen birkaç değeri tune
 edin.
 
-**Tüm sample verblerini lokal denemek**
-
-- Maven profile: default `full-dubbo-consumer`
-- Runtime profile: `micro-dubbo`
-- Response yolu: `RawResponse.json(bytes)`
-- Kazanç: GET, POST, PATCH ve DELETE örnekleri hemen çalışır.
-- Bedel: read-only moda göre classpath daha büyüktür.
-
-**En düşük memory read-only consumer**
-
-- Maven profile: `native-static-consumer`
-- Runtime profile: `micro-dubbo`
-- Response yolu: argümansız Dubbo method UTF-8 JSON `byte[]` döner.
-- Kazanç: consumer içinde ZooKeeper ve Hessian class'ları yoktur.
-- Bedel: sadece argümansız read çağrıları desteklenir.
-
-**Kubernetes Service DNS ile static consumer**
-
-- Maven profile: default veya `native-static-consumer`
-- Runtime profile: `micro-dubbo`
-- Response yolu: provider adresi K8s Service DNS olur.
-- Kazanç: Java ZooKeeper client/thread/class yükü consumer'a girmez.
-- Bedel: Dubbo registry/governance yoktur; dağıtım TCP connection bazlıdır.
-
-**Kubernetes'te ZooKeeper zorunlu consumer**
-
-- Maven profile: `zookeeper-discovery`
-- Runtime profile: `micro-dubbo`
-- Response yolu: provider URL ZooKeeper'dan gelir.
-- Kazanç: provider restart ve re-register akışını takip eder.
-- Bedel: ZooKeeper client thread/class ekler.
-
-**Read-heavy catalog veya lookup API**
-
-- Maven profile: default veya `zookeeper-discovery`
-- Runtime profile: `micro-dubbo`
-- Response yolu: provider hazır JSON döner, consumer raw bytes forward eder.
-- Kazanç: REST JVM DTO graph ve JSON reserialize yapmaz.
-- Bedel: JSON shape/versioning provider sorumluluğudur.
-
-**Typed Dubbo DTO örnekleri**
-
-- Maven profile: default veya `zookeeper-discovery`
-- Runtime profile: `micro-dubbo`
-- Response yolu: provider record/list/map/scalar değerler döner.
-- Kazanç: normal Dubbo object contract örneklerini gösterir.
-- Bedel: Hessian encode/decode ve Java object graph allocation oluşur.
-
-**Dubbo üzerinden write/command API**
-
-- Maven profile: default veya `zookeeper-discovery`
-- Runtime profile: `micro-dubbo`
-- Response yolu: `byte[]` request body provider command method'una gider.
-- Kazanç: REST handler ince ve açık kalır.
-- Bedel: Hessian request encoding gerekir.
-
-**Daha yüksek concurrency RPC servisi**
-
-- Maven profile: default veya `zookeeper-discovery`
-- Runtime profile: `micro-dubbo` ile başlayın, ölçerek balanced değerlere yaklaşın.
-- Response yolu: aynı API yolu, daha büyük route budget.
-- Kazanç: daha az overload reject.
-- Bedel: daha yüksek RSS ve provider/DB baskısı.
+| Senaryo | Profile | Yol / Kazanç | Bedel |
+|----------|---------|--------------|-------|
+| Lokal tüm verbler | Maven: default `full-dubbo-consumer`<br>Runtime: `micro-dubbo` | `RawResponse.json(bytes)`<br>GET/POST/PATCH/DELETE hemen çalışır | Read-only moda göre classpath büyür |
+| En düşük memory read-only | Maven: `native-static-consumer`<br>Runtime: `micro-dubbo` | No-arg Dubbo `byte[]` JSON<br>ZooKeeper/Hessian class yok | Sadece argümansız read |
+| K8s Service DNS static | Default veya `native-static-consumer`<br>Runtime: `micro-dubbo` | Provider adresi K8s Service DNS<br>ZooKeeper client/thread yok | Registry/governance yok |
+| K8s ZooKeeper zorunlu | Maven: `zookeeper-discovery`<br>Runtime: `micro-dubbo` | Provider URL ZooKeeper'dan gelir<br>Restart/re-register takip edilir | ZooKeeper thread/class ekler |
+| Read-heavy catalog/lookup | Default veya `zookeeper-discovery`<br>`micro-dubbo` | Provider hazır JSON döner<br>DTO graph + reserialize yok | JSON shape provider sorumluluğu |
+| Typed Dubbo DTO | Default veya `zookeeper-discovery`<br>`micro-dubbo` | `record/list/map/scalar` contract gösterir | Hessian + Java object allocation |
+| Write/command API | Default veya `zookeeper-discovery`<br>`micro-dubbo` | `byte[]` request provider command'a gider<br>REST handler ince kalır | Hessian request encoding gerekir |
+| Daha yüksek concurrency | Default veya `zookeeper-discovery`<br>Ölçerek balanced'a yaklaş | Aynı API, daha büyük route budget<br>Daha az overload reject | RSS ve provider/DB baskısı artar |
 
 Önerilen başlangıç: Kubernetes içinde provider zaten bir `Service` DNS arkasındaysa ve Dubbo
 registry/governance ihtiyacınız yoksa static provider modu daha küçük ve daha sade başlangıçtır.
@@ -402,65 +349,20 @@ timeout ve aynı concurrency vermek production'da doğru davranış değildir.
 
 ### Önce Terimleri Netleştirelim
 
-**`p99`**
-
-- Basit açıklama: 100 isteğin 99 tanesi bu sürenin altında biter. Örnek: p99 120 ms ise isteklerin çoğu hızlıdır, ama en yavaş yüzde 1 için 120 ms görüyorsunuz.
-- Bu projede etkisi: kullanıcının hissettiği yavaşlamayı average latency'den daha iyi gösterir.
-
-**`503`**
-
-- Basit açıklama: servisin "şu anda bu isteği alamam" demesidir. Hata gibi görünür ama kontrollü overload için bilinçli kullanılır.
-- Bu projede etkisi: kuyruk şişip memory ve latency patlamasın diye bazı istekler erken reddedilir.
-
-**Hot read**
-
-- Basit açıklama: çok çağrılan okuma endpoint'i. Örnek: müşteri getir, sipariş getir, katalog getir.
-- Bu projede etkisi: daha fazla route budget alabilir ama DB/provider kapasitesini aşmamalıdır.
-
-**Cold route**
-
-- Basit açıklama: seyrek çağrılan endpoint. Örnek: admin işlem, seyrek patch, silme.
-- Bu projede etkisi: hot endpoint'lerin kapasitesini çalmamalıdır.
-
-**Write command**
-
-- Basit açıklama: veri değiştiren işlem. Örnek: müşteri yarat, sipariş iptal et, müşteri statüsü değiştir.
-- Bu projede etkisi: retry ve derin kuyruk tehlikelidir; idempotency gerekir.
-
-**Route budget**
-
-- Basit açıklama: bir endpoint'in aynı anda kaç işi içeri alabileceğidir.
-- Bu projede etkisi: `reactor.rust.route-admission...max-concurrent` ile ayarlanır.
-
-**Queue timeout**
-
-- Basit açıklama: route budget doluyken isteğin ne kadar bekleyebileceğidir.
-- Bu projede etkisi: `queue-timeout-ms` büyürse 503 azalabilir ama p99 ve memory artabilir.
-
-**In-flight**
-
-- Basit açıklama: şu anda işlenmekte olan istek veya response demektir.
-- Bu projede etkisi: çok büyürse RSS ve p99 yükselir.
-
-**RSS**
-
-- Basit açıklama: pod'un işletim sistemi gözünden tuttuğu gerçek memory miktarıdır.
-- Bu projede etkisi: Kubernetes memory limitini asıl etkileyen değerdir.
-
-**Consumer**
-
-- Basit açıklama: bu proje REST isteğini alır, gerekiyorsa Dubbo provider'a gider ve response döner.
-- Bu projede etkisi: REST + Dubbo ayarları bu tarafta yapılır.
-
-**Provider**
-
-- Basit açıklama: arkadaki Dubbo servisidir. DB'ye gider, iş mantığını çalıştırır veya JSON üretir.
-- Bu projede etkisi: provider yavaşsa consumer kuyruğunu büyütmek tek başına çözüm değildir.
-
-**RawResponse**
-
-- Basit açıklama: provider'dan gelen JSON byte'larını Java DTO parse/serialize yapmadan direkt response olarak döndürme yoludur.
-- Bu projede etkisi: düşük allocation, düşük CPU ve daha düşük RSS için önerilir.
+| Terim | Basit açıklama | Bu projede neye etki eder? |
+|-------|----------------|----------------------------|
+| `p99` | 100 isteğin 99'u bu sürenin altında biter.<br>Örnek: p99 120 ms ise en yavaş yüzde 1 bu bandı görür. | Kullanıcının hissettiği yavaşlamayı average latency'den daha iyi gösterir. |
+| `503` | Servisin "şu anda bu isteği alamam" demesidir. Hata gibi görünür ama kontrollü overload için bilinçli kullanılır. | Kuyruk şişip memory ve latency patlamasın diye bazı istekler erken reddedilir. |
+| Hot read | Çok çağrılan okuma endpoint'i. Örnek: müşteri getir, sipariş getir, katalog getir. | Daha fazla route budget alabilir ama DB/provider kapasitesini aşmamalıdır. |
+| Cold route | Seyrek çağrılan endpoint. Örnek: admin işlem, seyrek patch, silme. | Hot endpoint'lerin kapasitesini çalmamalıdır. |
+| Write command | Veri değiştiren işlem. Örnek: müşteri yarat, sipariş iptal et, müşteri statüsü değiştir. | Retry ve derin kuyruk tehlikelidir; idempotency gerekir. |
+| Route budget | Bir endpoint'in aynı anda kaç işi içeri alabileceğidir. | `reactor.rust.route-admission...max-concurrent` ile ayarlanır. |
+| Queue timeout | Route budget doluyken isteğin ne kadar bekleyebileceğidir. | `queue-timeout-ms` büyürse 503 azalabilir ama p99 ve memory artabilir. |
+| In-flight | Şu anda işlenmekte olan istek veya response demektir. | Çok büyürse RSS ve p99 yükselir. |
+| RSS | Pod'un işletim sistemi gözünden tuttuğu gerçek memory miktarıdır. | Kubernetes memory limitini asıl etkileyen değerdir. |
+| Consumer | Bu proje: REST isteğini alır, gerekiyorsa Dubbo provider'a gider ve response döner. | REST + Dubbo ayarları bu tarafta yapılır. |
+| Provider | Arkadaki Dubbo servisidir. DB'ye gider, iş mantığını çalıştırır veya JSON üretir. | Provider yavaşsa consumer kuyruğunu büyütmek tek başına çözüm değildir. |
+| RawResponse | Provider'dan gelen JSON byte'larını Java DTO parse/serialize yapmadan direkt response olarak döndürme yoludur. | Düşük allocation, düşük CPU ve daha düşük RSS için önerilir. |
 
 Route admission key'leri path'e göre üretilir. Örneğin `GET /api/v1/customers/db` için örnek key
 `reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent` şeklindedir. Kendi projenizde
@@ -526,37 +428,12 @@ oranı, provider DB pool wait süresi ve trafik durduktan 30-60 saniye sonra con
 
 Bu senaryoda karşılaşabileceğiniz farklı durumlar ve doğrudan property karşılıkları:
 
-**DB-backed müşteri read p99 yükseliyor**
-
-- Durum: `GET /api/v1/customers/db` p99 yükseldi, provider DB pool wait artıyor.
-- Önceki değer: `customers.db.max-concurrent=12` veya daha yüksek.
-- Değişiklik: `reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=8`
-- Beklenen düzelme: consumer DB-backed read'i provider'ın bitirebileceği seviyeye çeker.
-- Bedel/dikkat: bir miktar `503` artabilir; bu DB'yi korumak için kabul edilir.
-
-**Create customer yavaşlıyor**
-
-- Durum: `POST /api/v1/customers` yavaşlıyor ve duplicate write riski var.
-- Önceki değer: `post.customers.max-concurrent=10`, `reactor.dubbo.retries=1`
-- Değişiklik: `post.customers.max-concurrent=6`, `reactor.dubbo.retries=0`
-- Beklenen düzelme: write command daha tahmin edilebilir olur, retry storm azalır.
-- Bedel/dikkat: client tarafında idempotency yoksa duplicate riskini ayrıca çözmelisiniz.
-
-**Katalog/sipariş özeti ucuz ama 503 alıyor**
-
-- Durum: provider CPU sağlıklı, ama ucuz hot read route fazla erken reject ediyor.
-- Önceki değer: `catalog.nested.max-concurrent=16`, `native-connections-per-endpoint=1`
-- Değişiklik: `catalog.nested.max-concurrent=24`, `native-connections-per-endpoint=2`
-- Beklenen düzelme: ucuz hot read daha fazla üretkenlik alır.
-- Bedel/dikkat: provider CPU sağlıklı değilse bu değişiklik p99'u kötüleştirir.
-
-**Tüm endpoint'lerde p99 aynı anda yükseliyor**
-
-- Durum: tek global kuyruk tüm endpoint'lerin bekleme süresini büyütüyor.
-- Önceki değer: sadece `jni.queue-capacity` büyütüldü.
-- Değişiklik: global queue büyütmeyi geri alın; route budget'ları ayrı ayarlayın.
-- Beklenen düzelme: yavaş endpoint tüm sistemi boğmaz.
-- Bedel/dikkat: her endpoint'i ayrı metrikle izlemeden tek config büyütmeyin.
+| Durum | Önceki değer | Değişiklik | Beklenen düzelme | Bedel / dikkat |
+|-------|--------------|------------|------------------|----------------|
+| Customer DB p99 yükseldi | `customers.db.max-concurrent=12+` | `...customers.db.max-concurrent=8` | DB read provider hızına iner | `503` biraz artabilir |
+| Create yavaş / duplicate riski | `post.customers=10`<br>`retries=1` | `post.customers=6`<br>`retries=0` | Retry storm azalır | Idempotency ayrıca çözülmeli |
+| Ucuz katalog read 503 alıyor | `catalog.nested=16`<br>`conn=1` | `catalog.nested=24`<br>`conn=2` | Hot read üretkenliği artar | Provider CPU sağlıklı olmalı |
+| Tüm endpoint p99 yükseliyor | Global queue büyütüldü | Queue'u geri al<br>route budget ayır | Yavaş route sistemi boğmaz | Endpoint metriği şart |
 
 ### Sadakat Puan Servisi: Küçük Pod, 4 Endpoint, 2 Yoğun Endpoint
 
@@ -620,33 +497,12 @@ mutlaka 200 dönmeli diyorsanız bu artık memory-first senaryo değildir.
 
 Bu senaryoda karşılaşabileceğiniz farklı durumlar ve doğrudan property karşılıkları:
 
-**Idle RSS beklediğinizden yüksek**
-
-- Önceki değer: `native-trim.enabled=false`, pool'lar daha geniş.
-- Değişiklik: `native-trim.enabled=true`, `small-capacity=8`, `medium-capacity=2`, `large-capacity=1`
-- Beklenen düzelme: trafik sakinleşince warmed native memory daha iyi geri bırakılır.
-- Bedel/dikkat: trim hot path'te değil idle'da çalışmalı; aksi halde p99 spike olabilir.
-
-**İki hot read altında çok fazla 503 var ama RSS hâlâ güvenli**
-
-- Önceki değer: `catalog.nested.max-concurrent=12`, `customers.db.max-concurrent=6`
-- Değişiklik: `catalog.nested.max-concurrent=16`, `customers.db.max-concurrent=8`
-- Beklenen düzelme: faydalı `200` RPS artar.
-- Bedel/dikkat: RSS ve provider DB wait tekrar ölçülmeden daha fazla artırmayın.
-
-**Pod memory limiti çok sıkılaştı**
-
-- Önceki değer: `max-connections=512`, `dubbo.max-inflight=16`
-- Değişiklik: `max-connections=256`, `dubbo.max-inflight=8`
-- Beklenen düzelme: aynı anda içeri alınan iş azalır, RSS daha kontrollü kalır.
-- Bedel/dikkat: spike anında 503 artar; bu profilin bilinçli davranışıdır.
-
-**Trim açıldıktan sonra p99 dalgalandı**
-
-- Önceki değer: `native-trim.interval-ms=15000` gibi agresif değer.
-- Değişiklik: `initial-delay-ms=30000`, `interval-ms=60000`, `min-idle-ms=10000`
-- Beklenen düzelme: trim daha konservatif çalışır, latency etkisi azalır.
-- Bedel/dikkat: RSS düşüşü daha yavaş görünebilir.
+| Durum | Önceki değer | Değişiklik | Beklenen düzelme | Bedel / dikkat |
+|-------|--------------|------------|------------------|----------------|
+| Idle RSS yüksek | `native-trim=false`<br>pool geniş | `native-trim=true`<br>`small=8, medium=2, large=1` | Idle memory geri bırakılır | Trim sadece idle'da |
+| Hot read 503 yüksek, RSS güvenli | `catalog=12`<br>`customers=6` | `catalog=16`<br>`customers=8` | Faydalı `200` RPS artar | RSS/DB wait tekrar ölçün |
+| Pod limiti sıkı | `max-connections=512`<br>`dubbo.inflight=16` | `max-connections=256`<br>`dubbo.inflight=8` | RSS kontrollü kalır | Spike'ta 503 artar |
+| Trim sonrası p99 dalgalı | `trim.interval=15000` | `initial=30000`<br>`interval=60000`<br>`min-idle=10000` | Trim daha sakin çalışır | RSS düşüşü yavaşlar |
 
 ### Raporlama ve Snapshot Servisi: 10 Endpoint, 4 Yoğun Endpoint, 1 Büyük JSON
 
@@ -706,33 +562,12 @@ byte metriği, warm load sonrası RSS ve 30-60 saniye idle sonrası RSS.
 
 Bu senaryoda karşılaşabileceğiniz farklı durumlar ve doğrudan property karşılıkları:
 
-**Büyük JSON response limit'e takılıyor**
-
-- Önceki değer: `max-response-body-bytes=8388608`, `dubbo.max-response-bytes=8388608`
-- Değişiklik: ikisini de `16777216` yapın; toplam limit için `max-inflight-response-bytes=33554432`
-- Beklenen düzelme: büyük response reddedilmeden dönebilir.
-- Bedel/dikkat: sadece tek response limitini büyütmek yetmez; toplam in-flight limiti de kontrol edilmeli.
-
-**Büyük JSON route RSS'i yükseltiyor**
-
-- Önceki değer: `catalog.db.customers.max-concurrent=10` veya `12`
-- Değişiklik: `catalog.db.customers.max-concurrent=6`
-- Beklenen düzelme: aynı anda tutulan büyük body sayısı azalır.
-- Bedel/dikkat: büyük endpoint'in RPS'i düşebilir ama pod memory korunur.
-
-**Küçük hot read'ler büyük JSON yüzünden yavaşlıyor**
-
-- Önceki değer: tüm route'lar aynı budget'ta.
-- Değişiklik: küçük read için `catalog.nested.max-concurrent=32`, büyük JSON için `catalog.db.customers.max-concurrent=6`
-- Beklenen düzelme: küçük response'lar büyük response kuyruğundan ayrışır.
-- Bedel/dikkat: route key'leri path'e göre doğru yazılmalı.
-
-**Provider CPU boş, consumer tarafında p99 yüksek**
-
-- Önceki değer: `native-connections-per-endpoint=1`, `native-async-workers=1`
-- Değişiklik: `native-connections-per-endpoint=3`, `native-async-workers=2`
-- Beklenen düzelme: Dubbo native data-plane daha fazla paralel iş taşıyabilir.
-- Bedel/dikkat: provider CPU/DB doygunsa bu artış fayda vermez.
+| Durum | Önceki değer | Değişiklik | Beklenen düzelme | Bedel / dikkat |
+|-------|--------------|------------|------------------|----------------|
+| Büyük JSON limit'e takılıyor | `resp=8MiB`<br>`dubbo=8MiB` | İkisi `16MiB`<br>`inflight=32MiB` | Response dönebilir | Toplam in-flight da şart |
+| Büyük JSON RSS artırıyor | `catalog.db.customers=10/12` | `catalog.db.customers=6` | Aynı anda büyük body azalır | Büyük endpoint RPS düşer |
+| Küçük read büyük JSON'dan yavaş | Tüm route budget aynı | Küçük read `32`<br>büyük JSON `6` | Kuyruklar ayrışır | Route key doğru olmalı |
+| Provider CPU boş, p99 yüksek | `conn=1`<br>`async-workers=1` | `conn=3`<br>`async-workers=2` | Native data-plane paralelliği artar | Provider doygunsa fayda yok |
 
 ### CRM Komut Servisi: Create, Patch, Delete Trafiği Yüksek
 
@@ -784,33 +619,12 @@ tarafı kısa timeout ve düşük concurrency ile provider/DB limitini görünü
 
 Bu senaryoda karşılaşabileceğiniz farklı durumlar ve doğrudan property karşılıkları:
 
-**Müşteri yaratma endpoint'i DB'yi zorluyor**
-
-- Önceki değer: `post.customers.max-concurrent=8` veya `10`
-- Değişiklik: `post.customers.max-concurrent=4`, `queue-timeout-ms=100`
-- Beklenen düzelme: DB write pressure düşer, p99 daha tahmin edilebilir olur.
-- Bedel/dikkat: peak write RPS düşer; bu doğru backpressure sinyalidir.
-
-**Timeout sonrası aynı command tekrar geliyor**
-
-- Önceki değer: `reactor.dubbo.retries=1` veya client-side blind retry.
-- Değişiklik: `reactor.dubbo.retries=0`, client'a idempotency key zorunlu.
-- Beklenen düzelme: duplicate write riski azalır.
-- Bedel/dikkat: iş garantisi gerekiyorsa consumer queue değil durable workflow gerekir.
-
-**Patch endpoint'leri birbirini eziyor**
-
-- Önceki değer: segment/status route'ları aynı yüksek budget'ta.
-- Değişiklik: segment ve status için ayrı ayrı `max-concurrent=4`.
-- Beklenen düzelme: bir patch türü diğerini tamamen kilitlemez.
-- Bedel/dikkat: gerçek domain'de aynı müşteri için optimistic lock/idempotency gerekir.
-
-**Delete route nadir ama pahalı**
-
-- Önceki değer: `delete.customers.id.max-concurrent=4`
-- Değişiklik: `delete.customers.id.max-concurrent=2`
-- Beklenen düzelme: geri alınması zor command daha kontrollü akar.
-- Bedel/dikkat: admin kullanıcı spike anında 503 görebilir.
+| Durum | Önceki değer | Değişiklik | Beklenen düzelme | Bedel / dikkat |
+|-------|--------------|------------|------------------|----------------|
+| Create DB'yi zorluyor | `post.customers=8/10` | `post.customers=4`<br>`queue=100ms` | DB write pressure düşer | Peak write RPS düşer |
+| Timeout sonrası tekrar | `retries=1`<br>blind client retry | `retries=0`<br>idempotency key | Duplicate riski azalır | Garanti için durable workflow |
+| Patch route'ları eziyor | Segment/status aynı yüksek budget | Her biri `max-concurrent=4` | Patch türleri ayrışır | Optimistic lock/idempotency gerekir |
+| Delete nadir ama pahalı | `delete=4` | `delete=2` | Daha kontrollü akar | Admin spike'ta 503 görebilir |
 
 ### Kampanya Listeleme Servisi: Çok Pod, Sıkı Memory, Kontrollü 503
 
@@ -874,33 +688,12 @@ yükseltmektir.
 
 Bu senaryoda karşılaşabileceğiniz farklı durumlar ve doğrudan property karşılıkları:
 
-**Pod başı RSS fazla, namespace toplam memory doluyor**
-
-- Önceki değer: `max-connections=512`, `small-capacity=32`, `medium-capacity=8`
-- Değişiklik: `max-connections=256`, `small-capacity=8`, `medium-capacity=2`
-- Beklenen düzelme: her pod daha az idle/native buffer tutar.
-- Bedel/dikkat: tek pod throughput düşer; yatay ölçekle dengeleyin.
-
-**Kampanya anında hot read 503 oranı kabul edilemez seviyede**
-
-- Önceki değer: `catalog.nested.max-concurrent=8`
-- Değişiklik: `catalog.nested.max-concurrent=16`
-- Beklenen düzelme: hot read daha fazla istek kabul eder.
-- Bedel/dikkat: RSS ve provider CPU artışını ölçün.
-
-**Admin/write route hot read'i etkiliyor**
-
-- Önceki değer: admin/write route budget yüksek.
-- Değişiklik: `post.customers.max-concurrent=2`, `delete.customers.id.max-concurrent=1`
-- Beklenen düzelme: seyrek route'lar hot read kapasitesini çalmaz.
-- Bedel/dikkat: admin işlemleri spike altında fail-fast davranır.
-
-**503'ü azaltmak için global queue büyütüldü**
-
-- Önceki değer: `jni.queue-capacity=512`
-- Değişiklik: `jni.queue-capacity=128`, route budget ile ayrıştırma.
-- Beklenen düzelme: global kuyruk şişmesi ve p99 artışı engellenir.
-- Bedel/dikkat: her hot endpoint'e ayrı budget yazmanız gerekir.
+| Durum | Önceki değer | Değişiklik | Beklenen düzelme | Bedel / dikkat |
+|-------|--------------|------------|------------------|----------------|
+| Pod RSS yüksek | `max-connections=512`<br>`small=32, medium=8` | `max-connections=256`<br>`small=8, medium=2` | Daha az idle/native buffer | Yatay ölçekle dengeleyin |
+| Kampanya hot read 503 yüksek | `catalog.nested=8` | `catalog.nested=16` | Hot read daha çok istek alır | RSS/provider CPU ölçün |
+| Admin/write hot read'i etkiliyor | Admin/write budget yüksek | `post=2`<br>`delete=1` | Seyrek route kapasite çalmaz | Admin fail-fast olur |
+| 503 için global queue büyüdü | `jni.queue=512` | `jni.queue=128`<br>route budget ayrıştır | Global p99 artışı azalır | Hot endpoint budget gerekir |
 
 ### Çağrı Merkezi Lookup API'si: Memory Rahat, p99 Yüksek
 
@@ -949,33 +742,12 @@ Bu profile geçmeden önce şunları kontrol edin:
 
 Bu senaryoda karşılaşabileceğiniz farklı durumlar ve doğrudan property karşılıkları:
 
-**Provider CPU boş, consumer p99 yüksek**
-
-- Önceki değer: `dubbo.max-inflight=24`, `native-connections-per-endpoint=2`
-- Değişiklik: `dubbo.max-inflight=64`, `native-connections-per-endpoint=4`
-- Beklenen düzelme: hot lookup endpoint'leri daha fazla paralel Dubbo çağrısı taşıyabilir.
-- Bedel/dikkat: RSS ve provider DB pool tekrar ölçülmeli.
-
-**Sadece müşteri lookup yavaş**
-
-- Önceki değer: her hot route aynı budget'ta.
-- Değişiklik: `customers.db.max-concurrent=12`, catalog budget aynı kalır.
-- Beklenen düzelme: problemli route ayrı ayarlanır, diğer endpoint'ler etkilenmez.
-- Bedel/dikkat: DB wait artarsa tekrar düşürün.
-
-**Büyük müşteri geçmişi küçük lookup'ları bozuyor**
-
-- Önceki değer: büyük JSON route `max-concurrent=12`
-- Değişiklik: büyük JSON route `max-concurrent=6`, küçük lookup route'ları yüksek kalır.
-- Beklenen düzelme: küçük lookup p99 korunur.
-- Bedel/dikkat: büyük JSON endpoint daha düşük useful RPS verir.
-
-**Admission tamamen kaldırıldı**
-
-- Önceki değer: route budget yok.
-- Değişiklik: route budget'ları geri koyun, sadece hot read değerlerini artırın.
-- Beklenen düzelme: bir yavaş provider route'u tüm servisi kilitlemez.
-- Bedel/dikkat: config biraz daha detaylı olur ama üretimde daha güvenlidir.
+| Durum | Önceki değer | Değişiklik | Beklenen düzelme | Bedel / dikkat |
+|-------|--------------|------------|------------------|----------------|
+| Provider CPU boş, p99 yüksek | `dubbo.inflight=24`<br>`conn=2` | `dubbo.inflight=64`<br>`conn=4` | Daha fazla paralel Dubbo call | RSS/DB pool ölçün |
+| Sadece lookup yavaş | Hot route budget aynı | `customers.db=12`<br>catalog aynı | Problemli route ayrılır | DB wait artarsa düşürün |
+| Büyük history küçük lookup'ı bozuyor | Büyük JSON `12` | Büyük JSON `6`<br>küçük lookup yüksek | Küçük lookup p99 korunur | Büyük JSON RPS düşer |
+| Admission kapatıldı | Route budget yok | Budget'ları geri koy<br>sadece hot read artır | Yavaş route sistemi kilitlemez | Config daha detaylıdır |
 
 ## `rust-java-rest` 3.2.2 Bu Örnekte Ne Değiştiriyor?
 
@@ -1057,23 +829,11 @@ Bu repo şunlara bağlıdır:
 
 Sample üç farklı consumer dependency şekli sunar:
 
-**`full-dubbo-consumer`**
-
-- Ne kullanır: full `java-rust-dubbo` artifact ve `hessian-lite`; varsayılan aktiftir.
-- Ne için uygun: POST/PATCH/DELETE dahil tüm sample endpoint'lerini çalıştırmak.
-- Sınırı: en küçük read-only path'e göre classpath daha büyüktür.
-
-**`native-static-consumer`**
-
-- Ne kullanır: `java-rust-dubbo` `native-static` classifier; Hessian ve ZooKeeper dependency yoktur.
-- Ne için uygun: static provider, no-arg `byte[]` read endpoint'leri için en küçük classpath yüzeyi.
-- Sınırı: argüman taşıyan Dubbo method'ları full profile ister.
-
-**`zookeeper-discovery`**
-
-- Ne kullanır: full `java-rust-dubbo`, `hessian-lite` ve ZooKeeper client dependency ekler.
-- Ne için uygun: Kubernetes veya provider discovery'nin mutlaka ZooKeeper'dan gelmesi gereken ortamlar.
-- Sınırı: consumer process'e Java ZooKeeper class/thread maliyeti ekler.
+| Profile | Ne kullanır? | Ne için uygun? | Sınırı |
+|---------|--------------|----------------|--------|
+| `full-dubbo-consumer` | Full artifact + `hessian-lite`<br>Varsayılan profile | POST/PATCH/DELETE dahil tüm endpoint'ler | En küçük read-only path'e göre daha geniş classpath |
+| `native-static-consumer` | `native-static` classifier<br>Hessian/ZooKeeper yok | Static provider + no-arg `byte[]` read | Argümanlı Dubbo method için full profile gerekir |
+| `zookeeper-discovery` | Full artifact + `hessian-lite` + ZooKeeper client | K8s veya zorunlu ZooKeeper discovery | Java ZooKeeper class/thread maliyeti ekler |
 
 Tüm örnekleri kopyala-çalıştır yapmak istiyorsanız default/full profile kullanın:
 
@@ -1139,25 +899,12 @@ Bu değerler garanti değildir; bu sample'ın şekli için güvenli başlangıç
 container image, CPU limit, trafik, response boyutu ve ZooKeeper discovery'nin açık olup olmamasına
 göre değişir.
 
-**Static provider, düşük trafik, sadece JSON pass-through**
-
-- Başlangıç limiti: `128Mi`
-- Neden: Rust-Java REST küçük kalır; consumer Java ZooKeeper/Dubbo Netty runtime yüklemez.
-
-**Static provider ve DB-backed Dubbo route, orta yük**
-
-- Başlangıç limiti: `160Mi`
-- Neden: DB çağrıları spike anında queue ve retained buffer baskısını artırır.
-
-**Consumer içinde ZooKeeper discovery açık**
-
-- Başlangıç limiti: `160Mi` veya üstü
-- Neden: Java ZooKeeper client thread/class/session state ekler. Sadece gerekiyorsa kullanın.
-
-**Daha yüksek concurrency Dubbo workload**
-
-- Başlangıç limiti: `192Mi` seviyesinden ölçün.
-- Neden: route admission ve native connection birlikte artırılmalı; p99, 503 oranı ve RSS birlikte izlenmeli.
+| Servis şekli | Başlangıç limiti | Neden |
+|--------------|-----------------:|-------|
+| Static provider, düşük trafik, sadece JSON pass-through | `128Mi` | Rust-Java REST küçük kalır; consumer Java ZooKeeper/Dubbo Netty runtime yüklemez. |
+| Static provider ve DB-backed Dubbo route, orta yük | `160Mi` | DB çağrıları spike anında queue ve retained buffer baskısını artırır. |
+| Consumer içinde ZooKeeper discovery açık | `160Mi` veya üstü | Java ZooKeeper client thread/class/session state ekler. Sadece gerekiyorsa kullanın. |
+| Daha yüksek concurrency Dubbo workload | `192Mi` seviyesinden ölçün | Route admission ve native connection birlikte artırılmalı; p99, 503 oranı ve RSS birlikte izlenmeli. |
 
 Servis günde az sayıda çağrı alıyorsa c1000 benchmark'a göre pod limiti seçmeyin. Static provider
 moduyla başlayın, route admission bounded kalsın ve 30-60 saniye idle sonrası RSS'i kontrol edin.
@@ -1500,61 +1247,16 @@ içinden gelmelidir. Ayrı servislerde küçük farklarla copy/paste contract ü
 
 ### Dubbo Method Veri Yapısı Kataloğu
 
-**1. `byte[]` UTF-8 JSON, argümansız**
-
-- Örnek method: `getNestedCatalogJson()`
-- Consumer endpoint: `GET /api/v1/catalog/nested`
-- Ne zaman: provider JSON shape'in sahibiyse ve consumer sadece forward edecekse.
-- Maliyet: en düşük. Native no-arg byte-array fast path çalışır; consumer DTO graph kurmaz.
-
-**2. `String`**
-
-- Örnek method: `getCatalogTitle()`
-- Consumer endpoint: `GET /api/v1/catalog/title`
-- Ne zaman: küçük label, başlık veya tek değer dönecekseniz.
-- Maliyet: küçük String allocation ve REST tarafında JSON wrapper.
-
-**3. Primitive/scalar**
-
-- Örnek method: `countCatalogItems()`, `customerExists(id)`
-- Consumer endpoint: `GET /api/v1/catalog/count`, `GET /api/v1/customers/{id}/exists`
-- Ne zaman: count, flag veya ucuz lookup kararı.
-- Maliyet: typed çağrı için Hessian decode vardır; büyük object graph yoktur.
-
-**4. Java `record`**
-
-- Örnek method: `getCatalogInfo()`, `getCustomer(id)`
-- Consumer endpoint: `GET /api/v1/catalog/info`, `GET /api/v1/customers/db/{id}`
-- Ne zaman: consumer field'ları okuyup branching, validation veya enrichment yapacaksa.
-- Maliyet: Hessian record oluşturur, sonra REST JSON serialize eder.
-
-**5. `List<record>`**
-
-- Örnek method: `listFeaturedItems(limit)`, `findCustomersBySegment(segment, limit)`
-- Consumer endpoint: `GET /api/v1/catalog/items`, `GET /api/v1/customers/db/by-segment`
-- Ne zaman: küçük ve bounded sayfalar.
-- Maliyet: liste + her item için record allocation; `limit` her zaman bounded olmalı.
-
-**6. `Map<String,String>`**
-
-- Örnek method: `getCatalogAttributes()`
-- Consumer endpoint: `GET /api/v1/catalog/attributes`
-- Ne zaman: küçük metadata çantası.
-- Maliyet: Map allocation ve JSON wrapper; büyük dinamik payload için kullanmayın.
-
-**7. `record` command input ve `record` output**
-
-- Örnek method: `createCustomerTyped(CreateCustomerCommand)`
-- Consumer endpoint: `POST /api/v1/customers/typed`
-- Ne zaman: daha okunabilir typed business command contract istiyorsanız.
-- Maliyet: request encode + response decode + REST serialization.
-
-**8. `byte[]` command input ve `byte[]` JSON output**
-
-- Örnek method: `createCustomer(byte[])`
-- Consumer endpoint: `POST /api/v1/customers`
-- Ne zaman: en düşük allocation command pass-through.
-- Maliyet: request/response bytes taşınır; validation provider'da kalır.
+| Method şekli | Örnek / Endpoint | Kullanım | Runtime maliyeti |
+|--------------|------------------|---------|------------------|
+| `byte[]` JSON, no-arg | `getNestedCatalogJson()`<br>`GET /api/v1/catalog/nested` | Provider JSON shape sahibiyse<br>consumer sadece forward eder | En düşük<br>native no-arg fast path, DTO graph yok |
+| `String` | `getCatalogTitle()`<br>`GET /api/v1/catalog/title` | Küçük label, başlık, tek değer | Küçük String allocation<br>REST JSON wrapper |
+| Primitive/scalar | `countCatalogItems()`<br>`customerExists(id)` | Count, flag, ucuz lookup | Hessian decode var<br>büyük object graph yok |
+| Java `record` | `getCatalogInfo()`<br>`getCustomer(id)` | Field okuyup branching/validation/enrichment yapılacaksa | Hessian record + REST JSON serialize |
+| `List<record>` | `listFeaturedItems(limit)`<br>`findCustomersBySegment(...)` | Küçük bounded sayfalar | Liste + item allocation<br>`limit` zorunlu bounded |
+| `Map<String,String>` | `getCatalogAttributes()`<br>`GET /api/v1/catalog/attributes` | Küçük metadata | Map allocation<br>büyük dynamic payload için kullanmayın |
+| `record -> record` command | `createCustomerTyped(...)`<br>`POST /api/v1/customers/typed` | Okunabilir typed command contract | Request encode + response decode + REST serialize |
+| `byte[] -> byte[]` command | `createCustomer(byte[])`<br>`POST /api/v1/customers` | En düşük allocation command pass-through | Bytes taşınır<br>validation provider'da kalır |
 
 Production kuralı: record daha okunabilir diye tüm `byte[]` method'larını record'a çevirmeyin.
 Consumer typed business data ile karar verecekse record kullanın. Consumer sadece provider JSON'unu
@@ -1685,7 +1387,7 @@ Repo içindeki değerler bilinçli olarak low-RSS yönlüdür; bu değerleri anc
 | `reactor.rust.http.max-response-body-bytes` | Tek response body limiti. |
 | `reactor.rust.http.max-inflight-response-bytes` | Toplam in-flight response byte limiti. |
 | `reactor.rust.http.max-connections` | Kabul edilecek HTTP connection üst limiti. Kubernetes içinde bounded kalmalı. |
-| `reactor.rust.response-pool.small-capacity` / `medium-capacity` / `large-capacity` | Native response buffer retention limitleri. Küçük değer idle RSS'i düşürür; büyük değer steady load altında allocation churn azaltır. |
+| `reactor.rust.response-pool.small-capacity` / `medium-capacity` / `large-capacity` | Native response buffer retention limitleri.<br>Küçük değer idle RSS'i düşürür; büyük değer allocation churn azaltır. |
 | `reactor.rust.json.writer-retain-max-bytes` | Retain edilecek maksimum JSON writer buffer boyutu. Ara sıra gelen büyük response'ların kalıcı retained memory büyütmesini engeller. |
 | `reactor.rust.native-cache.max-bytes` | Opsiyonel native response cache için hard limit. Endpoint bilinçli cache edilebilir değilse küçük veya kullanılmamış kalmalı. |
 | `reactor.rust.route-admission.*` | Global JNI queue öncesinde route bazlı in-flight ve queue timeout limiti. |
@@ -1700,14 +1402,14 @@ Hızlı semptom rehberi:
 
 | Bunu görüyorsanız | Önce şu key'lere bakın | İlk kontrol |
 |-------------------|-------------------------|-------------|
-| Request body reject oluyor veya create/patch payload küçük kalıyor | `reactor.rust.http.max-request-body-bytes`, `reactor.rust.http.max-inflight-body-bytes` | Tek body ve toplam in-flight body limitini birlikte artırın. |
+| Request body reject / payload küçük | `max-request-body-bytes`<br>`max-inflight-body-bytes` | Tek body ve toplam in-flight limitini birlikte artırın. |
 | Provider JSON çok büyük diye reject oluyor | `reactor.dubbo.max-response-bytes`, `reactor.rust.http.max-response-body-bytes`, `reactor.rust.http.max-inflight-response-bytes` | Üç limit de payload'a izin vermeli. |
 | Trafik spike altında çok `503` var | Route-specific `reactor.rust.route-admission.*`, `reactor.dubbo.max-inflight` | Provider CPU/DB pool boşluğu varsa route budget artırın. |
 | p99 büyüyor ama RSS hâlâ düşük | `reactor.dubbo.native-connections-per-endpoint`, `reactor.dubbo.native-async-workers`, route queue timeout | Çok Java worker eklemeden önce connection reuse iyileştirin. |
-| Trafik durduktan sonra RSS yüksek kalıyor | `reactor.rust.response-pool.*`, `reactor.rust.json.writer-retain-max-bytes`, opsiyonel `reactor.rust.native-trim.*` | Idle trim sadece düşük trafikli podlarda açılmalı ve p99 ölçülmeli. |
-| Startup component/route index hatası veriyor | `reactor.startup.component-index.*`, `reactor.startup.route-index.*`, `reactor.startup.scan.fallback-enabled` | Handler/route ekledikten sonra index dosyalarını güncelleyin. |
-| Kubernetes static consumer provider bulamıyor | `sample.dubbo.discovery`, `reactor.dubbo.providers` | `SAMPLE_DUBBO_DISCOVERY=static` ise provider Service DNS, port ve readiness'ı kontrol edin. `127.0.0.1` kullanmayın. |
-| Kubernetes ZooKeeper consumer provider bulamıyor | `sample.dubbo.discovery`, `reactor.dubbo.registry-address`, `reactor.dubbo.registry-root` | `zookeeper-discovery` ile build edin, registry DNS'i doğru verin ve provider node'unun registry altında oluştuğunu kontrol edin. |
+| Trafik durduktan sonra RSS yüksek kalıyor | `reactor.rust.response-pool.*`<br>`reactor.rust.json.writer-retain-max-bytes`<br>`reactor.rust.native-trim.*` | Idle trim'i düşük trafikli podda açın; p99'u ölçün. |
+| Startup index hatası | `component-index.*`<br>`route-index.*`<br>`scan.fallback-enabled` | Handler/route ekledikten sonra index dosyalarını güncelleyin. |
+| Kubernetes static consumer provider bulamıyor | `sample.dubbo.discovery`<br>`reactor.dubbo.providers` | Service DNS, port ve readiness'ı kontrol edin.<br>`127.0.0.1` kullanmayın. |
+| K8s ZooKeeper consumer provider bulamıyor | `sample.dubbo.discovery`<br>`registry-address`<br>`registry-root` | `zookeeper-discovery` ile build edin.<br>Registry DNS ve provider node'u kontrol edin. |
 | Docker static consumer yanlış yere bağlanıyor | `reactor.dubbo.providers` | Docker network içinde `127.0.0.1` değil container/service DNS kullanın. |
 | Write command yavaş veya dengesiz | `reactor.dubbo.retries`, command route admission key'leri, `reactor.dubbo.timeout-ms` | Retry `0` kalsın; bounded queue ve timeout'u tune edin. |
 | Çok sayıda idle HTTP client kaynak tutuyor | `reactor.rust.http.max-connections`, `reactor.rust.http.idle-timeout-ms`, `reactor.rust.http.keep-alive-enabled` | Keep-alive kapatmadan önce idle timeout'u düşürün. |
@@ -1783,7 +1485,7 @@ Route admission:
 | `reactor.rust.route-admission.default-queue-timeout-ms` | `0` | Global default queue wait. `0` default olarak queue yapılmaz demektir. |
 | `reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent` | `16` | Read-heavy nested catalog cap. Provider hızlıysa artırın; provider CPU/RSS artıyorsa düşürün. |
 | `reactor.rust.route-admission.get.api.v1.catalog.nested.queue-timeout-ms` | `100` | Catalog wait budget. Daha az 503 için artırın, daha sıkı p99 için düşürün. |
-| `reactor.rust.route-admission.get.api.v1.catalog.title/count/info/items/attributes.*` | `16` / `100` | Typed catalog scalar/record/list/map route cap'leri. List/map route'larında object allocation p99'u bozuyorsa düşürün. |
+| `reactor.rust.route-admission.get.api.v1.catalog.title/count/info/items/attributes.*` | `16` / `100` | Typed catalog route cap'leri.<br>List/map allocation p99'u bozuyorsa düşürün. |
 | `reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent` | `8` | DB-backed catalog route cap. Provider DB pool ve method bulkhead ile hizalayın. |
 | `reactor.rust.route-admission.get.api.v1.catalog.db.customers.queue-timeout-ms` | `150` | DB-backed catalog wait budget. p99 yüksekse worker artırmadan önce bunu düşürün. |
 | `reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent` | `8` | Customer DB read route cap. Provider `CustomerQueryService` concurrency ile tune edilir. |
@@ -1815,7 +1517,7 @@ Dubbo consumer:
 | `reactor.dubbo.registry-timeout-ms` | `3000` | ZooKeeper operation timeout. Registry network yavaşsa artırın. |
 | `reactor.dubbo.registry-session-timeout-ms` | `30000` | ZooKeeper session timeout. Ölü provider'ın ne kadar hızlı kaybolacağını etkiler. |
 | `reactor.dubbo.registry-check` | `false` | True olursa registry yokken startup fail edebilir. Rolling deploy için false kalsın. |
-| `reactor.dubbo.providers` | `127.0.0.1:20880` | Static provider listesi. Docker/K8s/controlled static ortamda service DNS ile override edin. Birden fazla interface Service DNS ile yönetiliyorsa `customer-provider:20880,order-provider:20880` formatını kullanın. |
+| `reactor.dubbo.providers` | `127.0.0.1:20880` | Static provider listesi.<br>Docker/K8s'te Service DNS kullanın.<br>Örnek: `customer-provider:20880,order-provider:20880` |
 | `reactor.dubbo.timeout-ms` | `1000` | RPC timeout. HTTP route timeout budget'ından düşük olmalı. |
 | `reactor.dubbo.retries` | `0` | Retry sayısı. Write/command route'larında duplicate execution riskini azaltmak için `0` kalsın. |
 | `reactor.dubbo.check` | `false` | True olursa provider yokken reference startup fail edebilir. Provider rolling restart için false kalsın. |
@@ -1938,70 +1640,17 @@ Dubbo consumer:
 Tek seferde tek darboğazı tune edin. Her değişiklik başarılı RPS, p95/p99 latency, 503 oranı,
 provider hata oranı ve idle sonrası RSS ile birlikte ölçülmelidir.
 
-**Kubernetes Service DNS ile düşük-memory static consumer**
-
-- Başlangıç: `SAMPLE_DUBBO_DISCOVERY=static`
-- Provider listesi: `REACTOR_DUBBO_PROVIDERS=customer-provider:20880,order-provider:20880`
-- Runtime: `REACTOR_RUNTIME_PROFILE=micro-dubbo`
-- RPC bütçesi: `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=2`, `REACTOR_DUBBO_MAX_INFLIGHT=8-16`
-- Neden: ZooKeeper client/thread/class yükü consumer'a girmez. Her interface ayrı Service DNS ile açık yönetilir.
-
-**ZooKeeper zorunlu düşük trafikli Kubernetes servisi**
-
-- Başlangıç: `SAMPLE_DUBBO_DISCOVERY=zookeeper`
-- Runtime: `REACTOR_RUNTIME_PROFILE=micro-dubbo`, `REACTOR_DUBBO_RUNTIME_PROFILE=micro-dubbo`
-- Küçük worker seti: `REACTOR_RUST_JNI_WORKERS=1`
-- RPC bütçesi: `REACTOR_DUBBO_MAX_INFLIGHT=8`, `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=1`
-- Neden: REST process küçük kalır; overload anında memory tutmak yerine kontrollü 503 kabul edilir.
-
-**Read-heavy katalog veya dashboard JSON**
-
-- Başlangıç: `REACTOR_DUBBO_MAX_INFLIGHT=16-32`
-- Connection reuse: `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=2-4`
-- Route admission: read route için `16-64`
-- Neden: provider hızlı ve hazır JSON `byte[]` dönüyorsa başarılı 200 RPS artar.
-
-**Provider üzerinden DB-backed query**
-
-- Route budget: consumer route max concurrent değerini provider kapasitesine yakın tutun, genelde pod başına `4-8`.
-- Timeout: `REACTOR_DUBBO_TIMEOUT_MS=800-1500`
-- Queue timeout: `50-150ms`
-- Neden: consumer'ın provider DB pool saturation'ını büyütmesini engeller.
-
-**POST/PATCH/DELETE command method'ları**
-
-- Retry: `REACTOR_DUBBO_RETRIES=0`
-- Command route budget: `4-8`
-- Queue timeout: `100-200ms`
-- Neden: yanlışlıkla duplicate write oluşmasını engeller ve write basıncını sınırlar.
-
-**Büyük JSON response**
-
-- Dubbo limit: `REACTOR_DUBBO_MAX_RESPONSE_BYTES`
-- HTTP limit: `REACTOR_RUST_HTTP_MAX_RESPONSE_BODY_BYTES`
-- Toplam in-flight limit: `REACTOR_RUST_HTTP_MAX_INFLIGHT_RESPONSE_BYTES`
-- Neden: sadece Dubbo response limitini büyütmek yetmez; HTTP response ve toplam in-flight limit de payload'a izin vermelidir.
-
-**Daha yüksek concurrency ama memory hâlâ sınırlı**
-
-- İlk ayar: `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT`
-- Sonra: `REACTOR_DUBBO_MAX_INFLIGHT`
-- En son: `REACTOR_RUST_JNI_WORKERS`
-- Neden: connection reuse çoğu zaman ekstra Java worker'dan önce p99'u toparlar.
-
-**Provider rolling restart, K8s Service DNS**
-
-- Discovery: `SAMPLE_DUBBO_DISCOVERY=static`
-- Provider tarafı: doğru readiness probe
-- Consumer tarafı: `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=2`, explicit RPC timeout
-- Neden: K8s Service sağlıksız pod'u endpoint listesinden çıkarır. Consumer registry tutmaz; toparlanma readiness/EndpointSlice davranışına bağlıdır.
-
-**Provider rolling restart, ZooKeeper registry**
-
-- Discovery: `SAMPLE_DUBBO_DISCOVERY=zookeeper`
-- Startup toleransı: `REACTOR_DUBBO_REGISTRY_CHECK=false`, `REACTOR_DUBBO_CHECK=false`
-- Timeout: explicit RPC timeout
-- Neden: pod provider geçişlerinde ayağa kalkabilir; discovery toparlanana kadar route'lar bounded failure döner.
+| Use case | Başlangıç ayarı | Neden |
+|----------|----------------|-------|
+| K8s Service DNS static | `DISCOVERY=static`<br>`PROVIDERS=customer-provider:20880,...`<br>`PROFILE=micro-dubbo`<br>`CONNECTIONS=2`, `MAX_INFLIGHT=8-16` | ZooKeeper client/thread/class consumer'a girmez |
+| ZooKeeper zorunlu düşük trafik | `DISCOVERY=zookeeper`<br>`PROFILE=micro-dubbo`<br>`JNI_WORKERS=1`<br>`MAX_INFLIGHT=8`, `CONNECTIONS=1` | REST process küçük kalır<br>overload anında kontrollü 503 |
+| Read-heavy dashboard JSON | `MAX_INFLIGHT=16-32`<br>`CONNECTIONS_PER_ENDPOINT=2-4`<br>read route admission `16-64` | Hazır JSON `byte[]` ise 200 RPS artar |
+| DB-backed query | Route max concurrent: `4-8`<br>`REACTOR_DUBBO_TIMEOUT_MS=800-1500`<br>queue timeout `50-150ms` | Consumer provider DB pool saturation'ını büyütmez |
+| POST/PATCH/DELETE command | `REACTOR_DUBBO_RETRIES=0`<br>command route `4-8`<br>queue timeout `100-200ms` | Duplicate write ve write pressure sınırlandırılır |
+| Büyük JSON response | `REACTOR_DUBBO_MAX_RESPONSE_BYTES`<br>`REACTOR_RUST_HTTP_MAX_RESPONSE_BODY_BYTES`<br>`REACTOR_RUST_HTTP_MAX_INFLIGHT_RESPONSE_BYTES` | Dubbo, HTTP ve toplam in-flight limit birlikte açılır |
+| Memory sınırlı yüksek concurrency | Önce `CONNECTIONS_PER_ENDPOINT`<br>sonra `MAX_INFLIGHT`<br>en son `JNI_WORKERS` | Extra Java worker'dan önce connection reuse denenir |
+| Rolling restart, K8s Service DNS | `SAMPLE_DUBBO_DISCOVERY=static`<br>doğru readiness probe<br>`CONNECTIONS_PER_ENDPOINT=2` + RPC timeout | K8s sağlıksız pod'u endpoint listesinden çıkarır |
+| Rolling restart, ZooKeeper | `SAMPLE_DUBBO_DISCOVERY=zookeeper`<br>`REGISTRY_CHECK=false`, `CHECK=false`<br>explicit RPC timeout | Discovery toparlanana kadar bounded failure döner |
 
 ### Reçete: ZooKeeper Zorunlu Low-Memory Kubernetes Consumer
 
@@ -2635,122 +2284,21 @@ Bu bölüm sample'daki gerçek endpoint'lere ek olarak, kendi projenize kopyalay
 pattern'lerini gösterir. Örneklerin amacı tüm HTTP verb'lerinde hangi request body ve response tipi
 ne zaman kullanılmalı sorusunu netleştirmektir.
 
-**GET, hazır JSON pass-through**
-
-- Request tipi: body yok; `@PathVariable` ve `@RequestParam` kullanılabilir.
-- Response tipi: `RawResponse.json(bytes)`
-- Ne zaman: provider veya cache hazır JSON üretiyorsa.
-- Java heap/GC: çok düşük; DTO object graph kurulmaz.
-- JSON maliyeti: parse ve tekrar serialize yoktur.
-- Rust/JNI/body etkisi: en ucuz read path. Native static/cache kullanılırsa per-request body taşıma da azalır.
-
-**GET, küçük typed response**
-
-- Request tipi: body yok; path/query parametreleri.
-- Response tipi: Java `record`
-- Ne zaman: küçük status, lookup veya consumer'ın hesapladığı response.
-- Java heap/GC: düşük; sadece response record allocation.
-- JSON maliyeti: sadece response serialize edilir.
-- Rust/JNI/body etkisi: küçük JSON için uygun; high traffic'te DTO serialization p99'a yansıyabilir.
-
-**GET, küçük sayfalı liste**
-
-- Request tipi: body yok; filtre query parametreleri.
-- Response tipi: `List<record>`
-- Ne zaman: listeleme, arama sonucu veya küçük sayfalı response.
-- Java heap/GC: orta/yüksek; liste + her item için record allocation.
-- JSON maliyeti: tüm liste serialize edilir.
-- Rust/JNI/body etkisi: büyük listelerde RSS ve p99 artar; pagination, route budget ve response byte limiti şart.
-
-**POST, JSON command pass-through**
-
-- Request tipi: `byte[]`
-- Response tipi: `RawResponse.json(bytes)`
-- Ne zaman: JSON command provider'a aynen gidecek ve provider JSON dönecekse.
-- Java heap/GC: düşük; request DTO graph kurulmaz.
-- JSON maliyeti: consumer tarafında parse yok; provider response tekrar serialize edilmez.
-- Rust/JNI/body etkisi: request body byte[] taşınır. Command pass-through için en düşük allocation yolu.
-
-**POST, binary payload**
-
-- Request tipi: `byte[]`
-- Response tipi: `RawResponse.bytes(...)`
-- Ne zaman: binary upload, imza doğrulama payload'ı, küçük binary echo/download.
-- Java heap/GC: düşük; body DTO yok.
-- JSON maliyeti: yok.
-- Rust/JNI/body etkisi: raw binary taşınır; büyük binary için `FileResponse` veya streaming tercih edilmeli.
-
-**POST, parse etmeden receipt dönme**
-
-- Request tipi: `byte[]`
-- Response tipi: Java `record`
-- Ne zaman: request'i parse etmeden sadece kabul bilgisi veya id dönecekseniz.
-- Java heap/GC: düşük/orta; request DTO yok, response record var.
-- JSON maliyeti: sadece response serialize edilir.
-- Rust/JNI/body etkisi: command accept/receipt endpoint'i için iyi ara yol.
-
-**POST, typed command**
-
-- Request tipi: Java `record`
-- Response tipi: Java `record`
-- Ne zaman: consumer request üzerinde typed validation veya business karar verecekse.
-- Java heap/GC: orta; request record + response record allocation.
-- JSON maliyeti: request parse + response serialize vardır.
-- Rust/JNI/body etkisi: en okunabilir normal REST DTO yolu; hot path'te `byte[] + RawResponse` kadar ucuz değildir.
-
-**POST, body ile arama/list response**
-
-- Request tipi: Java `record`
-- Response tipi: `List<record>`
-- Ne zaman: body ile filtre alan search/query endpoint'i.
-- Java heap/GC: yüksek; request record + liste + item records.
-- JSON maliyeti: request parse + liste serialize edilir.
-- Rust/JNI/body etkisi: high traffic ve büyük result set için pahalıdır; pagination ve max result limit zorunlu olmalı.
-
-**PUT, tam update/replace**
-
-- Request tipi: Java `record`
-- Response tipi: Java `record` veya hata body.
-- Ne zaman: tam replace/update.
-- Java heap/GC: orta; request ve response DTO oluşur.
-- JSON maliyeti: request parse + response serialize vardır.
-- Rust/JNI/body etkisi: idempotent update için net contract; body limit ve route admission ekleyin.
-
-**PATCH, typed partial update**
-
-- Request tipi: Java `record`
-- Response tipi: Java `record`
-- Ne zaman: status, segment, adres gibi typed partial update.
-- Java heap/GC: düşük/orta; küçük command record + response record.
-- JSON maliyeti: request parse + response serialize vardır.
-- Rust/JNI/body etkisi: küçük payload için kabul edilebilir; command concurrency düşük tutulmalı.
-
-**PATCH, command pass-through**
-
-- Request tipi: `byte[]`
-- Response tipi: `RawResponse.json(bytes)`
-- Ne zaman: provider command JSON'u aynen işleyecekse.
-- Java heap/GC: düşük; consumer DTO graph yok.
-- JSON maliyeti: consumer parse/serialize yok.
-- Rust/JNI/body etkisi: partial command pass-through için daha düşük RSS; validation provider'a kalır.
-
-**DELETE, body dönmeyen command**
-
-- Request tipi: body yok.
-- Response tipi: `204 No Content`
-- Ne zaman: silme/deactivate sonucu body gerekmiyorsa.
-- Java heap/GC: en düşük; response object graph yok.
-- JSON maliyeti: yok.
-- Rust/JNI/body etkisi: en ucuz delete path; audit gerekiyorsa header/log/outbox kullanın.
-
-**DELETE, audit body taşıyan command**
-
-- Request tipi: opsiyonel `byte[]`
-- Response tipi: `RawResponse.json(bytes)` veya hata body.
-- Ne zaman: reason/requestId gibi audit body taşınacaksa.
-- Java heap/GC: düşük; body varsa sadece byte[] taşınır.
-- JSON maliyeti: consumer parse etmezse JSON maliyeti yok.
-- Rust/JNI/body etkisi: audit JSON küçük tutulmalı; destructive command concurrency düşük olmalı.
+| Verb | Pattern | Kullanım | Overhead | Not |
+|------|---------|---------|----------|-----|
+| `GET` | No body + path/query<br>`RawResponse.json(bytes)` | Provider/cache hazır JSON | Çok düşük<br>parse/serialize yok | En ucuz read path |
+| `GET` | No body + path/query<br>Java `record` | Küçük status/lookup | Düşük<br>sadece response serialize | High traffic'te p99 ölçün |
+| `GET` | Query filtre<br>`List<record>` | Küçük sayfalı liste | Orta/yüksek<br>list + item allocation | Pagination ve limit şart |
+| `POST` | `byte[]` -> `RawResponse.json(bytes)` | Command pass-through | Düşük<br>request DTO yok | Provider validation yapar |
+| `POST` | `byte[]` -> `RawResponse.bytes(...)` | Binary upload/echo | Düşük<br>JSON yok | Büyük binary için stream/file |
+| `POST` | `byte[]` -> Java `record` | Parse etmeden receipt/id | Düşük/orta | Response serialize edilir |
+| `POST` | `record` -> `record` | Typed validation/business | Orta<br>parse + serialize | Hot path'te byte[] kadar ucuz değil |
+| `POST` | `record` -> `List<record>` | Body filtreli search | Yüksek | Result limit zorunlu |
+| `PUT` | `record` -> `record`/hata | Tam update/replace | Orta | Body limit + route admission |
+| `PATCH` | `record` -> `record` | Typed partial update | Düşük/orta | Command concurrency düşük |
+| `PATCH` | `byte[]` -> `RawResponse.json(bytes)` | Partial command pass-through | Düşük<br>parse yok | Validation provider'da |
+| `DELETE` | No body -> `204` | Body gerekmeyen delete | En düşük | Audit için header/log/outbox |
+| `DELETE` | Opsiyonel `byte[]` -> JSON/hata | Reason/requestId taşımak | Düşük | Audit JSON küçük kalmalı |
 
 Notlar:
 
@@ -3009,32 +2557,13 @@ ayrı ayarlamadan concurrency artırmayın.
 
 ### Profile Ve Property Seçimi
 
-**Ara sıra çağrı alan en küçük pod lazım**
-
-- Başlangıç profile: `micro-dubbo`, static provider.
-- Kritik properties: `reactor.rust.jni.workers=1`, `reactor.dubbo.native-async-workers=1`, `reactor.rust.response-pool.small-capacity=8`.
-
-**c256 altında daha fazla başarılı write lazım**
-
-- Başlangıç profile: `micro-dubbo` + route-specific tuning.
-- Kritik property: `reactor.rust.route-admission.post.api.v1.customers.max-concurrent`.
-- Karar kuralı: değeri artırdıktan sonra RSS, p99 ve 503 oranını birlikte ölçün.
-
-**Dynamic provider discovery lazım**
-
-- Başlangıç profile: `micro-dubbo` + `zookeeper-discovery` Maven profile.
-- Kritik property: `SAMPLE_DUBBO_DISCOVERY=zookeeper`.
-- Beklenti: küçük RSS artışı normaldir.
-
-**Provider DB yavaş**
-
-- Başlangıç profile: consumer bounded kalsın, önce provider tune edilsin.
-- Kritik alanlar: `sample.db.maximum-pool-size`, provider method limitleri, PostgreSQL latency.
-
-**Best-practice kod şablonu lazım**
-
-- Başlangıç profile: bu sample yapısını kopyalayın.
-- Akış: `handler` -> `dubbo client` -> `shared interface` -> `provider service` -> `repository`.
+| Kullanıcı problemi | Başlangıç | Kritik ayar |
+|--------------------|-----------|-------------|
+| En küçük pod, seyrek trafik | `micro-dubbo` + static provider | `jni.workers=1`<br>`native-async-workers=1`<br>`small-capacity=8` |
+| c256 altında daha çok write | `micro-dubbo` + route tuning | `route-admission.post.api.v1.customers.max-concurrent`<br>RSS/p99/503 ile ölçün |
+| Dynamic discovery lazım | `micro-dubbo` + `zookeeper-discovery` | `SAMPLE_DUBBO_DISCOVERY=zookeeper`<br>küçük RSS artışı normal |
+| Provider DB yavaş | Consumer bounded kalsın | `sample.db.maximum-pool-size`<br>provider method limitleri<br>PostgreSQL latency |
+| Best-practice şablon | Bu sample yapısı | `handler -> client -> interface -> provider -> repository` |
 
 Her problemi thread pool büyütme ile çözmeye çalışmayın. Bu framework için güvenli production sırası
 genelde şudur: bounded route admission, explicit timeout, provider bulkhead, DB pool tuning, sonra
