@@ -430,9 +430,9 @@ Different problems in this scenario and the exact property actions:
 
 | Situation | Previous value | Change | Expected improvement | Cost / watch-out |
 |-----------|----------------|--------|----------------------|------------------|
-| Customer DB p99 rises | `customers.db.max-concurrent=12+` | `...customers.db.max-concurrent=8` | DB read matches provider capacity | Some `503` may increase |
-| Create slows / duplicate risk | `post.customers=10`<br>`retries=1` | `post.customers=6`<br>`retries=0` | Retry storm decreases | Idempotency still needed |
-| Cheap catalog read gets 503 | `catalog.nested=16`<br>`conn=1` | `catalog.nested=24`<br>`conn=2` | Hot read throughput rises | Provider CPU must be healthy |
+| Customer DB p99 rises | <small><code>reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=12</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=8</code></small> | DB read matches provider capacity | Some `503` may increase |
+| Create slows / duplicate risk | <small><code>reactor.rust.route-admission.post.api.v1.customers.max-concurrent=10</code><br><code>reactor.dubbo.retries=1</code></small> | <small><code>reactor.rust.route-admission.post.api.v1.customers.max-concurrent=6</code><br><code>reactor.dubbo.retries=0</code></small> | Retry storm decreases | Idempotency still needed |
+| Cheap catalog read gets 503 | <small><code>reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=16</code><br><code>reactor.dubbo.native-connections-per-endpoint=1</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=24</code><br><code>reactor.dubbo.native-connections-per-endpoint=2</code></small> | Hot read throughput rises | Provider CPU must be healthy |
 | All endpoint p99 rises | Global queue increased | Revert queue<br>split route budgets | Slow route stops dominating | Endpoint metrics required |
 
 ### Loyalty Points Service: Small Pod, 4 Endpoints, 2 Busy Endpoints
@@ -499,10 +499,10 @@ Different problems in this scenario and the exact property actions:
 
 | Situation | Previous value | Change | Expected improvement | Cost / watch-out |
 |-----------|----------------|--------|----------------------|------------------|
-| Idle RSS high | `native-trim=false`<br>wider pools | `native-trim=true`<br>`small=8, medium=2, large=1` | Idle memory releases better | Trim only while idle |
-| Hot read 503 high, RSS safe | `catalog=12`<br>`customers=6` | `catalog=16`<br>`customers=8` | Useful `200` RPS rises | Re-measure RSS/DB wait |
-| Pod limit tighter | `max-connections=512`<br>`dubbo.inflight=16` | `max-connections=256`<br>`dubbo.inflight=8` | RSS stays controlled | More 503 during spikes |
-| p99 unstable after trim | `trim.interval=15000` | `initial=30000`<br>`interval=60000`<br>`min-idle=10000` | Trim is calmer | RSS drop may be slower |
+| Idle RSS high | <small><code>reactor.rust.native-trim.enabled=false</code><br>wider response pools</small> | <small><code>reactor.rust.native-trim.enabled=true</code><br><code>reactor.rust.response-pool.small-capacity=8</code><br><code>reactor.rust.response-pool.medium-capacity=2</code><br><code>reactor.rust.response-pool.large-capacity=1</code></small> | Idle memory releases better | Trim only while idle |
+| Hot read 503 high, RSS safe | <small><code>reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=12</code><br><code>reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=6</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=16</code><br><code>reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=8</code></small> | Useful `200` RPS rises | Re-measure RSS/DB wait |
+| Pod limit tighter | <small><code>reactor.rust.http.max-connections=512</code><br><code>reactor.dubbo.max-inflight=16</code></small> | <small><code>reactor.rust.http.max-connections=256</code><br><code>reactor.dubbo.max-inflight=8</code></small> | RSS stays controlled | More 503 during spikes |
+| p99 unstable after trim | <small><code>reactor.rust.native-trim.interval-ms=15000</code></small> | <small><code>reactor.rust.native-trim.initial-delay-ms=30000</code><br><code>reactor.rust.native-trim.interval-ms=60000</code><br><code>reactor.rust.native-trim.min-idle-ms=10000</code></small> | Trim is calmer | RSS drop may be slower |
 
 ### Reporting And Snapshot Service: 10 Endpoints, 4 Busy Endpoints, 1 Large JSON
 
@@ -564,10 +564,10 @@ Different problems in this scenario and the exact property actions:
 
 | Situation | Previous value | Change | Expected improvement | Cost / watch-out |
 |-----------|----------------|--------|----------------------|------------------|
-| Large JSON hits limit | `resp=8MiB`<br>`dubbo=8MiB` | Both `16MiB`<br>`inflight=32MiB` | Response can return | Total in-flight also required |
-| Large JSON raises RSS | `catalog.db.customers=10/12` | `catalog.db.customers=6` | Fewer large bodies retained | Large endpoint RPS may drop |
-| Small reads slowed by large JSON | Same budget for all routes | Small read `32`<br>large JSON `6` | Queues are separated | Route key must match path |
-| Provider CPU free, p99 high | `conn=1`<br>`async-workers=1` | `conn=3`<br>`async-workers=2` | More native data-plane parallelism | No help if provider saturated |
+| Large JSON hits limit | <small><code>reactor.rust.http.max-response-body-bytes=8388608</code><br><code>reactor.dubbo.max-response-bytes=8388608</code></small> | <small><code>reactor.rust.http.max-response-body-bytes=16777216</code><br><code>reactor.dubbo.max-response-bytes=16777216</code><br><code>reactor.rust.http.max-inflight-response-bytes=33554432</code></small> | Response can return | Total in-flight also required |
+| Large JSON raises RSS | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=10</code> or <code>12</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6</code></small> | Fewer large bodies retained | Large endpoint RPS may drop |
+| Small reads slowed by large JSON | Same budget for all routes | <small><code>reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=32</code><br><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6</code></small> | Queues are separated | Route key must match path |
+| Provider CPU free, p99 high | <small><code>reactor.dubbo.native-connections-per-endpoint=1</code><br><code>reactor.dubbo.native-async-workers=1</code></small> | <small><code>reactor.dubbo.native-connections-per-endpoint=3</code><br><code>reactor.dubbo.native-async-workers=2</code></small> | More native data-plane parallelism | No help if provider saturated |
 
 ### CRM Command Service: High Create, Patch, And Delete Pressure
 
@@ -621,10 +621,10 @@ Different problems in this scenario and the exact property actions:
 
 | Situation | Previous value | Change | Expected improvement | Cost / watch-out |
 |-----------|----------------|--------|----------------------|------------------|
-| Create overloads DB | `post.customers=8/10` | `post.customers=4`<br>`queue=100ms` | DB write pressure drops | Peak write RPS drops |
-| Command repeats after timeout | `retries=1`<br>blind retry | `retries=0`<br>idempotency key | Duplicate risk drops | Use durable workflow for guarantee |
-| Patch routes hurt each other | Segment/status share high budget | Each route `max-concurrent=4` | Patch types are isolated | Lock/idempotency still needed |
-| Delete rare but expensive | `delete=4` | `delete=2` | Safer destructive flow | Admin may see 503 |
+| Create overloads DB | <small><code>reactor.rust.route-admission.post.api.v1.customers.max-concurrent=8</code> or <code>10</code></small> | <small><code>reactor.rust.route-admission.post.api.v1.customers.max-concurrent=4</code><br><code>reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms=100</code></small> | DB write pressure drops | Peak write RPS drops |
+| Command repeats after timeout | <small><code>reactor.dubbo.retries=1</code><br>blind client retry</small> | <small><code>reactor.dubbo.retries=0</code><br>client idempotency key required</small> | Duplicate risk drops | Use durable workflow for guarantee |
+| Patch routes hurt each other | Segment/status share high budget | <small><code>reactor.rust.route-admission.patch.api.v1.customers.id.segment.max-concurrent=4</code><br><code>reactor.rust.route-admission.patch.api.v1.customers.id.status.max-concurrent=4</code></small> | Patch types are isolated | Lock/idempotency still needed |
+| Delete rare but expensive | <small><code>reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent=4</code></small> | <small><code>reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent=2</code></small> | Safer destructive flow | Admin may see 503 |
 
 ### Campaign Listing Service: Many Pods, Strict Memory, Controlled 503
 
@@ -690,10 +690,10 @@ Different problems in this scenario and the exact property actions:
 
 | Situation | Previous value | Change | Expected improvement | Cost / watch-out |
 |-----------|----------------|--------|----------------------|------------------|
-| Per-pod RSS high | `max-connections=512`<br>`small=32, medium=8` | `max-connections=256`<br>`small=8, medium=2` | Fewer idle/native buffers | Scale horizontally |
-| Campaign hot read 503 high | `catalog.nested=8` | `catalog.nested=16` | Hot read accepts more | Measure RSS/provider CPU |
-| Admin/write hurts hot reads | Admin/write budget high | `post=2`<br>`delete=1` | Rare routes stop stealing capacity | Admin fail-fast |
-| Global queue reduced 503 | `jni.queue=512` | `jni.queue=128`<br>split route budgets | Prevents global p99 rise | Define hot endpoint budgets |
+| Per-pod RSS high | <small><code>reactor.rust.http.max-connections=512</code><br><code>reactor.rust.response-pool.small-capacity=32</code><br><code>reactor.rust.response-pool.medium-capacity=8</code></small> | <small><code>reactor.rust.http.max-connections=256</code><br><code>reactor.rust.response-pool.small-capacity=8</code><br><code>reactor.rust.response-pool.medium-capacity=2</code></small> | Fewer idle/native buffers | Scale horizontally |
+| Campaign hot read 503 high | <small><code>reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=8</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=16</code></small> | Hot read accepts more | Measure RSS/provider CPU |
+| Admin/write hurts hot reads | Admin/write budget high | <small><code>reactor.rust.route-admission.post.api.v1.customers.max-concurrent=2</code><br><code>reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent=1</code></small> | Rare routes stop stealing capacity | Admin fail-fast |
+| Global queue reduced 503 | <small><code>reactor.rust.jni.queue-capacity=512</code></small> | <small><code>reactor.rust.jni.queue-capacity=128</code><br>split route budgets</small> | Prevents global p99 rise | Define hot endpoint budgets |
 
 ### Call-Center Lookup API: Memory Is Fine, p99 Is High
 
@@ -744,9 +744,9 @@ Different problems in this scenario and the exact property actions:
 
 | Situation | Previous value | Change | Expected improvement | Cost / watch-out |
 |-----------|----------------|--------|----------------------|------------------|
-| Provider CPU free, p99 high | `dubbo.inflight=24`<br>`conn=2` | `dubbo.inflight=64`<br>`conn=4` | More parallel Dubbo calls | Measure RSS/DB pool |
-| Only lookup is slow | Same hot route budget | `customers.db=12`<br>catalog unchanged | Problem route isolated | Lower again if DB wait rises |
-| Large history hurts lookup | Large JSON `12` | Large JSON `6`<br>small lookup higher | Small lookup p99 protected | Large JSON RPS drops |
+| Provider CPU free, p99 high | <small><code>reactor.dubbo.max-inflight=24</code><br><code>reactor.dubbo.native-connections-per-endpoint=2</code></small> | <small><code>reactor.dubbo.max-inflight=64</code><br><code>reactor.dubbo.native-connections-per-endpoint=4</code></small> | More parallel Dubbo calls | Measure RSS/DB pool |
+| Only lookup is slow | Same hot route budget | <small><code>reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=12</code><br>catalog route values stay unchanged</small> | Problem route isolated | Lower again if DB wait rises |
+| Large history hurts lookup | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=12</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6</code><br>small lookup route budget stays higher</small> | Small lookup p99 protected | Large JSON RPS drops |
 | Admission removed | No route budgets | Restore budgets<br>raise only hot reads | Slow route cannot lock service | Safer but more config |
 
 ## What `rust-java-rest` 3.2.2 Changes Here
@@ -1694,15 +1694,15 @@ Tune one bottleneck at a time. Every change should be measured with successful R
 
 | Use case | Starting settings | Why |
 |----------|-------------------|-----|
-| Static K8s Service DNS | `DISCOVERY=static`<br>`PROVIDERS=customer-provider:20880,...`<br>`PROFILE=micro-dubbo`<br>`CONNECTIONS=2`, `MAX_INFLIGHT=8-16` | No ZooKeeper client/thread/class cost |
-| Mandatory ZooKeeper, low traffic | `DISCOVERY=zookeeper`<br>`PROFILE=micro-dubbo`<br>`JNI_WORKERS=1`<br>`MAX_INFLIGHT=8`, `CONNECTIONS=1` | Small REST process<br>controlled 503 |
-| Read-heavy dashboard JSON | `MAX_INFLIGHT=16-32`<br>`CONNECTIONS_PER_ENDPOINT=2-4`<br>read route admission `16-64` | More useful 200 RPS when provider returns ready JSON bytes |
-| DB-backed query | Route max concurrent `4-8`<br>`REACTOR_DUBBO_TIMEOUT_MS=800-1500`<br>queue timeout `50-150ms` | Prevents consumer from amplifying DB saturation |
-| POST/PATCH/DELETE command | `REACTOR_DUBBO_RETRIES=0`<br>command route `4-8`<br>queue timeout `100-200ms` | Avoids duplicate execution and bounds write pressure |
+| Static K8s Service DNS | <small><code>SAMPLE_DUBBO_DISCOVERY=static</code><br><code>REACTOR_DUBBO_PROVIDERS=customer-provider:20880,order-provider:20880</code><br><code>REACTOR_RUNTIME_PROFILE=micro-dubbo</code><br><code>REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=2</code><br><code>REACTOR_DUBBO_MAX_INFLIGHT=8-16</code></small> | No ZooKeeper client/thread/class cost |
+| Mandatory ZooKeeper, low traffic | <small><code>SAMPLE_DUBBO_DISCOVERY=zookeeper</code><br><code>REACTOR_RUNTIME_PROFILE=micro-dubbo</code><br><code>REACTOR_RUST_JNI_WORKERS=1</code><br><code>REACTOR_DUBBO_MAX_INFLIGHT=8</code><br><code>REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=1</code></small> | Small REST process<br>controlled 503 |
+| Read-heavy dashboard JSON | <small><code>REACTOR_DUBBO_MAX_INFLIGHT=16-32</code><br><code>REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=2-4</code><br><code>REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CATALOG_NESTED_MAX_CONCURRENT=16-64</code></small> | More useful 200 RPS when provider returns ready JSON bytes |
+| DB-backed query | <small><code>reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=4-8</code><br><code>REACTOR_DUBBO_TIMEOUT_MS=800-1500</code><br><code>reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms=50-150</code></small> | Prevents consumer from amplifying DB saturation |
+| POST/PATCH/DELETE command | <small><code>REACTOR_DUBBO_RETRIES=0</code><br><code>reactor.rust.route-admission.post.api.v1.customers.max-concurrent=4-8</code><br><code>reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms=100-200</code></small> | Avoids duplicate execution and bounds write pressure |
 | Large JSON response | `REACTOR_DUBBO_MAX_RESPONSE_BYTES`<br>`REACTOR_RUST_HTTP_MAX_RESPONSE_BODY_BYTES`<br>`REACTOR_RUST_HTTP_MAX_INFLIGHT_RESPONSE_BYTES` | Dubbo, HTTP and total in-flight caps must all allow payload |
-| Higher concurrency, memory constrained | First `CONNECTIONS_PER_ENDPOINT`<br>then `MAX_INFLIGHT`<br>last `JNI_WORKERS` | Connection reuse often helps before extra Java workers |
-| Rolling restart, K8s DNS | `SAMPLE_DUBBO_DISCOVERY=static`<br>correct readiness probe<br>`CONNECTIONS_PER_ENDPOINT=2` + RPC timeout | K8s removes unhealthy pods from Service endpoints |
-| Rolling restart, ZooKeeper | `SAMPLE_DUBBO_DISCOVERY=zookeeper`<br>`REGISTRY_CHECK=false`, `CHECK=false`<br>explicit RPC timeout | Routes return bounded failures until discovery catches up |
+| Higher concurrency, memory constrained | <small>First <code>REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT</code><br>then <code>REACTOR_DUBBO_MAX_INFLIGHT</code><br>last <code>REACTOR_RUST_JNI_WORKERS</code></small> | Connection reuse often helps before extra Java workers |
+| Rolling restart, K8s DNS | <small><code>SAMPLE_DUBBO_DISCOVERY=static</code><br>correct readiness probe<br><code>REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=2</code><br><code>REACTOR_DUBBO_TIMEOUT_MS=1000</code></small> | K8s removes unhealthy pods from Service endpoints |
+| Rolling restart, ZooKeeper | <small><code>SAMPLE_DUBBO_DISCOVERY=zookeeper</code><br><code>REACTOR_DUBBO_REGISTRY_CHECK=false</code><br><code>REACTOR_DUBBO_CHECK=false</code><br><code>REACTOR_DUBBO_TIMEOUT_MS=1000</code></small> | Routes return bounded failures until discovery catches up |
 
 ### Recipe: Low-Memory Kubernetes Consumer With ZooKeeper
 
@@ -2612,8 +2612,8 @@ tuning route budget and in-flight byte limits separately.
 
 | User problem | Start with | Key setting |
 |--------------|------------|-------------|
-| Smallest pod, occasional traffic | `micro-dubbo` + static provider | `jni.workers=1`<br>`native-async-workers=1`<br>`small-capacity=8` |
-| More successful writes at c256 | `micro-dubbo` + route tuning | Increase `route-admission.post.api.v1.customers.max-concurrent`<br>measure RSS/p99/503 |
+| Smallest pod, occasional traffic | `micro-dubbo` + static provider | <small><code>reactor.rust.jni.workers=1</code><br><code>reactor.dubbo.native-async-workers=1</code><br><code>reactor.rust.response-pool.small-capacity=8</code></small> |
+| More successful writes at c256 | `micro-dubbo` + route tuning | <small><code>reactor.rust.route-admission.post.api.v1.customers.max-concurrent</code><br>measure RSS/p99/503</small> |
 | Dynamic provider discovery | `micro-dubbo` + `zookeeper-discovery` | `SAMPLE_DUBBO_DISCOVERY=zookeeper`<br>expect small RSS increase |
 | Provider DB is slow | Keep consumer bounded | `sample.db.maximum-pool-size`<br>provider method limits<br>PostgreSQL latency |
 | Best-practice template | Copy this sample shape | `handler -> client -> interface -> provider -> repository` |

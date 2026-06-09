@@ -430,9 +430,9 @@ Bu senaryoda karşılaşabileceğiniz farklı durumlar ve doğrudan property kar
 
 | Durum | Önceki değer | Değişiklik | Beklenen düzelme | Bedel / dikkat |
 |-------|--------------|------------|------------------|----------------|
-| Customer DB p99 yükseldi | `customers.db.max-concurrent=12+` | `...customers.db.max-concurrent=8` | DB read provider hızına iner | `503` biraz artabilir |
-| Create yavaş / duplicate riski | `post.customers=10`<br>`retries=1` | `post.customers=6`<br>`retries=0` | Retry storm azalır | Idempotency ayrıca çözülmeli |
-| Ucuz katalog read 503 alıyor | `catalog.nested=16`<br>`conn=1` | `catalog.nested=24`<br>`conn=2` | Hot read üretkenliği artar | Provider CPU sağlıklı olmalı |
+| Customer DB p99 yükseldi | <small><code>reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=12</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=8</code></small> | DB read provider hızına iner | `503` biraz artabilir |
+| Create yavaş / duplicate riski | <small><code>reactor.rust.route-admission.post.api.v1.customers.max-concurrent=10</code><br><code>reactor.dubbo.retries=1</code></small> | <small><code>reactor.rust.route-admission.post.api.v1.customers.max-concurrent=6</code><br><code>reactor.dubbo.retries=0</code></small> | Retry storm azalır | Idempotency ayrıca çözülmeli |
+| Ucuz katalog read 503 alıyor | <small><code>reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=16</code><br><code>reactor.dubbo.native-connections-per-endpoint=1</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=24</code><br><code>reactor.dubbo.native-connections-per-endpoint=2</code></small> | Hot read üretkenliği artar | Provider CPU sağlıklı olmalı |
 | Tüm endpoint p99 yükseliyor | Global queue büyütüldü | Queue'u geri al<br>route budget ayır | Yavaş route sistemi boğmaz | Endpoint metriği şart |
 
 ### Sadakat Puan Servisi: Küçük Pod, 4 Endpoint, 2 Yoğun Endpoint
@@ -499,10 +499,10 @@ Bu senaryoda karşılaşabileceğiniz farklı durumlar ve doğrudan property kar
 
 | Durum | Önceki değer | Değişiklik | Beklenen düzelme | Bedel / dikkat |
 |-------|--------------|------------|------------------|----------------|
-| Idle RSS yüksek | `native-trim=false`<br>pool geniş | `native-trim=true`<br>`small=8, medium=2, large=1` | Idle memory geri bırakılır | Trim sadece idle'da |
-| Hot read 503 yüksek, RSS güvenli | `catalog=12`<br>`customers=6` | `catalog=16`<br>`customers=8` | Faydalı `200` RPS artar | RSS/DB wait tekrar ölçün |
-| Pod limiti sıkı | `max-connections=512`<br>`dubbo.inflight=16` | `max-connections=256`<br>`dubbo.inflight=8` | RSS kontrollü kalır | Spike'ta 503 artar |
-| Trim sonrası p99 dalgalı | `trim.interval=15000` | `initial=30000`<br>`interval=60000`<br>`min-idle=10000` | Trim daha sakin çalışır | RSS düşüşü yavaşlar |
+| Idle RSS yüksek | <small><code>reactor.rust.native-trim.enabled=false</code><br>response pool değerleri geniş</small> | <small><code>reactor.rust.native-trim.enabled=true</code><br><code>reactor.rust.response-pool.small-capacity=8</code><br><code>reactor.rust.response-pool.medium-capacity=2</code><br><code>reactor.rust.response-pool.large-capacity=1</code></small> | Idle memory geri bırakılır | Trim sadece idle'da |
+| Hot read 503 yüksek, RSS güvenli | <small><code>reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=12</code><br><code>reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=6</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=16</code><br><code>reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=8</code></small> | Faydalı `200` RPS artar | RSS/DB wait tekrar ölçün |
+| Pod limiti sıkı | <small><code>reactor.rust.http.max-connections=512</code><br><code>reactor.dubbo.max-inflight=16</code></small> | <small><code>reactor.rust.http.max-connections=256</code><br><code>reactor.dubbo.max-inflight=8</code></small> | RSS kontrollü kalır | Spike'ta 503 artar |
+| Trim sonrası p99 dalgalı | <small><code>reactor.rust.native-trim.interval-ms=15000</code></small> | <small><code>reactor.rust.native-trim.initial-delay-ms=30000</code><br><code>reactor.rust.native-trim.interval-ms=60000</code><br><code>reactor.rust.native-trim.min-idle-ms=10000</code></small> | Trim daha sakin çalışır | RSS düşüşü yavaşlar |
 
 ### Raporlama ve Snapshot Servisi: 10 Endpoint, 4 Yoğun Endpoint, 1 Büyük JSON
 
@@ -564,10 +564,10 @@ Bu senaryoda karşılaşabileceğiniz farklı durumlar ve doğrudan property kar
 
 | Durum | Önceki değer | Değişiklik | Beklenen düzelme | Bedel / dikkat |
 |-------|--------------|------------|------------------|----------------|
-| Büyük JSON limit'e takılıyor | `resp=8MiB`<br>`dubbo=8MiB` | İkisi `16MiB`<br>`inflight=32MiB` | Response dönebilir | Toplam in-flight da şart |
-| Büyük JSON RSS artırıyor | `catalog.db.customers=10/12` | `catalog.db.customers=6` | Aynı anda büyük body azalır | Büyük endpoint RPS düşer |
-| Küçük read büyük JSON'dan yavaş | Tüm route budget aynı | Küçük read `32`<br>büyük JSON `6` | Kuyruklar ayrışır | Route key doğru olmalı |
-| Provider CPU boş, p99 yüksek | `conn=1`<br>`async-workers=1` | `conn=3`<br>`async-workers=2` | Native data-plane paralelliği artar | Provider doygunsa fayda yok |
+| Büyük JSON limit'e takılıyor | <small><code>reactor.rust.http.max-response-body-bytes=8388608</code><br><code>reactor.dubbo.max-response-bytes=8388608</code></small> | <small><code>reactor.rust.http.max-response-body-bytes=16777216</code><br><code>reactor.dubbo.max-response-bytes=16777216</code><br><code>reactor.rust.http.max-inflight-response-bytes=33554432</code></small> | Response dönebilir | Toplam in-flight da şart |
+| Büyük JSON RSS artırıyor | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=10</code> veya <code>12</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6</code></small> | Aynı anda büyük body azalır | Büyük endpoint RPS düşer |
+| Küçük read büyük JSON'dan yavaş | Tüm route budget aynı | <small><code>reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=32</code><br><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6</code></small> | Kuyruklar ayrışır | Route key doğru olmalı |
+| Provider CPU boş, p99 yüksek | <small><code>reactor.dubbo.native-connections-per-endpoint=1</code><br><code>reactor.dubbo.native-async-workers=1</code></small> | <small><code>reactor.dubbo.native-connections-per-endpoint=3</code><br><code>reactor.dubbo.native-async-workers=2</code></small> | Native data-plane paralelliği artar | Provider doygunsa fayda yok |
 
 ### CRM Komut Servisi: Create, Patch, Delete Trafiği Yüksek
 
@@ -621,10 +621,10 @@ Bu senaryoda karşılaşabileceğiniz farklı durumlar ve doğrudan property kar
 
 | Durum | Önceki değer | Değişiklik | Beklenen düzelme | Bedel / dikkat |
 |-------|--------------|------------|------------------|----------------|
-| Create DB'yi zorluyor | `post.customers=8/10` | `post.customers=4`<br>`queue=100ms` | DB write pressure düşer | Peak write RPS düşer |
-| Timeout sonrası tekrar | `retries=1`<br>blind client retry | `retries=0`<br>idempotency key | Duplicate riski azalır | Garanti için durable workflow |
-| Patch route'ları eziyor | Segment/status aynı yüksek budget | Her biri `max-concurrent=4` | Patch türleri ayrışır | Optimistic lock/idempotency gerekir |
-| Delete nadir ama pahalı | `delete=4` | `delete=2` | Daha kontrollü akar | Admin spike'ta 503 görebilir |
+| Create DB'yi zorluyor | <small><code>reactor.rust.route-admission.post.api.v1.customers.max-concurrent=8</code> veya <code>10</code></small> | <small><code>reactor.rust.route-admission.post.api.v1.customers.max-concurrent=4</code><br><code>reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms=100</code></small> | DB write pressure düşer | Peak write RPS düşer |
+| Timeout sonrası tekrar | <small><code>reactor.dubbo.retries=1</code><br>blind client retry</small> | <small><code>reactor.dubbo.retries=0</code><br>client idempotency key zorunlu</small> | Duplicate riski azalır | Garanti için durable workflow |
+| Patch route'ları eziyor | Segment/status aynı yüksek budget | <small><code>reactor.rust.route-admission.patch.api.v1.customers.id.segment.max-concurrent=4</code><br><code>reactor.rust.route-admission.patch.api.v1.customers.id.status.max-concurrent=4</code></small> | Patch türleri ayrışır | Optimistic lock/idempotency gerekir |
+| Delete nadir ama pahalı | <small><code>reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent=4</code></small> | <small><code>reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent=2</code></small> | Daha kontrollü akar | Admin spike'ta 503 görebilir |
 
 ### Kampanya Listeleme Servisi: Çok Pod, Sıkı Memory, Kontrollü 503
 
@@ -690,10 +690,10 @@ Bu senaryoda karşılaşabileceğiniz farklı durumlar ve doğrudan property kar
 
 | Durum | Önceki değer | Değişiklik | Beklenen düzelme | Bedel / dikkat |
 |-------|--------------|------------|------------------|----------------|
-| Pod RSS yüksek | `max-connections=512`<br>`small=32, medium=8` | `max-connections=256`<br>`small=8, medium=2` | Daha az idle/native buffer | Yatay ölçekle dengeleyin |
-| Kampanya hot read 503 yüksek | `catalog.nested=8` | `catalog.nested=16` | Hot read daha çok istek alır | RSS/provider CPU ölçün |
-| Admin/write hot read'i etkiliyor | Admin/write budget yüksek | `post=2`<br>`delete=1` | Seyrek route kapasite çalmaz | Admin fail-fast olur |
-| 503 için global queue büyüdü | `jni.queue=512` | `jni.queue=128`<br>route budget ayrıştır | Global p99 artışı azalır | Hot endpoint budget gerekir |
+| Pod RSS yüksek | <small><code>reactor.rust.http.max-connections=512</code><br><code>reactor.rust.response-pool.small-capacity=32</code><br><code>reactor.rust.response-pool.medium-capacity=8</code></small> | <small><code>reactor.rust.http.max-connections=256</code><br><code>reactor.rust.response-pool.small-capacity=8</code><br><code>reactor.rust.response-pool.medium-capacity=2</code></small> | Daha az idle/native buffer | Yatay ölçekle dengeleyin |
+| Kampanya hot read 503 yüksek | <small><code>reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=8</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=16</code></small> | Hot read daha çok istek alır | RSS/provider CPU ölçün |
+| Admin/write hot read'i etkiliyor | Admin/write budget yüksek | <small><code>reactor.rust.route-admission.post.api.v1.customers.max-concurrent=2</code><br><code>reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent=1</code></small> | Seyrek route kapasite çalmaz | Admin fail-fast olur |
+| 503 için global queue büyüdü | <small><code>reactor.rust.jni.queue-capacity=512</code></small> | <small><code>reactor.rust.jni.queue-capacity=128</code><br>route budget ayrıştır</small> | Global p99 artışı azalır | Hot endpoint budget gerekir |
 
 ### Çağrı Merkezi Lookup API'si: Memory Rahat, p99 Yüksek
 
@@ -744,9 +744,9 @@ Bu senaryoda karşılaşabileceğiniz farklı durumlar ve doğrudan property kar
 
 | Durum | Önceki değer | Değişiklik | Beklenen düzelme | Bedel / dikkat |
 |-------|--------------|------------|------------------|----------------|
-| Provider CPU boş, p99 yüksek | `dubbo.inflight=24`<br>`conn=2` | `dubbo.inflight=64`<br>`conn=4` | Daha fazla paralel Dubbo call | RSS/DB pool ölçün |
-| Sadece lookup yavaş | Hot route budget aynı | `customers.db=12`<br>catalog aynı | Problemli route ayrılır | DB wait artarsa düşürün |
-| Büyük history küçük lookup'ı bozuyor | Büyük JSON `12` | Büyük JSON `6`<br>küçük lookup yüksek | Küçük lookup p99 korunur | Büyük JSON RPS düşer |
+| Provider CPU boş, p99 yüksek | <small><code>reactor.dubbo.max-inflight=24</code><br><code>reactor.dubbo.native-connections-per-endpoint=2</code></small> | <small><code>reactor.dubbo.max-inflight=64</code><br><code>reactor.dubbo.native-connections-per-endpoint=4</code></small> | Daha fazla paralel Dubbo call | RSS/DB pool ölçün |
+| Sadece lookup yavaş | Hot route budget aynı | <small><code>reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=12</code><br>catalog route değerleri aynı kalır</small> | Problemli route ayrılır | DB wait artarsa düşürün |
+| Büyük history küçük lookup'ı bozuyor | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=12</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6</code><br>small lookup route budget yüksek kalır</small> | Küçük lookup p99 korunur | Büyük JSON RPS düşer |
 | Admission kapatıldı | Route budget yok | Budget'ları geri koy<br>sadece hot read artır | Yavaş route sistemi kilitlemez | Config daha detaylıdır |
 
 ## `rust-java-rest` 3.2.2 Bu Örnekte Ne Değiştiriyor?
@@ -1693,15 +1693,15 @@ provider hata oranı ve idle sonrası RSS ile birlikte ölçülmelidir.
 
 | Use case | Başlangıç ayarı | Neden |
 |----------|----------------|-------|
-| K8s Service DNS static | `DISCOVERY=static`<br>`PROVIDERS=customer-provider:20880,...`<br>`PROFILE=micro-dubbo`<br>`CONNECTIONS=2`, `MAX_INFLIGHT=8-16` | ZooKeeper client/thread/class consumer'a girmez |
-| ZooKeeper zorunlu düşük trafik | `DISCOVERY=zookeeper`<br>`PROFILE=micro-dubbo`<br>`JNI_WORKERS=1`<br>`MAX_INFLIGHT=8`, `CONNECTIONS=1` | REST process küçük kalır<br>overload anında kontrollü 503 |
-| Read-heavy dashboard JSON | `MAX_INFLIGHT=16-32`<br>`CONNECTIONS_PER_ENDPOINT=2-4`<br>read route admission `16-64` | Hazır JSON `byte[]` ise 200 RPS artar |
-| DB-backed query | Route max concurrent: `4-8`<br>`REACTOR_DUBBO_TIMEOUT_MS=800-1500`<br>queue timeout `50-150ms` | Consumer provider DB pool saturation'ını büyütmez |
-| POST/PATCH/DELETE command | `REACTOR_DUBBO_RETRIES=0`<br>command route `4-8`<br>queue timeout `100-200ms` | Duplicate write ve write pressure sınırlandırılır |
+| K8s Service DNS static | <small><code>SAMPLE_DUBBO_DISCOVERY=static</code><br><code>REACTOR_DUBBO_PROVIDERS=customer-provider:20880,order-provider:20880</code><br><code>REACTOR_RUNTIME_PROFILE=micro-dubbo</code><br><code>REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=2</code><br><code>REACTOR_DUBBO_MAX_INFLIGHT=8-16</code></small> | ZooKeeper client/thread/class consumer'a girmez |
+| ZooKeeper zorunlu düşük trafik | <small><code>SAMPLE_DUBBO_DISCOVERY=zookeeper</code><br><code>REACTOR_RUNTIME_PROFILE=micro-dubbo</code><br><code>REACTOR_RUST_JNI_WORKERS=1</code><br><code>REACTOR_DUBBO_MAX_INFLIGHT=8</code><br><code>REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=1</code></small> | REST process küçük kalır<br>overload anında kontrollü 503 |
+| Read-heavy dashboard JSON | <small><code>REACTOR_DUBBO_MAX_INFLIGHT=16-32</code><br><code>REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=2-4</code><br><code>REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CATALOG_NESTED_MAX_CONCURRENT=16-64</code></small> | Hazır JSON `byte[]` ise 200 RPS artar |
+| DB-backed query | <small><code>reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=4-8</code><br><code>REACTOR_DUBBO_TIMEOUT_MS=800-1500</code><br><code>reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms=50-150</code></small> | Consumer provider DB pool saturation'ını büyütmez |
+| POST/PATCH/DELETE command | <small><code>REACTOR_DUBBO_RETRIES=0</code><br><code>reactor.rust.route-admission.post.api.v1.customers.max-concurrent=4-8</code><br><code>reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms=100-200</code></small> | Duplicate write ve write pressure sınırlandırılır |
 | Büyük JSON response | `REACTOR_DUBBO_MAX_RESPONSE_BYTES`<br>`REACTOR_RUST_HTTP_MAX_RESPONSE_BODY_BYTES`<br>`REACTOR_RUST_HTTP_MAX_INFLIGHT_RESPONSE_BYTES` | Dubbo, HTTP ve toplam in-flight limit birlikte açılır |
-| Memory sınırlı yüksek concurrency | Önce `CONNECTIONS_PER_ENDPOINT`<br>sonra `MAX_INFLIGHT`<br>en son `JNI_WORKERS` | Extra Java worker'dan önce connection reuse denenir |
-| Rolling restart, K8s Service DNS | `SAMPLE_DUBBO_DISCOVERY=static`<br>doğru readiness probe<br>`CONNECTIONS_PER_ENDPOINT=2` + RPC timeout | K8s sağlıksız pod'u endpoint listesinden çıkarır |
-| Rolling restart, ZooKeeper | `SAMPLE_DUBBO_DISCOVERY=zookeeper`<br>`REGISTRY_CHECK=false`, `CHECK=false`<br>explicit RPC timeout | Discovery toparlanana kadar bounded failure döner |
+| Memory sınırlı yüksek concurrency | <small>Önce <code>REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT</code><br>sonra <code>REACTOR_DUBBO_MAX_INFLIGHT</code><br>en son <code>REACTOR_RUST_JNI_WORKERS</code></small> | Extra Java worker'dan önce connection reuse denenir |
+| Rolling restart, K8s Service DNS | <small><code>SAMPLE_DUBBO_DISCOVERY=static</code><br>doğru readiness probe<br><code>REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=2</code><br><code>REACTOR_DUBBO_TIMEOUT_MS=1000</code></small> | K8s sağlıksız pod'u endpoint listesinden çıkarır |
+| Rolling restart, ZooKeeper | <small><code>SAMPLE_DUBBO_DISCOVERY=zookeeper</code><br><code>REACTOR_DUBBO_REGISTRY_CHECK=false</code><br><code>REACTOR_DUBBO_CHECK=false</code><br><code>REACTOR_DUBBO_TIMEOUT_MS=1000</code></small> | Discovery toparlanana kadar bounded failure döner |
 
 ### Reçete: ZooKeeper Zorunlu Low-Memory Kubernetes Consumer
 
@@ -2610,8 +2610,8 @@ ayrı ayarlamadan concurrency artırmayın.
 
 | Kullanıcı problemi | Başlangıç | Kritik ayar |
 |--------------------|-----------|-------------|
-| En küçük pod, seyrek trafik | `micro-dubbo` + static provider | `jni.workers=1`<br>`native-async-workers=1`<br>`small-capacity=8` |
-| c256 altında daha çok write | `micro-dubbo` + route tuning | `route-admission.post.api.v1.customers.max-concurrent`<br>RSS/p99/503 ile ölçün |
+| En küçük pod, seyrek trafik | `micro-dubbo` + static provider | <small><code>reactor.rust.jni.workers=1</code><br><code>reactor.dubbo.native-async-workers=1</code><br><code>reactor.rust.response-pool.small-capacity=8</code></small> |
+| c256 altında daha çok write | `micro-dubbo` + route tuning | <small><code>reactor.rust.route-admission.post.api.v1.customers.max-concurrent</code><br>RSS/p99/503 ile ölçün</small> |
 | Dynamic discovery lazım | `micro-dubbo` + `zookeeper-discovery` | `SAMPLE_DUBBO_DISCOVERY=zookeeper`<br>küçük RSS artışı normal |
 | Provider DB yavaş | Consumer bounded kalsın | `sample.db.maximum-pool-size`<br>provider method limitleri<br>PostgreSQL latency |
 | Best-practice şablon | Bu sample yapısı | `handler -> client -> interface -> provider -> repository` |
