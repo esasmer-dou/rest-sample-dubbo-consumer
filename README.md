@@ -1081,6 +1081,57 @@ public interface CatalogService {
 This is easier to read for normal business APIs, but it creates object graph and serialization cost on
 the consumer side. For low-RSS, read-heavy JSON forwarding, `byte[] + RawResponse` is the better path.
 
+### Data Flow Decision: bytes or records?
+
+This is not just a Java type choice. It decides which process reads JSON, where validation happens,
+where object graphs are created, and how much p99/RSS cost the route carries.
+
+| Choice | Data flow | Consumer cost | Validation owner | Use when |
+|--------|-----------|---------------|------------------|----------|
+| `byte[] -> byte[]` | HTTP bytes -> Dubbo bytes -> `RawResponse` | Lowest<br>no DTO graph | Provider or lightweight byte validator | Read-heavy pass-through JSON |
+| `record -> record` | JSON -> record -> Dubbo -> record -> JSON | Medium<br>parse + serialize | Consumer typed validation | Consumer must inspect fields |
+| `record -> byte[] -> RawResponse` | JSON -> validate record -> bytes -> provider bytes | Medium request<br>low response | Consumer validates request; provider validates domain | Good hybrid model |
+| `record -> byte[] -> record` | Record request + response parse again | High<br>double parse/serialize | Only if consumer reads response fields | Use only when required |
+| `record -> List<record>` | List + item record graph | Highest | Consumer processes typed result | Small bounded pages |
+
+BEST choice: if the consumer only carries the provider result to the HTTP client, do not convert the
+response into a record. Return `RawResponse.json(providerBytes)` and avoid response parse, object
+allocation, and JSON serialization.
+
+```java
+@PostMapping(value = "/customers", responseType = RawResponse.class)
+public CompletableFuture<ResponseEntity<RawResponse>> createCustomer(@RequestBody CustomerCreateRequest request) {
+    validateCreateRequest(request);
+    byte[] commandJson = customerJsonWriter.write(request);
+
+    return customerCommandClient.createCustomer(commandJson)
+            .thenApply(providerJson -> ResponseEntity.ok(RawResponse.json(providerJson)));
+}
+```
+
+In this hybrid model, the consumer validates the request with typed code. The provider still owns
+domain rules, DB constraints, and the response JSON shape. The consumer does not inspect the provider
+response, so no response object graph is created.
+
+| Class | Model | Why |
+|-------|-------|-----|
+| BEST | `byte[] -> byte[]` + `RawResponse` | Lowest allocation and most stable p99 |
+| BEST | `record request -> byte[] provider -> RawResponse` | Request validation without response parse |
+| ACCEPTABLE | `record -> record` | Readable for small typed business responses |
+| ACCEPTABLE | `List<record>` | Only with small page + strict `limit` |
+| ANTI-PATTERN | Hot path `record -> byte[] -> record -> JSON` | Loses the byte-transport advantage |
+| ANTI-PATTERN | Unbounded `List<record>` | Grows heap, GC, p99, and RSS |
+
+Keep validation ownership explicit:
+
+| Validation type | Where to do it | Why |
+|-----------------|----------------|-----|
+| Basic request shape | Consumer | Rejects bad requests before provider work |
+| Domain rule / DB uniqueness | Provider | Provider owns the data |
+| Auth / tenant boundary | Consumer or gateway | Fail fast near the HTTP boundary |
+| Response contract check | Test/contract suite | Runtime parsing every response is expensive |
+| Large JSON schema validation | Outside hot path | High CPU and allocation cost |
+
 ### Does a Dubbo Method Return a Record Directly?
 
 At the Java API level, yes:

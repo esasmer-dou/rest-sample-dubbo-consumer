@@ -1080,6 +1080,57 @@ Bu model normal business API için okunabilir olabilir; ancak consumer tarafınd
 serialization maliyeti oluşturur. Low-RSS/read-heavy JSON forwarding için `byte[] + RawResponse`
 daha doğru yoldur.
 
+### Veri Akışı Kararı: byte mı, record mı?
+
+Bu karar sadece Java tipi seçimi değildir. Hangi process'in JSON'u okuyacağını, validation'ın nerede
+yapılacağını, hangi tarafta object graph oluşacağını ve p99/RSS maliyetini belirler.
+
+| Seçim | Veri akışı | Consumer maliyeti | Validation yeri | Ne zaman |
+|-------|------------|-------------------|-----------------|----------|
+| `byte[] -> byte[]` | HTTP bytes -> Dubbo bytes -> `RawResponse` | En düşük<br>DTO graph yok | Provider veya lightweight byte validator | Read-heavy, pass-through JSON |
+| `record -> record` | JSON -> record -> Dubbo -> record -> JSON | Orta<br>parse + serialize | Consumer typed validation | Consumer field okuyacaksa |
+| `record -> byte[] -> RawResponse` | JSON -> record validate -> bytes -> provider bytes | Orta request<br>düşük response | Consumer request'i, provider domain'i validate eder | İyi hibrit model |
+| `record -> byte[] -> record` | Record request + response tekrar parse | Yüksek<br>çift parse/serialize | Consumer response'u da okuyacaksa | Sadece gerçekten gerekirse |
+| `record -> List<record>` | Liste + item record graph | En yüksek | Consumer typed result işler | Küçük, bounded page |
+
+BEST seçim: consumer sadece provider cevabını HTTP client'a taşıyorsa response'u `record`'a çevirmeyin.
+`RawResponse.json(providerBytes)` dönün. Böylece response tarafında parse, object allocation ve tekrar
+JSON serialization oluşmaz.
+
+```java
+@PostMapping(value = "/customers", responseType = RawResponse.class)
+public CompletableFuture<ResponseEntity<RawResponse>> createCustomer(@RequestBody CustomerCreateRequest request) {
+    validateCreateRequest(request);
+    byte[] commandJson = customerJsonWriter.write(request);
+
+    return customerCommandClient.createCustomer(commandJson)
+            .thenApply(providerJson -> ResponseEntity.ok(RawResponse.json(providerJson)));
+}
+```
+
+Bu hibrit modelde consumer request'i typed şekilde validate eder; provider domain rule, DB constraint ve
+response JSON shape'in sahibi kalır. Consumer provider response'unu okumadığı için response object graph
+oluşmaz.
+
+| Sınıf | Model | Neden |
+|-------|-------|-------|
+| BEST | `byte[] -> byte[]` + `RawResponse` | En düşük allocation ve en stabil p99 |
+| BEST | `record request -> byte[] provider -> RawResponse` | Request validation var, response copy/parse az |
+| ACCEPTABLE | `record -> record` | Küçük typed business response için okunabilir |
+| ACCEPTABLE | `List<record>` | Sadece küçük sayfa + strict `limit` ile |
+| ANTI-PATTERN | Hot path'te `record -> byte[] -> record -> JSON` | Byte transport avantajını kaybettirir |
+| ANTI-PATTERN | Limitsiz `List<record>` | Heap, GC, p99 ve RSS büyür |
+
+Validation sorumluluğunu da bilinçli ayırın:
+
+| Validation tipi | Nerede yapılmalı? | Neden |
+|-----------------|-------------------|-------|
+| Basic request shape | Consumer | Hatalı request provider'a gitmeden reddedilir |
+| Domain rule / DB uniqueness | Provider | Verinin sahibi provider'dır |
+| Auth / tenant boundary | Consumer veya gateway | HTTP boundary'ye en yakın yerde fail-fast |
+| Response contract check | Test/contract suite | Her response'u runtime'da parse etmek pahalıdır |
+| Büyük JSON schema validation | Hot path dışında | CPU ve allocation maliyeti yüksektir |
+
 ### Dubbo Metodu Direkt Record Döner mi?
 
 Java API seviyesinde evet:
