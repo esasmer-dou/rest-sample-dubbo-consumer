@@ -1,12 +1,12 @@
 # syntax=docker/dockerfile:1
 
-# Build with workspace root as Docker context:
-# docker build -f rest-sample-dubbo-consumer/Dockerfile.jlink.workspace -t rest-sample-dubbo-consumer:jlink .
+# Build from workspace root:
+# docker build -f rest-sample-dubbo-consumer/docker/images/Dockerfile.jlink.native-static.workspace -t rest-sample-dubbo-consumer:native-static-jlink .
 
 FROM ibm-semeru-runtimes:open-21-jdk AS build
 
-ARG MAVEN_PROFILE=full-dubbo-consumer
-ARG JAVA_MODULES=java.base,java.desktop,java.logging,java.management,java.naming,java.security.sasl,java.sql,java.xml,jdk.charsets,jdk.crypto.ec,jdk.unsupported
+ARG MAVEN_PROFILE=native-static-consumer
+ARG JAVA_MODULES=java.base,java.logging,java.management,jdk.charsets,jdk.crypto.ec,jdk.unsupported
 
 ENV JAVA_HOME=/opt/java/openjdk \
     PATH=/opt/java/openjdk/bin:$PATH
@@ -58,8 +58,8 @@ ENV JAVA_HOME=/opt/reactor-jre \
     REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=1 \
     REACTOR_DUBBO_NATIVE_ASYNC_WORKERS=1 \
     REACTOR_DUBBO_NATIVE_ASYNC_QUEUE_CAPACITY=32 \
-    REACTOR_DUBBO_MAX_INFLIGHT=32 \
-    JAVA_TOOL_OPTIONS="-Xms24m -Xmx96m -Xss192k -Xgc:threads=1 -XX:ActiveProcessorCount=1 -Xtune:virtualized"
+    REACTOR_DUBBO_MAX_INFLIGHT=16 \
+    JAVA_TOOL_OPTIONS="-Xms20m -Xmx64m -Xss160k -Xgc:threads=1 -XX:ActiveProcessorCount=1 -Xtune:virtualized -Dreactor.startup.route-index.validate=false -Dreactor.startup.route-index.required=false"
 
 WORKDIR /app
 
@@ -74,4 +74,4 @@ USER app
 
 EXPOSE 8080
 
-ENTRYPOINT ["java", "-cp", "/app/app.jar:/app/lib/*", "com.reactor.sample.dubbo.consumer.app.RestSampleDubboConsumerApplication"]
+ENTRYPOINT ["java", "-cp", "/app/app.jar:/app/lib/*", "com.reactor.sample.dubbo.consumer.nativestatic.NativeStaticConsumerApplication"]

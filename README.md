@@ -55,9 +55,9 @@ scenario you actually run.
 
 | Image | Build command | Use when | Intentionally not supported | Local smoke evidence |
 |-------|---------------|----------|-----------------------------|----------------------|
-| `rest-sample-dubbo-consumer:native-static-jlink` | `docker build -f rest-sample-dubbo-consumer/Dockerfile.jlink.native-static.workspace -t rest-sample-dubbo-consumer:native-static-jlink .` | Static provider address, no ZooKeeper, no-arg raw JSON read such as `GET /api/v1/catalog/nested`. | Typed DTO routes, request-argument Dubbo methods, ZooKeeper discovery. | JRE `61M`, app jar `72K`, RSS about `33 MiB` after idle in Docker Desktop smoke. |
-| `rest-sample-dubbo-consumer:full-static-jlink` | `docker build -f rest-sample-dubbo-consumer/Dockerfile.jlink.full-static.workspace -t rest-sample-dubbo-consumer:full-static-jlink .` | Static provider address plus typed `record/list/map/scalar` examples and POST/PATCH/DELETE command examples. | ZooKeeper discovery. | JRE `80M`, RSS about `39 MiB` after idle in Docker Desktop smoke. |
-| `rest-sample-dubbo-consumer:zookeeper-jlink` | `docker build -f rest-sample-dubbo-consumer/Dockerfile.jlink.zookeeper.workspace -t rest-sample-dubbo-consumer:zookeeper-jlink .` | Provider discovery must come from ZooKeeper. | Lowest-memory static-only mode. | JRE `80M`, RSS about `42-51 MiB` depending on warm state in Docker Desktop smoke. |
+| `rest-sample-dubbo-consumer:native-static-jlink` | `docker build -f rest-sample-dubbo-consumer/docker/images/Dockerfile.jlink.native-static.workspace -t rest-sample-dubbo-consumer:native-static-jlink .` | Static provider address, no ZooKeeper, no-arg raw JSON read such as `GET /api/v1/catalog/nested`. | Typed DTO routes, request-argument Dubbo methods, ZooKeeper discovery. | JRE `61M`, app jar `72K`, RSS about `33 MiB` after idle in Docker Desktop smoke. |
+| `rest-sample-dubbo-consumer:full-static-jlink` | `docker build -f rest-sample-dubbo-consumer/docker/images/Dockerfile.jlink.full-static.workspace -t rest-sample-dubbo-consumer:full-static-jlink .` | Static provider address plus typed `record/list/map/scalar` examples and POST/PATCH/DELETE command examples. | ZooKeeper discovery. | JRE `80M`, RSS about `39 MiB` after idle in Docker Desktop smoke. |
+| `rest-sample-dubbo-consumer:zookeeper-jlink` | `docker build -f rest-sample-dubbo-consumer/docker/images/Dockerfile.jlink.zookeeper.workspace -t rest-sample-dubbo-consumer:zookeeper-jlink .` | Provider discovery must come from ZooKeeper. | Lowest-memory static-only mode. | JRE `80M`, RSS about `42-51 MiB` depending on warm state in Docker Desktop smoke. |
 
 Selection rule:
 
@@ -1968,8 +1968,8 @@ Two build modes are available:
 
 | Build mode | Command | When to use |
 |------------|---------|-------------|
-| Workspace build | <small><code>docker build -f rest-sample-dubbo-consumer/Dockerfile.jlink.workspace -t rest-sample-dubbo-consumer:jlink .</code></small> | Use from `rust-spring-performance` root. It installs local `rust-java-rest` and `java-rust-dubbo` inside the image build, so no GitHub Packages token is needed. |
-| Standalone repo build | <small><code>docker build --secret id=maven_settings,src=$env:USERPROFILE\.m2\settings.xml -f Dockerfile.jlink -t rest-sample-dubbo-consumer:jlink .</code></small> | Use when this sample is cloned alone. The Maven settings file must contain a valid GitHub Packages token for private package download. |
+| Workspace build | <small><code>docker build -f rest-sample-dubbo-consumer/docker/images/Dockerfile.jlink.workspace -t rest-sample-dubbo-consumer:jlink .</code></small> | Use from `rust-spring-performance` root. It installs local `rust-java-rest` and `java-rust-dubbo` inside the image build, so no GitHub Packages token is needed. |
+| Standalone repo build | <small><code>docker build --secret id=maven_settings,src=$env:USERPROFILE\.m2\settings.xml -f docker/images/Dockerfile.jlink -t rest-sample-dubbo-consumer:jlink .</code></small> | Use when this sample is cloned alone. The Maven settings file must contain a valid GitHub Packages token for private package download. |
 
 Static provider smoke on a Docker network:
 

@@ -56,9 +56,9 @@ senaryonun en küçük image'ını build edin.
 
 | Image | Build komutu | Ne zaman kullanılır? | Bilinçli desteklemez | Local smoke kanıtı |
 |-------|--------------|----------------------|----------------------|--------------------|
-| `rest-sample-dubbo-consumer:native-static-jlink` | `docker build -f rest-sample-dubbo-consumer/Dockerfile.jlink.native-static.workspace -t rest-sample-dubbo-consumer:native-static-jlink .` | Static provider adresi, ZooKeeper yok, `GET /api/v1/catalog/nested` gibi argümansız raw JSON read. | Typed DTO route'ları, argümanlı Dubbo method'ları, ZooKeeper discovery. | JRE `61M`, app jar `72K`, Docker Desktop idle RSS yaklaşık `33 MiB`. |
-| `rest-sample-dubbo-consumer:full-static-jlink` | `docker build -f rest-sample-dubbo-consumer/Dockerfile.jlink.full-static.workspace -t rest-sample-dubbo-consumer:full-static-jlink .` | Static provider adresiyle typed `record/list/map/scalar` örnekleri ve POST/PATCH/DELETE command örnekleri de gerekiyorsa. | ZooKeeper discovery. | JRE `80M`, Docker Desktop idle RSS yaklaşık `39 MiB`. |
-| `rest-sample-dubbo-consumer:zookeeper-jlink` | `docker build -f rest-sample-dubbo-consumer/Dockerfile.jlink.zookeeper.workspace -t rest-sample-dubbo-consumer:zookeeper-jlink .` | Provider discovery mutlaka ZooKeeper'dan gelecekse. | En küçük static-only mod. | JRE `80M`, warm state'e göre Docker Desktop RSS yaklaşık `42-51 MiB`. |
+| `rest-sample-dubbo-consumer:native-static-jlink` | `docker build -f rest-sample-dubbo-consumer/docker/images/Dockerfile.jlink.native-static.workspace -t rest-sample-dubbo-consumer:native-static-jlink .` | Static provider adresi, ZooKeeper yok, `GET /api/v1/catalog/nested` gibi argümansız raw JSON read. | Typed DTO route'ları, argümanlı Dubbo method'ları, ZooKeeper discovery. | JRE `61M`, app jar `72K`, Docker Desktop idle RSS yaklaşık `33 MiB`. |
+| `rest-sample-dubbo-consumer:full-static-jlink` | `docker build -f rest-sample-dubbo-consumer/docker/images/Dockerfile.jlink.full-static.workspace -t rest-sample-dubbo-consumer:full-static-jlink .` | Static provider adresiyle typed `record/list/map/scalar` örnekleri ve POST/PATCH/DELETE command örnekleri de gerekiyorsa. | ZooKeeper discovery. | JRE `80M`, Docker Desktop idle RSS yaklaşık `39 MiB`. |
+| `rest-sample-dubbo-consumer:zookeeper-jlink` | `docker build -f rest-sample-dubbo-consumer/docker/images/Dockerfile.jlink.zookeeper.workspace -t rest-sample-dubbo-consumer:zookeeper-jlink .` | Provider discovery mutlaka ZooKeeper'dan gelecekse. | En küçük static-only mod. | JRE `80M`, warm state'e göre Docker Desktop RSS yaklaşık `42-51 MiB`. |
 
 Seçim kuralı:
 
@@ -1969,8 +1969,8 @@ tek başına değiştirmez. Feature set hâlâ Maven profile seçimiyle belirlen
 
 | Build yolu | Komut | Ne zaman kullanılır |
 |------------|-------|---------------------|
-| Workspace build | <small><code>docker build -f rest-sample-dubbo-consumer/Dockerfile.jlink.workspace -t rest-sample-dubbo-consumer:jlink .</code></small> | `rust-spring-performance` root dizininden çalıştırılır. Local `rust-java-rest` ve `java-rust-dubbo` container içinde `mvn install` edilir; GitHub Packages token gerekmez. |
-| Tek repo build | <small><code>docker build --secret id=maven_settings,src=$env:USERPROFILE\.m2\settings.xml -f Dockerfile.jlink -t rest-sample-dubbo-consumer:jlink .</code></small> | Consumer sample tek başına clone edildiyse kullanılır. Maven settings içinde private GitHub Packages paketlerini indirebilen geçerli token olmalıdır. |
+| Workspace build | <small><code>docker build -f rest-sample-dubbo-consumer/docker/images/Dockerfile.jlink.workspace -t rest-sample-dubbo-consumer:jlink .</code></small> | `rust-spring-performance` root dizininden çalıştırılır. Local `rust-java-rest` ve `java-rust-dubbo` container içinde `mvn install` edilir; GitHub Packages token gerekmez. |
+| Tek repo build | <small><code>docker build --secret id=maven_settings,src=$env:USERPROFILE\.m2\settings.xml -f docker/images/Dockerfile.jlink -t rest-sample-dubbo-consumer:jlink .</code></small> | Consumer sample tek başına clone edildiyse kullanılır. Maven settings içinde private GitHub Packages paketlerini indirebilen geçerli token olmalıdır. |
 
 Tek Docker network üzerinde static provider smoke:
 

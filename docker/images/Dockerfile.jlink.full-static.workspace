@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Build from workspace root:
-# docker build -f rest-sample-dubbo-consumer/Dockerfile.jlink.full-static.workspace -t rest-sample-dubbo-consumer:full-static-jlink .
+# docker build -f rest-sample-dubbo-consumer/docker/images/Dockerfile.jlink.full-static.workspace -t rest-sample-dubbo-consumer:full-static-jlink .
 
 FROM ibm-semeru-runtimes:open-21-jdk AS build
 
