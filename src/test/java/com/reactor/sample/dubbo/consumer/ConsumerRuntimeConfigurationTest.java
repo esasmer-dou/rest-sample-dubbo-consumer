@@ -1,5 +1,7 @@
 package com.reactor.sample.dubbo.consumer;
 
+import com.reactor.rust.dubbo.sample.dto.CreateCustomerCommand;
+import com.reactor.rust.json.DslJsonService;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -30,6 +32,7 @@ class ConsumerRuntimeConfigurationTest {
         Properties properties = loadProperties();
 
         assertEquals("static", properties.getProperty("sample.dubbo.discovery"));
+        assertEquals("true", properties.getProperty("sample.dubbo.read-retry-on-io-error"));
         assertEquals("true", properties.getProperty("reactor.dubbo.enabled"));
         assertEquals("native", properties.getProperty("reactor.dubbo.transport"));
         assertEquals("micro-dubbo", properties.getProperty("reactor.dubbo.runtime-profile"));
@@ -80,6 +83,27 @@ class ConsumerRuntimeConfigurationTest {
         assertTrue(routes.contains("GET /api/v1/customers/db/by-segment"));
         assertTrue(routes.contains("POST /api/v1/customers/typed"));
         assertTrue(routes.contains("PATCH /api/v1/customers/{id}/status/typed"));
+    }
+
+    @Test
+    void typedCustomerCommandHasCompileTimeJsonReader() {
+        byte[] json = """
+                {
+                  "customerNo": "C-9001",
+                  "fullName": "Mustafa Korkmaz",
+                  "segment": "enterprise",
+                  "email": "mustafa.korkmaz@example.com",
+                  "requestId": "req-json-reader"
+                }
+                """.getBytes(StandardCharsets.UTF_8);
+
+        CreateCustomerCommand command = DslJsonService.parse(json, CreateCustomerCommand.class);
+
+        assertEquals("C-9001", command.customerNo());
+        assertEquals("Mustafa Korkmaz", command.fullName());
+        assertEquals("enterprise", command.segment());
+        assertEquals("mustafa.korkmaz@example.com", command.email());
+        assertEquals("req-json-reader", command.requestId());
     }
 
     private static Properties loadProperties() throws IOException {

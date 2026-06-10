@@ -15,6 +15,7 @@ public final class CustomerQueryClient {
     private final NativeDubboMethodInvoker<CustomerStats> customerStats;
     private final NativeDubboMethodInvoker<Boolean> customerExists;
     private final NativeDubboMethodInvoker<String> customerDisplayName;
+    private final boolean retryReadOnConnectionAbort;
 
     public CustomerQueryClient(
             NativeDubboMethodInvoker<byte[]> databaseCustomersJson,
@@ -22,38 +23,48 @@ public final class CustomerQueryClient {
             NativeDubboMethodInvoker<List> customersBySegment,
             NativeDubboMethodInvoker<CustomerStats> customerStats,
             NativeDubboMethodInvoker<Boolean> customerExists,
-            NativeDubboMethodInvoker<String> customerDisplayName) {
+            NativeDubboMethodInvoker<String> customerDisplayName,
+            boolean retryReadOnConnectionAbort) {
         this.databaseCustomersJson = databaseCustomersJson;
         this.customer = customer;
         this.customersBySegment = customersBySegment;
         this.customerStats = customerStats;
         this.customerExists = customerExists;
         this.customerDisplayName = customerDisplayName;
+        this.retryReadOnConnectionAbort = retryReadOnConnectionAbort;
     }
 
     public CompletableFuture<byte[]> databaseCustomersJsonAsync() {
-        return databaseCustomersJson.invokeAsync();
+        return DubboReadRetry.onceOnConnectionAbort(retryReadOnConnectionAbort, databaseCustomersJson::invokeAsync);
     }
 
     public CompletableFuture<CustomerSummary> customerAsync(long customerId) {
-        return customer.invokeAsync(customerId);
+        return DubboReadRetry.onceOnConnectionAbort(
+                retryReadOnConnectionAbort,
+                () -> customer.invokeAsync(customerId));
     }
 
     @SuppressWarnings("unchecked")
     public CompletableFuture<List<CustomerSummary>> customersBySegmentAsync(String segment, int limit) {
-        return customersBySegment.invokeAsync(segment, limit)
+        return DubboReadRetry.onceOnConnectionAbort(
+                        retryReadOnConnectionAbort,
+                        () -> customersBySegment.invokeAsync(segment, limit))
                 .thenApply(customers -> (List<CustomerSummary>) customers);
     }
 
     public CompletableFuture<CustomerStats> customerStatsAsync() {
-        return customerStats.invokeAsync();
+        return DubboReadRetry.onceOnConnectionAbort(retryReadOnConnectionAbort, customerStats::invokeAsync);
     }
 
     public CompletableFuture<Boolean> customerExistsAsync(long customerId) {
-        return customerExists.invokeAsync(customerId);
+        return DubboReadRetry.onceOnConnectionAbort(
+                retryReadOnConnectionAbort,
+                () -> customerExists.invokeAsync(customerId));
     }
 
     public CompletableFuture<String> customerDisplayNameAsync(long customerId) {
-        return customerDisplayName.invokeAsync(customerId);
+        return DubboReadRetry.onceOnConnectionAbort(
+                retryReadOnConnectionAbort,
+                () -> customerDisplayName.invokeAsync(customerId));
     }
 }

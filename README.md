@@ -48,6 +48,64 @@ to operate. If your deployment contract says provider discovery must come from Z
 run with `zookeeper-discovery`; runtime properties alone cannot add ZooKeeper classes to an image
 that was built without them.
 
+## Scenario-Specific Jlink Images
+
+Do not ship one image that supports every possible Dubbo shape. Build the smallest image for the
+scenario you actually run.
+
+| Image | Build command | Use when | Intentionally not supported | Local smoke evidence |
+|-------|---------------|----------|-----------------------------|----------------------|
+| `rest-sample-dubbo-consumer:native-static-jlink` | `docker build -f rest-sample-dubbo-consumer/Dockerfile.jlink.native-static.workspace -t rest-sample-dubbo-consumer:native-static-jlink .` | Static provider address, no ZooKeeper, no-arg raw JSON read such as `GET /api/v1/catalog/nested`. | Typed DTO routes, request-argument Dubbo methods, ZooKeeper discovery. | JRE `61M`, app jar `72K`, RSS about `33 MiB` after idle in Docker Desktop smoke. |
+| `rest-sample-dubbo-consumer:full-static-jlink` | `docker build -f rest-sample-dubbo-consumer/Dockerfile.jlink.full-static.workspace -t rest-sample-dubbo-consumer:full-static-jlink .` | Static provider address plus typed `record/list/map/scalar` examples and POST/PATCH/DELETE command examples. | ZooKeeper discovery. | JRE `80M`, RSS about `39 MiB` after idle in Docker Desktop smoke. |
+| `rest-sample-dubbo-consumer:zookeeper-jlink` | `docker build -f rest-sample-dubbo-consumer/Dockerfile.jlink.zookeeper.workspace -t rest-sample-dubbo-consumer:zookeeper-jlink .` | Provider discovery must come from ZooKeeper. | Lowest-memory static-only mode. | JRE `80M`, RSS about `42-51 MiB` depending on warm state in Docker Desktop smoke. |
+
+Selection rule:
+
+- **BEST:** `native-static-jlink` for read-only JSON pass-through behind a stable provider Service.
+- **ACCEPTABLE:** `full-static-jlink` when the same consumer must also show typed DTO and command examples.
+- **USE ONLY WHEN REQUIRED:** `zookeeper-jlink` when registry/discovery is a production requirement.
+- **ANTI-PATTERN:** using `zookeeper-jlink` for a simple K8s Service DNS setup only because the app is in Kubernetes.
+
+The native-static image uses the raw-only `CatalogJsonService` contract. That is why
+`/api/v1/catalog/nested` works and typed endpoints such as `/api/v1/catalog/info` return `404` in
+that image. This is deliberate: unsupported routes should not keep classes, serializers, and JDK
+modules alive.
+
+## Postman Collection
+
+Import this collection when you want to try the consumer endpoints without writing curl commands:
+
+```text
+artifacts/postman/rest-sample-dubbo-consumer.postman_collection.json
+```
+
+The collection uses `baseUrl=http://localhost:8080` by default and includes health, catalog reads,
+customer reads, and POST/PATCH/DELETE command examples. Start `rest-sample-dubbo-provider` first,
+then start this consumer.
+
+## Typed DTO Checklist
+
+Typed Dubbo examples such as `POST /api/v1/customers/typed`, `GET /api/v1/customers/db/stats`,
+and `GET /api/v1/customers/db/by-segment` intentionally use Java records. This is useful when the
+consumer must validate fields or branch on a typed result, but it needs two explicit registrations:
+
+| File / setup | Why it exists | If it is missing |
+|--------------|---------------|------------------|
+| DTO records annotated with `@CompiledJson` | Generates DSL-JSON readers/writers at build time for REST request parsing. | `@RequestBody CreateCustomerCommand` fails with "Unable to find reader". |
+| `META-INF/services/com.dslplatform.json.Configuration` | Lets `rust-java-rest` discover generated DSL-JSON converters without reflection fallback. | The generated converter classes exist, but the framework does not load them. |
+| `security/serialize.allowlist` | Lets Dubbo/Hessian deserialize only the DTO package you explicitly trust. | Provider may return Hessian status `40` for typed command requests. |
+| `java-rust-dubbo` full profile + `hessian-lite` | Required for argument methods and typed record/list/scalar responses. | Only no-arg `byte[]` native-static calls are safe. |
+
+Do not solve typed DTO errors by disabling serialization security globally or by enabling a generic
+JSON reflection fallback. The sample keeps both paths explicit so the runtime stays predictable and
+low-overhead.
+
+The sample also enables `sample.dubbo.read-retry-on-io-error=true` by default. This is a narrow
+read-side safety valve: if a previous failed Dubbo call or provider restart leaves one stale TCP
+connection in the native pool, idempotent GET/query calls retry once when the error is a connection
+abort such as Windows `os error 10053`. POST/PATCH/DELETE command calls do not use this retry because
+automatic write retries can duplicate business operations.
+
 ## What ZooKeeper Provides, And When You Need It
 
 ZooKeeper is not an HTTP performance feature. In this sample it is only the Dubbo registry/discovery
@@ -1237,7 +1295,7 @@ into the consumer JVM and serializing it again is an anti-pattern for this frame
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>java-rust-dubbo</artifactId>
-    <version>0.1.0-rc3</version>
+    <version>0.1.0-rc4</version>
 </dependency>
 
 <dependency>
@@ -1898,6 +1956,58 @@ docker run --rm --name rest-sample-dubbo-consumer `
   -e REACTOR_DUBBO_PROVIDERS=rest-sample-dubbo-provider:20880 `
   rest-sample-dubbo-consumer:zk
 ```
+
+### OpenJ9 21 jlink Minimum Image
+
+Use this when the sample must run as a small, non-root OpenJ9 container instead of carrying a full
+JRE image. The provided `Dockerfile.jlink` files create a custom Java runtime with only the modules
+needed by this consumer. This reduces image/runtime surface, but it does not remove application
+features by itself; dependency profile selection still matters.
+
+Two build modes are available:
+
+| Build mode | Command | When to use |
+|------------|---------|-------------|
+| Workspace build | <small><code>docker build -f rest-sample-dubbo-consumer/Dockerfile.jlink.workspace -t rest-sample-dubbo-consumer:jlink .</code></small> | Use from `rust-spring-performance` root. It installs local `rust-java-rest` and `java-rust-dubbo` inside the image build, so no GitHub Packages token is needed. |
+| Standalone repo build | <small><code>docker build --secret id=maven_settings,src=$env:USERPROFILE\.m2\settings.xml -f Dockerfile.jlink -t rest-sample-dubbo-consumer:jlink .</code></small> | Use when this sample is cloned alone. The Maven settings file must contain a valid GitHub Packages token for private package download. |
+
+Static provider smoke on a Docker network:
+
+```powershell
+docker network create reactor-jlink-smoke
+
+docker run --rm --name rest-sample-dubbo-consumer `
+  --network reactor-jlink-smoke `
+  -p 8080:8080 `
+  -e SAMPLE_DUBBO_DISCOVERY=static `
+  -e REACTOR_DUBBO_PROVIDERS=rest-sample-dubbo-provider:20880 `
+  -e REACTOR_RUNTIME_PROFILE=micro-dubbo `
+  -e REACTOR_DUBBO_RUNTIME_PROFILE=micro-dubbo `
+  rest-sample-dubbo-consumer:jlink
+```
+
+Kubernetes static Service DNS example:
+
+```yaml
+env:
+  - name: SAMPLE_DUBBO_DISCOVERY
+    value: "static"
+  - name: REACTOR_DUBBO_PROVIDERS
+    value: "rest-sample-dubbo-provider:20880"
+  - name: REACTOR_RUNTIME_PROFILE
+    value: "micro-dubbo"
+  - name: REACTOR_DUBBO_RUNTIME_PROFILE
+    value: "micro-dubbo"
+  - name: JAVA_TOOL_OPTIONS
+    value: "-Xms24m -Xmx96m -Xss192k -Xgc:threads=1 -XX:ActiveProcessorCount=1 -Xtune:virtualized"
+```
+
+Notes:
+
+- Do not remove `java.desktop` from `JAVA_MODULES`. Dubbo/Hessian typed DTO support needs Java Beans classes from that module.
+- The image runs as a non-root `app` user and keeps `/app/.reactor/native` writable for Rust native `.so` extraction.
+- Local smoke in this workspace observed about `38.8 MiB` consumer RSS with static provider mode. Treat it as a smoke reference, not a capacity guarantee; real RSS depends on endpoints, Dubbo profile, and traffic.
+- If you switch to `zookeeper-discovery`, rebuild with that Maven profile and expect extra ZooKeeper classes/threads.
 
 ### Kubernetes
 

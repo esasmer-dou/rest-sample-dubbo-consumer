@@ -49,6 +49,67 @@ Provider discovery production'da ZooKeeper üzerinden zorunluysa consumer'ı `zo
 build/run edin. ZooKeeper dependency olmadan build edilmiş bir image'a runtime'da sadece
 `SAMPLE_DUBBO_DISCOVERY=zookeeper` vermek yeterli olmaz.
 
+## Senaryoya Göre Jlink Image Seçimi
+
+Her şeyi destekleyen tek image çıkarmayın. Production'da gerçekten hangi senaryo çalışacaksa o
+senaryonun en küçük image'ını build edin.
+
+| Image | Build komutu | Ne zaman kullanılır? | Bilinçli desteklemez | Local smoke kanıtı |
+|-------|--------------|----------------------|----------------------|--------------------|
+| `rest-sample-dubbo-consumer:native-static-jlink` | `docker build -f rest-sample-dubbo-consumer/Dockerfile.jlink.native-static.workspace -t rest-sample-dubbo-consumer:native-static-jlink .` | Static provider adresi, ZooKeeper yok, `GET /api/v1/catalog/nested` gibi argümansız raw JSON read. | Typed DTO route'ları, argümanlı Dubbo method'ları, ZooKeeper discovery. | JRE `61M`, app jar `72K`, Docker Desktop idle RSS yaklaşık `33 MiB`. |
+| `rest-sample-dubbo-consumer:full-static-jlink` | `docker build -f rest-sample-dubbo-consumer/Dockerfile.jlink.full-static.workspace -t rest-sample-dubbo-consumer:full-static-jlink .` | Static provider adresiyle typed `record/list/map/scalar` örnekleri ve POST/PATCH/DELETE command örnekleri de gerekiyorsa. | ZooKeeper discovery. | JRE `80M`, Docker Desktop idle RSS yaklaşık `39 MiB`. |
+| `rest-sample-dubbo-consumer:zookeeper-jlink` | `docker build -f rest-sample-dubbo-consumer/Dockerfile.jlink.zookeeper.workspace -t rest-sample-dubbo-consumer:zookeeper-jlink .` | Provider discovery mutlaka ZooKeeper'dan gelecekse. | En küçük static-only mod. | JRE `80M`, warm state'e göre Docker Desktop RSS yaklaşık `42-51 MiB`. |
+
+Seçim kuralı:
+
+- **BEST:** Stabil provider Service arkasında read-only JSON pass-through varsa `native-static-jlink`.
+- **ACCEPTABLE:** Aynı consumer typed DTO ve command örneklerini de taşıyacaksa `full-static-jlink`.
+- **SADECE GEREKİYORSA:** Provider discovery production sözleşmesi ZooKeeper ise `zookeeper-jlink`.
+- **ANTI-PATTERN:** Sadece uygulama Kubernetes'te çalışıyor diye basit Service DNS senaryosuna ZooKeeper image koymak.
+
+`native-static-jlink` image raw-only `CatalogJsonService` contract'ını kullanır. Bu yüzden
+`/api/v1/catalog/nested` çalışır, `/api/v1/catalog/info` gibi typed endpoint'ler bu image'da `404`
+döner. Bu bilinçli bir sınırdır: desteklenmeyen route'lar class, serializer ve JDK modülü
+taşımamalıdır.
+
+## Postman Collection
+
+Consumer endpoint'lerini curl yazmadan denemek istiyorsanız şu collection dosyasını Postman'a import
+edin:
+
+```text
+artifacts/postman/rest-sample-dubbo-consumer.postman_collection.json
+```
+
+Collection default olarak `baseUrl=http://localhost:8080` kullanır. İçinde health, catalog read,
+customer read ve POST/PATCH/DELETE command örnekleri vardır. Önce `rest-sample-dubbo-provider`,
+sonra bu consumer uygulamasını başlatın.
+
+## Typed DTO Kontrol Listesi
+
+`POST /api/v1/customers/typed`, `GET /api/v1/customers/db/stats` ve
+`GET /api/v1/customers/db/by-segment` gibi typed Dubbo örnekleri bilinçli olarak Java record
+kullanır. Consumer field validate edecek veya typed sonuca göre karar verecekse bu yol okunaklıdır;
+ama iki kayıt mekanizması açık olmalıdır:
+
+| Dosya / ayar | Neden var? | Eksikse ne olur? |
+|--------------|------------|------------------|
+| DTO record'larında `@CompiledJson` | REST request parse için build-time DSL-JSON reader/writer üretir. | `@RequestBody CreateCustomerCommand` "Unable to find reader" hatası verir. |
+| `META-INF/services/com.dslplatform.json.Configuration` | Üretilen DSL-JSON converter'ları reflection fallback açmadan framework'e tanıtır. | Converter class'ları oluşur ama framework yükleyemez. |
+| `security/serialize.allowlist` | Dubbo/Hessian sadece güvenilen DTO paketini deserialize edebilsin diye vardır. | Provider typed command request için Hessian status `40` dönebilir. |
+| `java-rust-dubbo` full profile + `hessian-lite` | Argümanlı method'lar ve typed record/list/scalar cevaplar için gerekir. | Sadece argümansız `byte[]` native-static çağrıları güvenli kalır. |
+
+Typed DTO hatalarını serialization güvenliğini tamamen kapatarak veya genel JSON reflection fallback
+açarak çözmeyin. Bu sample iki yolu da açık kayıtla yönetir; runtime davranışı öngörülebilir ve
+düşük overhead kalır.
+
+Sample ayrıca varsayılan olarak `sample.dubbo.read-retry-on-io-error=true` ile gelir. Bu genel bir
+Dubbo business retry değildir; sadece read/query tarafı için dar bir güvenlik supabıdır. Önceki hatalı
+Dubbo çağrısı veya provider restart sonrası native pool içinde stale TCP bağlantı kaldıysa,
+idempotent GET/query çağrıları Windows `os error 10053` gibi connection abort hatasında bir kez daha
+dener. POST/PATCH/DELETE command çağrılarında bu retry yoktur; çünkü otomatik write retry duplicate
+business işlem yaratabilir.
+
 ## ZooKeeper Ne Sağlar, Ne Zaman Gerekir?
 
 ZooKeeper bu consumer için performans artırıcı bir HTTP bileşeni değildir. Görevi Dubbo provider
@@ -1236,7 +1297,7 @@ Büyük Dubbo object graph'ı consumer JVM'e çekip tekrar JSON'a çevirmek bu f
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>java-rust-dubbo</artifactId>
-    <version>0.1.0-rc3</version>
+    <version>0.1.0-rc4</version>
 </dependency>
 
 <dependency>
@@ -1896,6 +1957,58 @@ docker run --rm --name rest-sample-dubbo-consumer `
   -e REACTOR_DUBBO_PROVIDERS=rest-sample-dubbo-provider:20880 `
   rest-sample-dubbo-consumer:zk
 ```
+
+### OpenJ9 21 jlink Minimum Image
+
+Bu yolu sample'ı tam JRE image taşımadan, küçük ve non-root bir OpenJ9 container olarak çalıştırmak
+istediğinizde kullanın. Eklenen `Dockerfile.jlink` dosyaları sadece consumer'ın ihtiyaç duyduğu Java
+modülleriyle özel bir runtime üretir. Bu image/runtime yüzeyini küçültür; uygulama feature setini
+tek başına değiştirmez. Feature set hâlâ Maven profile seçimiyle belirlenir.
+
+İki build yolu var:
+
+| Build yolu | Komut | Ne zaman kullanılır |
+|------------|-------|---------------------|
+| Workspace build | <small><code>docker build -f rest-sample-dubbo-consumer/Dockerfile.jlink.workspace -t rest-sample-dubbo-consumer:jlink .</code></small> | `rust-spring-performance` root dizininden çalıştırılır. Local `rust-java-rest` ve `java-rust-dubbo` container içinde `mvn install` edilir; GitHub Packages token gerekmez. |
+| Tek repo build | <small><code>docker build --secret id=maven_settings,src=$env:USERPROFILE\.m2\settings.xml -f Dockerfile.jlink -t rest-sample-dubbo-consumer:jlink .</code></small> | Consumer sample tek başına clone edildiyse kullanılır. Maven settings içinde private GitHub Packages paketlerini indirebilen geçerli token olmalıdır. |
+
+Tek Docker network üzerinde static provider smoke:
+
+```powershell
+docker network create reactor-jlink-smoke
+
+docker run --rm --name rest-sample-dubbo-consumer `
+  --network reactor-jlink-smoke `
+  -p 8080:8080 `
+  -e SAMPLE_DUBBO_DISCOVERY=static `
+  -e REACTOR_DUBBO_PROVIDERS=rest-sample-dubbo-provider:20880 `
+  -e REACTOR_RUNTIME_PROFILE=micro-dubbo `
+  -e REACTOR_DUBBO_RUNTIME_PROFILE=micro-dubbo `
+  rest-sample-dubbo-consumer:jlink
+```
+
+Kubernetes static Service DNS örneği:
+
+```yaml
+env:
+  - name: SAMPLE_DUBBO_DISCOVERY
+    value: "static"
+  - name: REACTOR_DUBBO_PROVIDERS
+    value: "rest-sample-dubbo-provider:20880"
+  - name: REACTOR_RUNTIME_PROFILE
+    value: "micro-dubbo"
+  - name: REACTOR_DUBBO_RUNTIME_PROFILE
+    value: "micro-dubbo"
+  - name: JAVA_TOOL_OPTIONS
+    value: "-Xms24m -Xmx96m -Xss192k -Xgc:threads=1 -XX:ActiveProcessorCount=1 -Xtune:virtualized"
+```
+
+Notlar:
+
+- `JAVA_MODULES` içinden `java.desktop` modülünü çıkarmayın. Dubbo/Hessian typed DTO desteği Java Beans sınıflarını bu modülden kullanır.
+- Image non-root `app` kullanıcısıyla çalışır ve Rust native `.so` extraction için `/app/.reactor/native` klasörünü yazılabilir bırakır.
+- Bu workspace'teki lokal smoke testte static provider modunda consumer RSS yaklaşık `38.8 MiB` görüldü. Bunu kapasite garantisi değil, smoke referansı olarak düşünün; gerçek RSS endpoint'lere, Dubbo profile'ına ve trafiğe göre değişir.
+- `zookeeper-discovery` moduna geçerseniz image'ı o Maven profile ile yeniden build edin; ZooKeeper class/thread maliyeti eklenecektir.
 
 ### Kubernetes
 

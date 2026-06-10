@@ -16,7 +16,8 @@
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <rust-java-rest.version>3.2.2</rust-java-rest.version>
-        <java-rust-dubbo.version>0.1.0-rc3</java-rust-dubbo.version>
+        <java-rust-dubbo.version>0.1.0-rc4</java-rust-dubbo.version>
+        <dsl-json.version>2.0.2</dsl-json.version>
         <hessian-lite.version>4.0.3</hessian-lite.version>
         <zookeeper.version>3.7.2</zookeeper.version>
         <junit.version>5.10.2</junit.version>
@@ -42,6 +43,11 @@
             <version>${rust-java-rest.version}</version>
         </dependency>
         <dependency>
+            <groupId>com.dslplatform</groupId>
+            <artifactId>dsl-json</artifactId>
+            <version>${dsl-json.version}</version>
+        </dependency>
+        <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <version>${junit.version}</version>
@@ -57,6 +63,13 @@
                 <version>3.13.0</version>
                 <configuration>
                     <release>${maven.compiler.release}</release>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>com.dslplatform</groupId>
+                            <artifactId>dsl-json</artifactId>
+                            <version>${dsl-json.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
                 </configuration>
             </plugin>
             <plugin>

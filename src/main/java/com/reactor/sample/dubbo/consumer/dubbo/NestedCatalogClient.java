@@ -18,6 +18,7 @@ public final class NestedCatalogClient {
     private final NativeDubboMethodInvoker<List> featuredItems;
     private final NativeDubboMethodInvoker<Map> catalogAttributes;
     private final NativeDubboConsumerClient client;
+    private final boolean retryReadOnConnectionAbort;
 
     public NestedCatalogClient(
             NativeDubboMethodInvoker<byte[]> nestedCatalogJson,
@@ -26,7 +27,8 @@ public final class NestedCatalogClient {
             NativeDubboMethodInvoker<CatalogInfo> catalogInfo,
             NativeDubboMethodInvoker<List> featuredItems,
             NativeDubboMethodInvoker<Map> catalogAttributes,
-            NativeDubboConsumerClient client) {
+            NativeDubboConsumerClient client,
+            boolean retryReadOnConnectionAbort) {
         this.nestedCatalogJson = nestedCatalogJson;
         this.catalogTitle = catalogTitle;
         this.catalogItemCount = catalogItemCount;
@@ -34,33 +36,36 @@ public final class NestedCatalogClient {
         this.featuredItems = featuredItems;
         this.catalogAttributes = catalogAttributes;
         this.client = client;
+        this.retryReadOnConnectionAbort = retryReadOnConnectionAbort;
     }
 
     public CompletableFuture<byte[]> nestedCatalogJsonAsync() {
-        return nestedCatalogJson.invokeAsync();
+        return DubboReadRetry.onceOnConnectionAbort(retryReadOnConnectionAbort, nestedCatalogJson::invokeAsync);
     }
 
     public CompletableFuture<String> catalogTitleAsync() {
-        return catalogTitle.invokeAsync();
+        return DubboReadRetry.onceOnConnectionAbort(retryReadOnConnectionAbort, catalogTitle::invokeAsync);
     }
 
     public CompletableFuture<Integer> catalogItemCountAsync() {
-        return catalogItemCount.invokeAsync();
+        return DubboReadRetry.onceOnConnectionAbort(retryReadOnConnectionAbort, catalogItemCount::invokeAsync);
     }
 
     public CompletableFuture<CatalogInfo> catalogInfoAsync() {
-        return catalogInfo.invokeAsync();
+        return DubboReadRetry.onceOnConnectionAbort(retryReadOnConnectionAbort, catalogInfo::invokeAsync);
     }
 
     @SuppressWarnings("unchecked")
     public CompletableFuture<List<CatalogItem>> featuredItemsAsync(int limit) {
-        return featuredItems.invokeAsync(limit)
+        return DubboReadRetry.onceOnConnectionAbort(
+                        retryReadOnConnectionAbort,
+                        () -> featuredItems.invokeAsync(limit))
                 .thenApply(items -> (List<CatalogItem>) items);
     }
 
     @SuppressWarnings("unchecked")
     public CompletableFuture<Map<String, String>> catalogAttributesAsync() {
-        return catalogAttributes.invokeAsync()
+        return DubboReadRetry.onceOnConnectionAbort(retryReadOnConnectionAbort, catalogAttributes::invokeAsync)
                 .thenApply(attributes -> (Map<String, String>) attributes);
     }
 

@@ -49,7 +49,8 @@ public final class DubboConsumerConfiguration {
                 client.method(spec, "getCatalogInfo", CatalogInfo.class),
                 client.method(spec, "listFeaturedItems", List.class, int.class),
                 client.method(spec, "getCatalogAttributes", Map.class),
-                client
+                client,
+                ConsumerProperties.getBoolean("sample.dubbo.read-retry-on-io-error")
         );
     }
 
@@ -72,7 +73,8 @@ public final class DubboConsumerConfiguration {
                 client.method(spec, "findCustomersBySegment", List.class, String.class, int.class),
                 client.method(spec, "getCustomerStats", CustomerStats.class),
                 client.method(spec, "customerExists", Boolean.class, long.class),
-                client.method(spec, "getCustomerDisplayName", String.class, long.class)
+                client.method(spec, "getCustomerDisplayName", String.class, long.class),
+                ConsumerProperties.getBoolean("sample.dubbo.read-retry-on-io-error")
         );
     }
 

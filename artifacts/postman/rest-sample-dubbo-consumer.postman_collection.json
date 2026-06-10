@@ -1,0 +1,727 @@
+{
+  "info": {
+    "_postman_id": "d76dcd45-65e2-4ba6-a90f-4b882289cc0d",
+    "name": "rest-sample-dubbo-consumer",
+    "description": "Postman collection for the Rust-Java REST Dubbo consumer sample. Start rest-sample-dubbo-provider first, then start rest-sample-dubbo-consumer on {{baseUrl}}.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "customerId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "segment",
+      "value": "enterprise",
+      "type": "string"
+    },
+    {
+      "key": "status",
+      "value": "passive",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET App Health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/app/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "app",
+                "health"
+              ]
+            },
+            "description": "Checks only the REST consumer process. This does not prove the Dubbo provider is reachable."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Catalog Reads",
+      "item": [
+        {
+          "name": "GET Nested Catalog JSON",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/catalog/nested",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "catalog",
+                "nested"
+              ]
+            },
+            "description": "No-arg Dubbo byte[] JSON pass-through. This is the lowest-overhead read path."
+          },
+          "response": []
+        },
+        {
+          "name": "GET Catalog Title",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/catalog/title",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "catalog",
+                "title"
+              ]
+            },
+            "description": "Typed Dubbo scalar response converted to small REST JSON."
+          },
+          "response": []
+        },
+        {
+          "name": "GET Catalog Count",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/catalog/count",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "catalog",
+                "count"
+              ]
+            },
+            "description": "Typed Dubbo primitive response converted to small REST JSON."
+          },
+          "response": []
+        },
+        {
+          "name": "GET Catalog Info Record",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/catalog/info",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "catalog",
+                "info"
+              ]
+            },
+            "description": "Typed Dubbo record response. Useful when the REST layer must make typed decisions."
+          },
+          "response": []
+        },
+        {
+          "name": "GET Featured Items",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/catalog/items?limit=2",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "catalog",
+                "items"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "2",
+                  "description": "Maximum number of catalog items to return."
+                }
+              ]
+            },
+            "description": "Typed Dubbo List<record> response with request parameter binding."
+          },
+          "response": []
+        },
+        {
+          "name": "GET Catalog Attributes",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/catalog/attributes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "catalog",
+                "attributes"
+              ]
+            },
+            "description": "Typed Dubbo Map<String,String> response converted to REST JSON."
+          },
+          "response": []
+        },
+        {
+          "name": "GET Catalog DB Customers JSON",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/catalog/db/customers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "catalog",
+                "db",
+                "customers"
+              ]
+            },
+            "description": "DB-backed provider read returning ready JSON bytes."
+          },
+          "response": []
+        },
+        {
+          "name": "GET Native Dubbo Metrics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/catalog/dubbo-metrics",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "catalog",
+                "dubbo-metrics"
+              ]
+            },
+            "description": "Native Dubbo client metrics. If this fails but /app/health works, check java-rust-dubbo version and native bridge loading."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Customer Reads",
+      "item": [
+        {
+          "name": "GET DB Customers",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/customers/db",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "customers",
+                "db"
+              ]
+            },
+            "description": "Customer list from provider PostgreSQL path as ready JSON bytes."
+          },
+          "response": []
+        },
+        {
+          "name": "GET Customer DB Stats",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/customers/db/stats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "customers",
+                "db",
+                "stats"
+              ]
+            },
+            "description": "Typed stats record from provider, serialized by the REST consumer."
+          },
+          "response": []
+        },
+        {
+          "name": "GET Customers By Segment",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/customers/db/by-segment?segment={{segment}}&limit=5",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "customers",
+                "db",
+                "by-segment"
+              ],
+              "query": [
+                {
+                  "key": "segment",
+                  "value": "{{segment}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "5"
+                }
+              ]
+            },
+            "description": "RequestParam example with string + int query parameters."
+          },
+          "response": []
+        },
+        {
+          "name": "GET Customer By ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/customers/db/{{customerId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "customers",
+                "db",
+                "{{customerId}}"
+              ]
+            },
+            "description": "PathVariable example. Uses collection variable customerId."
+          },
+          "response": []
+        },
+        {
+          "name": "GET Customer Exists",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/customers/{{customerId}}/exists",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "customers",
+                "{{customerId}}",
+                "exists"
+              ]
+            },
+            "description": "PathVariable + typed boolean Dubbo response."
+          },
+          "response": []
+        },
+        {
+          "name": "GET Customer Display Name",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/customers/{{customerId}}/display-name",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "customers",
+                "{{customerId}}",
+                "display-name"
+              ]
+            },
+            "description": "PathVariable + typed string Dubbo response."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Customer Commands",
+      "item": [
+        {
+          "name": "POST Create Customer - JSON byte[] pass-through",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const body = pm.response.json();",
+                  "  const id = body.customerId || (body.customer && body.customer.id);",
+                  "  if (id) pm.collectionVariables.set('customerId', String(id));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerNo\": \"PM-BYTE-{{$timestamp}}\",\n  \"fullName\": \"Postman Byte Customer\",\n  \"segment\": \"{{segment}}\",\n  \"email\": \"postman-byte@example.com\",\n  \"requestId\": \"pm-byte-{{$timestamp}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/customers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "customers"
+              ]
+            },
+            "description": "REST receives JSON bytes and forwards them to Dubbo as byte[]. This is the lower-overhead command path."
+          },
+          "response": []
+        },
+        {
+          "name": "POST Create Customer - Typed record",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const body = pm.response.json();",
+                  "  const id = body.customerId || (body.customer && body.customer.id);",
+                  "  if (id) pm.collectionVariables.set('customerId', String(id));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerNo\": \"PM-TYPED-{{$timestamp}}\",\n  \"fullName\": \"Postman Typed Customer\",\n  \"segment\": \"{{segment}}\",\n  \"email\": \"postman-typed@example.com\",\n  \"requestId\": \"pm-typed-{{$timestamp}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/customers/typed",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "customers",
+                "typed"
+              ]
+            },
+            "description": "REST parses request body into CreateCustomerCommand record, then calls the typed Dubbo method."
+          },
+          "response": []
+        },
+        {
+          "name": "PATCH Customer Segment - JSON byte[]",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"segment\": \"premium\",\n  \"requestId\": \"pm-segment-{{$timestamp}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/customers/{{customerId}}/segment",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "customers",
+                "{{customerId}}",
+                "segment"
+              ]
+            },
+            "description": "PathVariable + JSON byte[] command body."
+          },
+          "response": []
+        },
+        {
+          "name": "PATCH Customer Status - JSON byte[]",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"{{status}}\",\n  \"requestId\": \"pm-status-{{$timestamp}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/customers/{{customerId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "customers",
+                "{{customerId}}",
+                "status"
+              ]
+            },
+            "description": "PathVariable + JSON byte[] command body."
+          },
+          "response": []
+        },
+        {
+          "name": "PATCH Customer Status - Typed query params",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/customers/{{customerId}}/status/typed?status={{status}}&requestId=pm-status-typed-{{$timestamp}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "customers",
+                "{{customerId}}",
+                "status",
+                "typed"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "{{status}}"
+                },
+                {
+                  "key": "requestId",
+                  "value": "pm-status-typed-{{$timestamp}}"
+                }
+              ]
+            },
+            "description": "PathVariable + RequestParam command. No request body."
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE Customer - optional JSON body",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"pm-delete-{{$timestamp}}\",\n  \"reason\": \"postman-cleanup\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/customers/{{customerId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "customers",
+                "{{customerId}}"
+              ]
+            },
+            "description": "DELETE with optional JSON body. The handler accepts an empty body too."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
