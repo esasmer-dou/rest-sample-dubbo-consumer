@@ -26,6 +26,119 @@ This sample is not a full Dubbo governance platform. It does not try to demonstr
 feature. The goal is a minimum-overhead consumer path that fits the Rust-Java framework philosophy:
 Java owns business logic, Rust owns HTTP I/O and selected low-level transport work.
 
+## Copy-Paste: Run REST Over A Dubbo Provider
+
+This is the fastest local flow. The provider and consumer run on the same machine. ZooKeeper is not
+used. The consumer calls the provider at `127.0.0.1:20880`.
+
+### 1. Start The Provider
+
+Use the PostgreSQL-backed full provider if you want to test POST, PATCH, and DELETE.
+
+Short version:
+
+```powershell
+cd ..\rest-sample-dubbo-provider
+docker rm -f rs-provider-postgres-test 2>$null
+
+docker run -d --name rs-provider-postgres-test `
+  -e POSTGRES_DB=reactor_sample `
+  -e POSTGRES_USER=reactor `
+  -e POSTGRES_PASSWORD=reactor `
+  -p 15432:5432 postgres:15.7-alpine
+
+mvn -q clean package
+
+java "-Dreactor.dubbo.registry-enabled=false" `
+  "-Dsample.db.jdbc-url=jdbc:postgresql://127.0.0.1:15432/reactor_sample" `
+  "-Dsample.db.username=reactor" `
+  "-Dsample.db.password=reactor" `
+  "-Dsample.db.schema-init=true" `
+  "-Dsample.db.warmup=true" `
+  -jar target/rest-sample-dubbo-provider-0.1.1.jar
+```
+
+Keep this terminal open.
+
+### 2. Start The Consumer
+
+Open another terminal and run this from the `rest-sample-dubbo-consumer` directory:
+
+```powershell
+$env:GITHUB_PACKAGES_TOKEN="YOUR_TOKEN_WITH_READ_PACKAGES"
+mvn -q clean package
+
+java "-Dserver.port=8080" `
+  "-Dsample.dubbo.discovery=static" `
+  "-Dreactor.dubbo.providers=127.0.0.1:20880" `
+  "-Dreactor.runtime.profile=micro-dubbo" `
+  "-Dreactor.dubbo.runtime-profile=micro-dubbo" `
+  "-Dreactor.dubbo.native-connections-per-endpoint=2" `
+  "-Dreactor.dubbo.native-async-workers=1" `
+  "-Dreactor.dubbo.max-inflight=8" `
+  -jar target/rest-sample-dubbo-consumer-0.1.1.jar
+```
+
+### 3. Call The Endpoints
+
+Open a third terminal:
+
+```powershell
+curl.exe http://127.0.0.1:8080/app/health
+curl.exe http://127.0.0.1:8080/api/v1/catalog/nested
+curl.exe http://127.0.0.1:8080/api/v1/catalog/info
+curl.exe http://127.0.0.1:8080/api/v1/catalog/items
+curl.exe http://127.0.0.1:8080/api/v1/customers/db
+curl.exe http://127.0.0.1:8080/api/v1/customers/db/1
+curl.exe "http://127.0.0.1:8080/api/v1/customers/db/by-segment?segment=pilot&limit=5"
+curl.exe http://127.0.0.1:8080/api/v1/customers/db/stats
+```
+
+Create a customer through the low-overhead JSON bytes path:
+
+```powershell
+curl.exe -X POST http://127.0.0.1:8080/api/v1/customers `
+  -H "Content-Type: application/json" `
+  --data "{\"requestId\":\"req-1001\",\"customerNo\":\"CUST-9001\",\"fullName\":\"Ayşe Yılmaz\",\"segment\":\"pilot\",\"email\":\"ayse.yilmaz@example.com\"}"
+```
+
+Create a customer through the typed DTO path:
+
+```powershell
+curl.exe -X POST http://127.0.0.1:8080/api/v1/customers/typed `
+  -H "Content-Type: application/json" `
+  --data "{\"requestId\":\"req-1002\",\"customerNo\":\"CUST-9002\",\"fullName\":\"Mehmet Çelik\",\"segment\":\"enterprise\",\"email\":\"mehmet.celik@example.com\"}"
+```
+
+Patch segment and status:
+
+```powershell
+curl.exe -X PATCH http://127.0.0.1:8080/api/v1/customers/1/segment `
+  -H "Content-Type: application/json" `
+  --data "{\"requestId\":\"req-1003\",\"segment\":\"enterprise\"}"
+
+curl.exe -X PATCH http://127.0.0.1:8080/api/v1/customers/1/status `
+  -H "Content-Type: application/json" `
+  --data "{\"requestId\":\"req-1004\",\"status\":\"active\"}"
+```
+
+Delete a customer:
+
+```powershell
+curl.exe -X DELETE http://127.0.0.1:8080/api/v1/customers/1 `
+  -H "Content-Type: application/json" `
+  --data "{\"requestId\":\"req-1006\",\"reason\":\"sample cleanup\"}"
+```
+
+Operational endpoints:
+
+```powershell
+curl.exe http://127.0.0.1:8080/app/ready
+curl.exe http://127.0.0.1:8080/app/native-metrics
+curl.exe http://127.0.0.1:8080/app/native-diagnostics
+curl.exe http://127.0.0.1:8080/app/command-key-admission
+```
+
 ## Start Here: Pick Your Consumer Shape
 
 Most users should not start by reading every property. Start from the shape of your service, copy the

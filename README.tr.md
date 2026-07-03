@@ -26,6 +26,128 @@ Bu örnek tam kapsamlı bir Dubbo governance platformu değildir. Tüm Dubbo öz
 yerine Rust-Java framework felsefesine uygun minimum-overhead consumer yolunu gösterir: business
 logic Java'da kalır, HTTP I/O ve seçilmiş low-level transport işleri Rust/native tarafta yürür.
 
+## Kopyala-Yapıştır: Provider Üzerinden REST API Çalıştır
+
+Bu bölüm en hızlı çalışan yerel akışı gösterir. Provider ve consumer aynı makinede çalışır.
+ZooKeeper kullanılmaz. Consumer provider'a `127.0.0.1:20880` adresinden gider.
+
+### 1. Provider'ı Açın
+
+POST, PATCH ve DELETE örneklerini de denemek istiyorsanız provider'ı PostgreSQL destekli full modda
+açın. Komutlar `rest-sample-dubbo-provider` README dosyasında hazırdır.
+
+Kısa özet:
+
+```powershell
+cd ..\rest-sample-dubbo-provider
+docker rm -f rs-provider-postgres-test 2>$null
+
+docker run -d --name rs-provider-postgres-test `
+  -e POSTGRES_DB=reactor_sample `
+  -e POSTGRES_USER=reactor `
+  -e POSTGRES_PASSWORD=reactor `
+  -p 15432:5432 postgres:15.7-alpine
+
+mvn -q clean package
+
+java "-Dreactor.dubbo.registry-enabled=false" `
+  "-Dsample.db.jdbc-url=jdbc:postgresql://127.0.0.1:15432/reactor_sample" `
+  "-Dsample.db.username=reactor" `
+  "-Dsample.db.password=reactor" `
+  "-Dsample.db.schema-init=true" `
+  "-Dsample.db.warmup=true" `
+  -jar target/rest-sample-dubbo-provider-0.1.1.jar
+```
+
+Bu terminal açık kalmalıdır.
+
+### 2. Consumer'ı Açın
+
+Ayrı bir terminal açın. Komutları `rest-sample-dubbo-consumer` dizininde çalıştırın:
+
+```powershell
+$env:GITHUB_PACKAGES_TOKEN="READ_PACKAGES_YETKILI_TOKEN"
+mvn -q clean package
+
+java "-Dserver.port=8080" `
+  "-Dsample.dubbo.discovery=static" `
+  "-Dreactor.dubbo.providers=127.0.0.1:20880" `
+  "-Dreactor.runtime.profile=micro-dubbo" `
+  "-Dreactor.dubbo.runtime-profile=micro-dubbo" `
+  "-Dreactor.dubbo.native-connections-per-endpoint=2" `
+  "-Dreactor.dubbo.native-async-workers=1" `
+  "-Dreactor.dubbo.max-inflight=8" `
+  -jar target/rest-sample-dubbo-consumer-0.1.1.jar
+```
+
+### 3. Endpoint'leri Deneyin
+
+Üçüncü bir terminal açın:
+
+```powershell
+curl.exe http://127.0.0.1:8080/app/health
+curl.exe http://127.0.0.1:8080/api/v1/catalog/nested
+curl.exe http://127.0.0.1:8080/api/v1/catalog/info
+curl.exe http://127.0.0.1:8080/api/v1/catalog/items
+curl.exe http://127.0.0.1:8080/api/v1/customers/db
+curl.exe http://127.0.0.1:8080/api/v1/customers/db/1
+curl.exe "http://127.0.0.1:8080/api/v1/customers/db/by-segment?segment=pilot&limit=5"
+curl.exe http://127.0.0.1:8080/api/v1/customers/db/stats
+```
+
+Yeni müşteri oluşturun. Bu endpoint JSON'u `byte[]` olarak provider'a taşır ve native response handle
+ile döner. Bu yol en düşük overhead'li command örneğidir.
+
+```powershell
+curl.exe -X POST http://127.0.0.1:8080/api/v1/customers `
+  -H "Content-Type: application/json" `
+  --data "{\"requestId\":\"req-1001\",\"customerNo\":\"CUST-9001\",\"fullName\":\"Ayşe Yılmaz\",\"segment\":\"pilot\",\"email\":\"ayse.yilmaz@example.com\"}"
+```
+
+Typed DTO örneğini deneyin. Bu yol daha okunaklı contract verir. Bedeli Hessian ve Java object
+allocation maliyetidir.
+
+```powershell
+curl.exe -X POST http://127.0.0.1:8080/api/v1/customers/typed `
+  -H "Content-Type: application/json" `
+  --data "{\"requestId\":\"req-1002\",\"customerNo\":\"CUST-9002\",\"fullName\":\"Mehmet Çelik\",\"segment\":\"enterprise\",\"email\":\"mehmet.celik@example.com\"}"
+```
+
+Segment ve status güncelleyin:
+
+```powershell
+curl.exe -X PATCH http://127.0.0.1:8080/api/v1/customers/1/segment `
+  -H "Content-Type: application/json" `
+  --data "{\"requestId\":\"req-1003\",\"segment\":\"enterprise\"}"
+
+curl.exe -X PATCH http://127.0.0.1:8080/api/v1/customers/1/status `
+  -H "Content-Type: application/json" `
+  --data "{\"requestId\":\"req-1004\",\"status\":\"active\"}"
+```
+
+Typed status güncelleme query parametreleriyle çalışır:
+
+```powershell
+curl.exe -X PATCH "http://127.0.0.1:8080/api/v1/customers/1/status/typed?status=passive&requestId=req-1005"
+```
+
+Müşteri silme örneği:
+
+```powershell
+curl.exe -X DELETE http://127.0.0.1:8080/api/v1/customers/1 `
+  -H "Content-Type: application/json" `
+  --data "{\"requestId\":\"req-1006\",\"reason\":\"sample cleanup\"}"
+```
+
+Operasyonel durum için şu endpoint'leri kullanın:
+
+```powershell
+curl.exe http://127.0.0.1:8080/app/ready
+curl.exe http://127.0.0.1:8080/app/native-metrics
+curl.exe http://127.0.0.1:8080/app/native-diagnostics
+curl.exe http://127.0.0.1:8080/app/command-key-admission
+```
+
 ## Buradan Başlayın: Consumer Şeklinizi Seçin
 
 Kullanıcı için en doğru başlangıç tüm property listesini ezberlemek değildir. Önce servisinizin
