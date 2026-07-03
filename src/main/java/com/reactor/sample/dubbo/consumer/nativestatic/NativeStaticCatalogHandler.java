@@ -21,8 +21,8 @@ public final class NativeStaticCatalogHandler {
     @GetMapping(value = "/nested", responseType = RawResponse.class)
     @RouteAdmission(maxConcurrent = 16, queueTimeoutMs = 100)
     public CompletableFuture<ResponseEntity<RawResponse>> nestedCatalog() {
-        return catalogClient.nestedCatalogJsonAsync()
-                .thenApply(json -> ResponseEntity.ok(RawResponse.json(json)))
+        return catalogClient.nestedCatalogNativeJsonAsync()
+                .thenApply(handle -> ResponseEntity.ok(RawResponse.nativeResponse(handle.nativeId())))
                 .exceptionally(error -> unavailable("dubbo_provider_unavailable", error));
     }
 

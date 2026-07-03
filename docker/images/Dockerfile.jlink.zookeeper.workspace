@@ -26,9 +26,10 @@ COPY rest-sample-dubbo-consumer/src rest-sample-dubbo-consumer/src
 
 RUN mvn -q -f rust-java-rest/pom.xml -DskipTests install
 RUN mvn -q -f java-rust-dubbo/pom.xml -DskipTests install
-RUN mvn -q -f rest-sample-dubbo-consumer/pom.xml -P${MAVEN_PROFILE} -DskipTests package dependency:copy-dependencies \
+RUN rm -rf rest-sample-dubbo-consumer/target/dependency-zookeeper \
+    && mvn -q -f rest-sample-dubbo-consumer/pom.xml -P${MAVEN_PROFILE} -DskipTests package dependency:copy-dependencies \
     -DincludeScope=runtime \
-    -DoutputDirectory=target/dependency
+    -DoutputDirectory=target/dependency-zookeeper
 
 RUN "$JAVA_HOME/bin/jlink" \
     --add-modules "${JAVA_MODULES}" \
@@ -67,8 +68,8 @@ RUN mkdir -p /app/.reactor/native \
     && chown -R app:app /app/.reactor
 
 COPY --from=build /opt/reactor-jre /opt/reactor-jre
-COPY --from=build /workspace/rest-sample-dubbo-consumer/target/rest-sample-dubbo-consumer-0.1.0.jar /app/app.jar
-COPY --from=build /workspace/rest-sample-dubbo-consumer/target/dependency /app/lib
+COPY --from=build /workspace/rest-sample-dubbo-consumer/target/rest-sample-dubbo-consumer-0.1.1.jar /app/app.jar
+COPY --from=build /workspace/rest-sample-dubbo-consumer/target/dependency-zookeeper /app/lib
 
 USER app
 

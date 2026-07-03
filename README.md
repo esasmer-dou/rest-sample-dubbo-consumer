@@ -152,6 +152,83 @@ providers register dynamically, when interface/group/version metadata must come 
 or when your organization depends on Dubbo governance/routing. Do not add ZooKeeper only because the
 application runs in Kubernetes.
 
+## DB Read, Distributed Write, And Hot-Row Write Tuning
+
+Do not tune all Dubbo routes as one bucket. The latest sample separates three different production
+pressure types because they fail for different reasons:
+
+| Workload class | Example endpoint | Primary limiter | What a `503` usually means | First tuning move |
+|----------------|------------------|-----------------|----------------------------|-------------------|
+| DB read | `GET /api/v1/customers/db` | Consumer route admission + provider query bulkhead + Hikari pool | The read path is slower than the accepted queue budget. | Tune `reactor.rust.route-admission.get.api.v1.customers.db.*` together with provider `CustomerQueryService` and `sample.db.maximum-pool-size`. |
+| Distributed write | `PATCH /api/v1/customers/{id}/segment` with many different ids | Route admission + provider command bulkhead + DB pool | The command path is saturated, but not blocked on one row. | Use the balanced recipe only after checking useful 2xx RPS, p99, RSS, and provider DB wait. |
+| Hot-row write | Many `PATCH /api/v1/customers/1/segment` calls against the same id | Per-key command admission | The same business key is overloaded; this is intentional fail-fast, not a native Dubbo bug. | Keep per-key admission on. Use idempotency, optimistic locking, outbox/queueing, or serialized command flow if the business requires every update to be accepted. |
+
+The consumer exposes the current command-key admission state:
+
+```text
+GET /app/command-key-admission
+```
+
+Example response:
+
+```json
+{"enabled":true,"stripes":1024,"accepted":405,"rejected":19257}
+```
+
+Use this endpoint to distinguish two very different cases:
+
+| Symptom | Meaning | Action |
+|---------|---------|--------|
+| `route_admission_rejected` grows, `command_key_admission_rejected=0` | The route is overloaded before the business key gate. | Tune route max-concurrent/queue timeout or provider capacity. |
+| `command_key_admission_rejected` grows on one id | The same customer/order/account key is being updated concurrently. | Do not just raise global workers; fix the business write model or per-key policy. |
+| Native Dubbo errors stay `0`, but non-2xx grows | The transport is healthy; the system is applying overload control. | Read route/provider/DB/key metrics before changing native transport settings. |
+
+Useful diagnostic endpoints:
+
+| Endpoint | Use it for |
+|----------|------------|
+| `GET /app/native-metrics` | Prometheus-style native route/JNI/body/cache counters. |
+| `GET /app/native-diagnostics` | Native memory and allocator diagnostics for RSS investigations. |
+| `GET /app/command-key-admission` | Current per-key command admission counters. |
+| `GET /app/metrics/reset` | Reset benchmark counters before a measured run. Do not expose this publicly. |
+
+The default key policy is conservative:
+
+```properties
+sample.command.customer-key-admission.enabled=true
+sample.command.customer-key-admission.max-concurrent-per-key=1
+sample.command.customer-key-admission.stripes=1024
+```
+
+`max-concurrent-per-key=1` is the safest default for DB row updates. Raising it can make a benchmark
+look better while turning PostgreSQL row locks into p99 spikes. Only raise it when the provider uses
+optimistic locking/idempotency and the DB proves it can handle parallel updates for the same key.
+
+### Reading The Benchmark Gate
+
+The benchmark report intentionally includes more than raw RPS:
+
+| Column | Why it matters |
+|--------|----------------|
+| `workload_class` | Groups endpoints as native read, DB read, create command, distributed command, or hot-row command. Tune these separately. |
+| `successful_2xx_rps` | Useful throughput. Raw RPS includes controlled `503` responses, so it can be misleading. |
+| `non2xx_rate_percent` | Overload/error percentage. A low-RSS profile may intentionally return `503` under spikes. |
+| `route_admission_rejected` / `route_admission_timeout` | Consumer route budget rejected or timed out before calling deeper layers. |
+| `command_key_admission_rejected` | Per-business-key guard rejected hot-row writes. |
+| `native_dubbo_errors` / `native_dubbo_handle_errors` | Native Dubbo transport/handle health. These should stay `0` in a clean gate. |
+
+Benchmark labels such as `balanced-wide-4x4`, `balanced-mid-4x4`, and `balanced-stable-4x4` are
+measurement recipes, not public runtime profile names. Production runtime profiles remain
+`micro-dubbo` and `balanced-dubbo`; use the recipe values only after your own endpoint matrix proves
+they help.
+
+| Choice | When to use it | What to watch |
+|--------|----------------|---------------|
+| `micro-dubbo` | Memory-first services where controlled `503` during spikes is acceptable. | RSS and p99 should stay low; successful 2xx RPS is intentionally capped. |
+| `balanced-dubbo` | Services that need fewer overload rejects and can spend more RSS/thread/connection budget. | Provider CPU, DB pool wait, p99, and non-2xx rate must be checked together. |
+| Wider route budgets | Distributed writes where provider and DB have real headroom. | Useful 2xx RPS should rise without turning p99 into seconds. |
+| Shorter route queues | Latency-first endpoints where stale queued work is worse than fail-fast. | Non-2xx rate will rise; this is acceptable only if callers handle retry/backoff. |
+
 ## Production Recipes
 
 ### Recipe 1: Kubernetes Consumer With ZooKeeper Discovery
@@ -201,7 +278,7 @@ Use this when the provider address is known and your REST API only exposes read 
 mvn -q -Pnative-static-consumer package
 java -Xms8m -Xmx48m -Xss256k -XX:ActiveProcessorCount=1 `
   -Dreactor.dubbo.providers=provider:20880 `
-  -jar target/rest-sample-dubbo-consumer-0.1.0.jar
+  -jar target/rest-sample-dubbo-consumer-0.1.1.jar
 ```
 
 Effect:
@@ -390,11 +467,12 @@ separate diagnostics endpoint.
 
 ```powershell
 curl http://localhost:8080/app/health
+curl http://localhost:8080/app/ready
 curl http://localhost:8080/api/v1/catalog/dubbo-metrics
 ```
 
-Effect: liveness does not become dependent on ZooKeeper, provider CPU, or DB latency. Readiness can
-still verify Dubbo/provider state when your deployment policy needs it.
+Effect: liveness does not become dependent on ZooKeeper, provider CPU, or DB latency. Readiness uses
+`/app/ready` and verifies the real Dubbo/provider path before Kubernetes sends traffic to the pod.
 
 ## Production Scenario Guide
 
@@ -807,18 +885,19 @@ Different problems in this scenario and the exact property actions:
 | Large history hurts lookup | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=12</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6</code><br>small lookup route budget stays higher</small> | Small lookup p99 protected | Large JSON RPS drops |
 | Admission removed | No route budgets | Restore budgets<br>raise only hot reads | Slow route cannot lock service | Safer but more config |
 
-## What `rust-java-rest` 3.2.2 Changes Here
+## What `rust-java-rest` 3.2.5 Changes Here
 
-This sample now targets `rust-java-rest` `3.2.2`. The application code model does not change:
+This sample now targets `rust-java-rest` `3.2.5` with `java-rust-dubbo` `0.2.0`. The application code model does not change:
 handlers, service adapters, configuration classes, and business decisions still live in Java. The
 change is mostly about the runtime path underneath those handlers.
 
-| v3.2.2 change | What it means in this sample |
+| Current change | What it means in this sample |
 |------------|------------------------------|
 | Lower-retention response pools | The consumer keeps fewer native response buffers when traffic is low. |
 | Bounded in-flight response bytes | Large or slow responses cannot grow memory usage without a hard cap. |
 | UTF-8 response/path/query fixes | Turkish characters are safe when request values and response bytes are UTF-8. |
-| Raw/precomputed response path maturity | Provider JSON `byte[]` can be returned as `RawResponse.json(bytes)` without DTO parse/serialize work. |
+| Native response handle path | Provider JSON can be returned as `RawResponse.nativeResponse(handle.nativeId())` when Java does not need to inspect the body. |
+| Raw/precomputed response path maturity | Provider JSON `byte[]` can still be returned as `RawResponse.json(bytes)` when Java must inspect, transform, or log it. |
 | Startup component/route indexes | The sample can start without classpath scanning fallback; if an index is stale, startup fails early. |
 | Route-level admission | Dubbo-backed routes have bounded in-flight limits before they can fill the global JNI queue. |
 | Route diagnostics separation | Benchmark-only comparison routes stay out of production heavy-object-graph counts. |
@@ -831,10 +910,12 @@ change is mostly about the runtime path underneath those handlers.
 For this sample, the best path is still simple:
 
 ```text
-Provider returns UTF-8 JSON byte[]
-Consumer returns RawResponse.json(bytes)
+Provider returns UTF-8 JSON through the native handle path
+Consumer returns RawResponse.nativeResponse(handle.nativeId())
 Rust-Java runtime writes the HTTP response
 ```
+
+If the handler must inspect or transform the provider payload, use `RawResponse.json(bytes)` instead.
 
 Use native cache only when the response is intentionally cacheable and you have a clear key, TTL, and
 invalidation rule. This sample does not enable response caching by default because provider responses
@@ -851,7 +932,7 @@ This sample depends on the normal `rust-java-rest` Maven artifact:
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.2.2</version>
+  <version>3.2.5</version>
 </dependency>
 ```
 
@@ -985,8 +1066,8 @@ The sample uses `@RouteAdmission` on Dubbo-backed routes:
 @GetMapping(value = "/nested", responseType = RawResponse.class)
 @RouteAdmission(maxConcurrent = 16, queueTimeoutMs = 100)
 public CompletableFuture<ResponseEntity<RawResponse>> nestedCatalog() {
-    return catalogClient.nestedCatalogJsonAsync()
-            .thenApply(json -> ResponseEntity.ok(RawResponse.json(json)));
+    return catalogClient.nestedCatalogNativeJsonAsync()
+            .thenApply(handle -> ResponseEntity.ok(RawResponse.nativeResponse(handle.nativeId())));
 }
 ```
 
@@ -1022,13 +1103,16 @@ HTTP client
   -> small interface-specific client adapter
   -> java-rust-dubbo native consumer
   -> selected Dubbo interface
-  -> JSON byte[]
-  -> RawResponse.json(...)
+  -> JSON bytes kept in Rust native memory
+  -> RawResponse.nativeResponse(nativeResponseId)
   -> Rust HTTP response
 ```
 
 The important part is that the consumer does not parse the provider JSON into a DTO and serialize it
-again. If the provider already returns JSON bytes, the consumer forwards those bytes as the HTTP body.
+again. If the provider already returns JSON bytes and the consumer does not need to inspect them, use
+`invokeNativeJsonResponseAsync()` plus `RawResponse.nativeResponse(id)` so the response body does not have
+to materialize as a Java heap `byte[]`. Use `RawResponse.json(bytes)` only when Java must inspect,
+transform, validate, or log the provider response.
 
 This sample now consumes three Dubbo interfaces:
 
@@ -1117,8 +1201,8 @@ If the provider already returns JSON bytes, do not deserialize and serialize aga
 ```java
 @GetMapping(value = "/catalog/raw", responseType = RawResponse.class)
 public CompletableFuture<ResponseEntity<RawResponse>> catalogRaw() {
-    return catalogClient.nestedCatalogJsonAsync()
-            .thenApply(json -> ResponseEntity.ok(RawResponse.json(json)));
+    return catalogClient.nestedCatalogNativeJsonAsync()
+            .thenApply(handle -> ResponseEntity.ok(RawResponse.nativeResponse(handle.nativeId())));
 }
 ```
 
@@ -1137,7 +1221,8 @@ public interface CatalogService {
 ```
 
 This is easier to read for normal business APIs, but it creates object graph and serialization cost on
-the consumer side. For low-RSS, read-heavy JSON forwarding, `byte[] + RawResponse` is the better path.
+the consumer side. For low-RSS, read-heavy JSON forwarding, no-arg `byte[]` provider methods plus
+`RawResponse.nativeResponse(handle.nativeId())` are the lowest-heap path.
 
 ### Data Flow Decision: bytes or records?
 
@@ -1153,8 +1238,9 @@ where object graphs are created, and how much p99/RSS cost the route carries.
 | `record -> List<record>` | List + item record graph | Highest | Consumer processes typed result | Small bounded pages |
 
 BEST choice: if the consumer only carries the provider result to the HTTP client, do not convert the
-response into a record. Return `RawResponse.json(providerBytes)` and avoid response parse, object
-allocation, and JSON serialization.
+response into a record. Return `RawResponse.nativeResponse(handle.nativeId())` when the provider
+response came through the native handle path, or `RawResponse.json(providerBytes)` when Java already
+has the bytes because it inspected them.
 
 ```java
 @PostMapping(value = "/customers", responseType = RawResponse.class)
@@ -1232,7 +1318,9 @@ Current adapter behavior:
 
 | Dubbo method shape | Runtime path | Main overhead |
 |--------------------|--------------|---------------|
-| `byte[] method()` | Native fast path for no-arg byte-array calls. | Lowest allocation; Java receives ready bytes. |
+| `byte[] method()` | Native fast path for no-arg byte-array calls. | Lowest heap with `invokeNativeJsonResponseAsync()` and `RawResponse.nativeResponse(handle.nativeId())`; Java `byte[]` only if you call `invokeAsync()`. |
+| `byte[] method(byte[] json)` | Native command/read-with-body path. | Rust encodes the byte[] argument and keeps response JSON in native memory. Use for command JSON payloads that the consumer does not need to re-read after validation. |
+| `byte[] method(long id, byte[] json)` | Native command/read-with-id path. | Same response benefit as above, with a primitive id encoded by the Rust Hessian subset. |
 | `record method()` | Java Hessian2 decode after Rust transport. | Record object graph allocation plus optional HTTP JSON serialization. |
 | `record method(args...)` | Java Hessian2 encode and decode. | Request object allocation, response graph allocation, codec CPU. |
 | `String method()` | Works as an object return path. | String allocation and possible charset/JSON escaping if wrapped later. |
@@ -1289,13 +1377,13 @@ into the consumer JVM and serializing it again is an anti-pattern for this frame
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.2.2</version>
+    <version>3.2.5</version>
 </dependency>
 
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>java-rust-dubbo</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
 </dependency>
 
 <dependency>
@@ -1613,6 +1701,14 @@ Route admission:
 | `reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent` | `8` | Delete command cap. Keep conservative; delete is usually a write/side-effect route. |
 | `reactor.rust.route-admission.delete.api.v1.customers.id.queue-timeout-ms` | `150` | Delete command wait budget. Lower for stricter fail-fast behavior. |
 
+Command key admission:
+
+| Property | Default | What it means / when to change |
+|----------|---------|--------------------------------|
+| `sample.command.customer-key-admission.enabled` | `true` | Enables per-customer-key command protection for PATCH/DELETE style write routes. Keep enabled for DB row updates. |
+| `sample.command.customer-key-admission.max-concurrent-per-key` | `1` | Maximum concurrent commands for one customer id. `1` protects PostgreSQL row locks and keeps hot-row writes fail-fast. |
+| `sample.command.customer-key-admission.stripes` | `1024` | Fixed stripe count for the per-key semaphores. Increase for very high unique-key concurrency; it is still bounded and does not create one object per customer. |
+
 Dubbo consumer:
 
 | Property | Default | What it means / when to change |
@@ -1644,6 +1740,7 @@ Dubbo consumer:
 | `reactor.dubbo.native-connections-per-endpoint` | `1` | Native TCP connections per provider. First knob to raise for read-heavy p99 improvement. |
 | `reactor.dubbo.native-async-workers` | `1` | Native Dubbo async workers. Raise for high concurrency; each worker adds thread/native cost. |
 | `reactor.dubbo.native-async-queue-capacity` | `32` | Native Dubbo async queue. Raising absorbs bursts but can hide overload and increase tail latency. |
+| `reactor.dubbo.native-async-transport` | `blocking` | Native async transport. `blocking` is the memory-first default; `tokio-demux` is the high-concurrency Rust async demux path. |
 
 <details>
 <summary>Complete sample property to environment variable map</summary>
@@ -1653,6 +1750,7 @@ Dubbo consumer:
 | `server.port` | `SERVER_PORT` |
 | `server.host` | `SERVER_HOST` |
 | `reactor.runtime.profile` | `REACTOR_RUNTIME_PROFILE` |
+| `reactor.dubbo.native-async-transport` | `REACTOR_DUBBO_NATIVE_ASYNC_TRANSPORT` |
 | `reactor.startup.component-index.enabled` | `REACTOR_STARTUP_COMPONENT_INDEX_ENABLED` |
 | `reactor.startup.component-index.required` | `REACTOR_STARTUP_COMPONENT_INDEX_REQUIRED` |
 | `reactor.startup.route-index.validate` | `REACTOR_STARTUP_ROUTE_INDEX_VALIDATE` |
@@ -1715,6 +1813,9 @@ Dubbo consumer:
 | `reactor.rust.route-admission.patch.api.v1.customers.id.status.typed.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_PATCH_API_V1_CUSTOMERS_ID_STATUS_TYPED_MAX_CONCURRENT` |
 | `reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_DELETE_API_V1_CUSTOMERS_ID_MAX_CONCURRENT` |
 | `reactor.rust.route-admission.delete.api.v1.customers.id.queue-timeout-ms` | `REACTOR_RUST_ROUTE_ADMISSION_DELETE_API_V1_CUSTOMERS_ID_QUEUE_TIMEOUT_MS` |
+| `sample.command.customer-key-admission.enabled` | `SAMPLE_COMMAND_CUSTOMER_KEY_ADMISSION_ENABLED` |
+| `sample.command.customer-key-admission.max-concurrent-per-key` | `SAMPLE_COMMAND_CUSTOMER_KEY_ADMISSION_MAX_CONCURRENT_PER_KEY` |
+| `sample.command.customer-key-admission.stripes` | `SAMPLE_COMMAND_CUSTOMER_KEY_ADMISSION_STRIPES` |
 | `sample.dubbo.discovery` | `SAMPLE_DUBBO_DISCOVERY` |
 | `reactor.dubbo.enabled` | `REACTOR_DUBBO_ENABLED` |
 | `reactor.dubbo.application-name` | `REACTOR_DUBBO_APPLICATION_NAME` |
@@ -2101,7 +2202,7 @@ spec:
     spec:
       containers:
         - name: app
-          image: registry.example.com/rest-sample-dubbo-consumer:0.1.0-zk
+          image: registry.example.com/rest-sample-dubbo-consumer:0.1.1-zk
           ports:
             - containerPort: 8080
           env:
@@ -2119,7 +2220,7 @@ spec:
               value: "2"
           readinessProbe:
             httpGet:
-              path: /app/health
+              path: /app/ready
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 5
@@ -2158,7 +2259,7 @@ Production notes for Kubernetes:
 - Start with `160Mi-256Mi` memory limit when ZooKeeper discovery is enabled; then lower only after an idle RSS and p99 test in your own image.
 - Keep `reactor.dubbo.max-inflight` bounded. Raising it blindly can protect RPS but damage p99 and provider stability.
 - Keep `reactor.dubbo.retries=0` for low-latency APIs unless the operation is idempotent and retry-safe.
-- `/app/health` is a process health endpoint. If you want readiness to depend on provider availability, add a separate readiness route; do not make liveness depend on Dubbo provider state.
+- `/app/health` is a cheap process health endpoint for liveness. `/app/ready` performs a real Dubbo dependency check and should be used for readiness when traffic must wait for provider availability.
 - In static Service DNS mode, provider rolling restart recovery depends on Kubernetes readiness and EndpointSlice behavior. With a correct readiness probe, the Service removes unhealthy provider pods from its endpoint list.
 - During provider rolling restarts, ZooKeeper should publish the new provider URL and the consumer should reconnect through discovery. If this does not happen, inspect provider registration under `/dubbo/{interface}/providers`.
 
@@ -2466,7 +2567,8 @@ make it clear which request body and response type should be used for each HTTP 
 Notes:
 
 - For real HTTP raw byte responses, prefer `RawResponse.bytes(...)` over `ResponseEntity<byte[]>`.
-- For ready JSON byte responses, use `RawResponse.json(bytes)`.
+- For ready provider JSON that Java does not need to inspect, use `RawResponse.nativeResponse(handle.nativeId())`.
+- For ready JSON bytes that Java must inspect or transform, use `RawResponse.json(bytes)`.
 - For normal HTTP JSON DTOs, use Java `record`; do not make POJO classes the default DTO shape.
 - Since `List<CustomerDto>.class` does not exist in Java, list response examples use `responseType = List.class`; the method return type should still be `ResponseEntity<List<CustomerView>>`.
 - If success and error bodies use different record types, the examples use `ResponseEntity<?>` and `responseType = Object.class`. For stricter production contracts, use a shared `ApiResult` envelope record.

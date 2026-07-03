@@ -2,6 +2,7 @@ package com.reactor.sample.dubbo.consumer.dubbo;
 
 import com.reactor.rust.dubbo.NativeDubboConsumerClient;
 import com.reactor.rust.dubbo.NativeDubboMethodInvoker;
+import com.reactor.rust.dubbo.NativeResponseHandle;
 import com.reactor.rust.dubbo.sample.dto.CatalogInfo;
 import com.reactor.rust.dubbo.sample.dto.CatalogItem;
 
@@ -41,6 +42,12 @@ public final class NestedCatalogClient {
 
     public CompletableFuture<byte[]> nestedCatalogJsonAsync() {
         return DubboReadRetry.onceOnConnectionAbort(retryReadOnConnectionAbort, nestedCatalogJson::invokeAsync);
+    }
+
+    public CompletableFuture<NativeResponseHandle> nestedCatalogNativeJsonAsync() {
+        return DubboReadRetry.onceOnConnectionAbort(
+                retryReadOnConnectionAbort,
+                nestedCatalogJson::invokeNativeJsonResponseAsync);
     }
 
     public CompletableFuture<String> catalogTitleAsync() {

@@ -16,6 +16,7 @@ import com.reactor.rust.http.HttpStatus;
 import com.reactor.rust.http.RawResponse;
 import com.reactor.rust.http.ResponseEntity;
 import com.reactor.rust.dubbo.sample.dto.CreateCustomerCommand;
+import com.reactor.sample.dubbo.consumer.admission.CustomerCommandKeyAdmission;
 import com.reactor.sample.dubbo.consumer.dubbo.CustomerCommandClient;
 import com.reactor.sample.dubbo.consumer.dubbo.CustomerQueryClient;
 
@@ -31,11 +32,14 @@ public final class CustomerHandler {
     @Autowired
     private CustomerCommandClient customerCommandClient;
 
+    @Autowired
+    private CustomerCommandKeyAdmission customerCommandKeyAdmission;
+
     @GetMapping(value = "/db", responseType = RawResponse.class)
     @RouteAdmission(maxConcurrent = 8, queueTimeoutMs = 150)
     public CompletableFuture<ResponseEntity<RawResponse>> databaseCustomers() {
-        return customerQueryClient.databaseCustomersJsonAsync()
-                .thenApply(json -> ResponseEntity.ok(RawResponse.json(json)))
+        return customerQueryClient.databaseCustomersNativeJsonAsync()
+                .thenApply(handle -> ResponseEntity.ok(RawResponse.nativeResponse(handle.nativeId())))
                 .exceptionally(error -> unavailable("dubbo_customer_provider_unavailable", error));
     }
 
@@ -91,8 +95,8 @@ public final class CustomerHandler {
     @MaxRequestBodySize(32768)
     @RouteAdmission(maxConcurrent = 8, queueTimeoutMs = 150)
     public CompletableFuture<ResponseEntity<RawResponse>> createCustomer(@RequestBody byte[] body) {
-        return customerCommandClient.createCustomerAsync(body)
-                .thenApply(json -> ResponseEntity.created(RawResponse.json(json)))
+        return customerCommandClient.createCustomerNativeJsonAsync(body)
+                .thenApply(handle -> ResponseEntity.created(RawResponse.nativeResponse(handle.nativeId())))
                 .exceptionally(error -> unavailable("dubbo_customer_create_unavailable", error));
     }
 
@@ -114,8 +118,10 @@ public final class CustomerHandler {
     public CompletableFuture<ResponseEntity<RawResponse>> patchCustomerSegment(
             @PathVariable("id") long customerId,
             @RequestBody byte[] body) {
-        return customerCommandClient.patchCustomerSegmentAsync(customerId, body)
-                .thenApply(json -> ResponseEntity.ok(RawResponse.json(json)))
+        return customerCommandKeyAdmission.execute(
+                        customerId,
+                        () -> customerCommandClient.patchCustomerSegmentNativeJsonAsync(customerId, body))
+                .thenApply(handle -> ResponseEntity.ok(RawResponse.nativeResponse(handle.nativeId())))
                 .exceptionally(error -> unavailable("dubbo_customer_segment_unavailable", error));
     }
 
@@ -125,8 +131,10 @@ public final class CustomerHandler {
     public CompletableFuture<ResponseEntity<RawResponse>> patchCustomerStatus(
             @PathVariable("id") long customerId,
             @RequestBody byte[] body) {
-        return customerCommandClient.patchCustomerStatusAsync(customerId, body)
-                .thenApply(json -> ResponseEntity.ok(RawResponse.json(json)))
+        return customerCommandKeyAdmission.execute(
+                        customerId,
+                        () -> customerCommandClient.patchCustomerStatusNativeJsonAsync(customerId, body))
+                .thenApply(handle -> ResponseEntity.ok(RawResponse.nativeResponse(handle.nativeId())))
                 .exceptionally(error -> unavailable("dubbo_customer_status_unavailable", error));
     }
 
@@ -136,7 +144,9 @@ public final class CustomerHandler {
             @PathVariable("id") long customerId,
             @RequestParam("status") String status,
             @RequestParam(value = "requestId", required = false, defaultValue = "") String requestId) {
-        return customerCommandClient.patchCustomerStatusTypedAsync(customerId, status, requestId)
+        return customerCommandKeyAdmission.execute(
+                        customerId,
+                        () -> customerCommandClient.patchCustomerStatusTypedAsync(customerId, status, requestId))
                 .thenApply(result -> result.success()
                         ? ResponseEntity.ok(JsonResponseSupport.mutation(result))
                         : ResponseEntity.status(HttpStatus.NOT_FOUND).body(JsonResponseSupport.mutation(result)))
@@ -150,8 +160,10 @@ public final class CustomerHandler {
             @PathVariable("id") long customerId,
             @RequestBody(required = false) byte[] body) {
         byte[] command = body == null ? new byte[0] : body;
-        return customerCommandClient.deleteCustomerAsync(customerId, command)
-                .thenApply(json -> ResponseEntity.ok(RawResponse.json(json)))
+        return customerCommandKeyAdmission.execute(
+                        customerId,
+                        () -> customerCommandClient.deleteCustomerNativeJsonAsync(customerId, command))
+                .thenApply(handle -> ResponseEntity.ok(RawResponse.nativeResponse(handle.nativeId())))
                 .exceptionally(error -> unavailable("dubbo_customer_delete_unavailable", error));
     }
 

@@ -1,4 +1,9 @@
 GET /app/health com.reactor.sample.dubbo.consumer.handler.HealthHandler#health
+GET /app/ready com.reactor.sample.dubbo.consumer.handler.HealthHandler#ready
+GET /app/native-metrics com.reactor.sample.dubbo.consumer.handler.HealthHandler#nativeMetrics
+GET /app/native-diagnostics com.reactor.sample.dubbo.consumer.handler.HealthHandler#nativeDiagnostics
+GET /app/command-key-admission com.reactor.sample.dubbo.consumer.handler.HealthHandler#commandKeyAdmission
+GET /app/metrics/reset com.reactor.sample.dubbo.consumer.handler.HealthHandler#resetMetrics
 GET /api/v1/catalog/nested com.reactor.sample.dubbo.consumer.handler.CatalogHandler#nestedCatalog
 GET /api/v1/catalog/title com.reactor.sample.dubbo.consumer.handler.CatalogHandler#catalogTitle
 GET /api/v1/catalog/count com.reactor.sample.dubbo.consumer.handler.CatalogHandler#catalogItemCount

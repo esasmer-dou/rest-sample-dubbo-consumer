@@ -6,6 +6,7 @@ import com.reactor.rust.bridge.RouteScanner;
 import com.reactor.rust.config.PropertiesLoader;
 import com.reactor.rust.config.RuntimeProfiles;
 import com.reactor.sample.dubbo.consumer.config.ConsumerProperties;
+import com.reactor.sample.dubbo.consumer.config.SampleDubboProfileTuning;
 
 public final class NativeStaticConsumerApplication {
 
@@ -14,11 +15,13 @@ public final class NativeStaticConsumerApplication {
     public static void main(String[] args) {
         PropertiesLoader.load();
         RuntimeProfiles.apply();
+        SampleDubboProfileTuning.apply();
+        disableRouteIndexValidationIfNotExplicit();
 
         NativeStaticDubboClient dubboClient = NativeStaticDubboClient.create();
 
         HandlerRegistry registry = HandlerRegistry.getInstance();
-        registry.registerBean(new NativeStaticHealthHandler());
+        registry.registerBean(new NativeStaticHealthHandler(dubboClient));
         registry.registerBean(new NativeStaticCatalogHandler(dubboClient));
 
         RouteScanner.scanAndRegister();
@@ -45,6 +48,15 @@ public final class NativeStaticConsumerApplication {
             // Native library may be unavailable during failed startup.
         } finally {
             dubboClient.close();
+        }
+    }
+
+    private static void disableRouteIndexValidationIfNotExplicit() {
+        if (!PropertiesLoader.hasExternalOverride("reactor.startup.route-index.validate")) {
+            System.setProperty("reactor.startup.route-index.validate", "false");
+        }
+        if (!PropertiesLoader.hasExternalOverride("reactor.startup.route-index.required")) {
+            System.setProperty("reactor.startup.route-index.required", "false");
         }
     }
 }

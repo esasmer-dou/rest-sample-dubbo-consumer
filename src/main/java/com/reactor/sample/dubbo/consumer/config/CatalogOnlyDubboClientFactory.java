@@ -1,36 +1,24 @@
 package com.reactor.sample.dubbo.consumer.config;
 
-import com.reactor.rust.di.annotation.Bean;
-import com.reactor.rust.di.annotation.Configuration;
-import com.reactor.rust.di.annotation.PreDestroy;
 import com.reactor.rust.dubbo.DubboConsumerConfig;
 import com.reactor.rust.dubbo.DubboReferenceSpec;
 import com.reactor.rust.dubbo.NativeDubboConsumerClient;
 import com.reactor.rust.dubbo.NativeDubboConsumers;
 import com.reactor.rust.dubbo.NativeDubboMethodInvoker;
-import com.reactor.rust.dubbo.sample.CustomerCommandService;
-import com.reactor.rust.dubbo.sample.CustomerQueryService;
 import com.reactor.rust.dubbo.sample.NestedCatalogService;
 import com.reactor.rust.dubbo.sample.dto.CatalogInfo;
-import com.reactor.rust.dubbo.sample.dto.CreateCustomerCommand;
-import com.reactor.rust.dubbo.sample.dto.CustomerMutationResult;
-import com.reactor.rust.dubbo.sample.dto.CustomerStats;
-import com.reactor.rust.dubbo.sample.dto.CustomerSummary;
-import com.reactor.sample.dubbo.consumer.dubbo.CustomerCommandClient;
-import com.reactor.sample.dubbo.consumer.dubbo.CustomerQueryClient;
 import com.reactor.sample.dubbo.consumer.dubbo.NestedCatalogClient;
 
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-@Configuration
-public final class DubboConsumerConfiguration {
+public final class CatalogOnlyDubboClientFactory {
 
-    private final NativeDubboConsumerClient client = NativeDubboConsumers.create(dubboConfig());
+    private CatalogOnlyDubboClientFactory() {}
 
-    @Bean
-    public NestedCatalogClient nestedCatalogClient() {
+    public static CatalogOnlyClient create() {
+        NativeDubboConsumerClient client = NativeDubboConsumers.create(dubboConfig());
         DubboReferenceSpec<NestedCatalogService> spec = DubboReferenceSpec
                 .builder(NestedCatalogService.class)
                 .timeoutMs(ConsumerProperties.getInt("reactor.dubbo.timeout-ms"))
@@ -39,11 +27,11 @@ public final class DubboConsumerConfiguration {
                 .lazy(ConsumerProperties.getBoolean("reactor.dubbo.lazy"))
                 .build();
 
-        NativeDubboMethodInvoker<byte[]> invoker =
+        NativeDubboMethodInvoker<byte[]> nestedCatalogJson =
                 client.method(spec, "getNestedCatalogJson", byte[].class);
 
-        return new NestedCatalogClient(
-                invoker,
+        NestedCatalogClient catalogClient = new NestedCatalogClient(
+                nestedCatalogJson,
                 client.method(spec, "getCatalogTitle", String.class),
                 client.method(spec, "countCatalogItems", Integer.class),
                 client.method(spec, "getCatalogInfo", CatalogInfo.class),
@@ -52,55 +40,7 @@ public final class DubboConsumerConfiguration {
                 client,
                 ConsumerProperties.getBoolean("sample.dubbo.read-retry-on-io-error")
         );
-    }
-
-    @Bean
-    public CustomerQueryClient customerQueryClient() {
-        DubboReferenceSpec<CustomerQueryService> spec = DubboReferenceSpec
-                .builder(CustomerQueryService.class)
-                .timeoutMs(ConsumerProperties.getInt("reactor.dubbo.timeout-ms"))
-                .retries(ConsumerProperties.getInt("reactor.dubbo.retries"))
-                .check(ConsumerProperties.getBoolean("reactor.dubbo.check"))
-                .lazy(ConsumerProperties.getBoolean("reactor.dubbo.lazy"))
-                .build();
-
-        NativeDubboMethodInvoker<byte[]> databaseInvoker =
-                client.method(spec, "getDatabaseCustomersJson", byte[].class);
-
-        return new CustomerQueryClient(
-                databaseInvoker,
-                client.method(spec, "getCustomer", CustomerSummary.class, long.class),
-                client.method(spec, "findCustomersBySegment", List.class, String.class, int.class),
-                client.method(spec, "getCustomerStats", CustomerStats.class),
-                client.method(spec, "customerExists", Boolean.class, long.class),
-                client.method(spec, "getCustomerDisplayName", String.class, long.class),
-                ConsumerProperties.getBoolean("sample.dubbo.read-retry-on-io-error")
-        );
-    }
-
-    @Bean
-    public CustomerCommandClient customerCommandClient() {
-        DubboReferenceSpec<CustomerCommandService> spec = DubboReferenceSpec
-                .builder(CustomerCommandService.class)
-                .timeoutMs(ConsumerProperties.getInt("reactor.dubbo.timeout-ms"))
-                .retries(ConsumerProperties.getInt("reactor.dubbo.retries"))
-                .check(ConsumerProperties.getBoolean("reactor.dubbo.check"))
-                .lazy(ConsumerProperties.getBoolean("reactor.dubbo.lazy"))
-                .build();
-
-        return new CustomerCommandClient(
-                client.method(spec, "createCustomer", byte[].class, byte[].class),
-                client.method(spec, "patchCustomerSegment", byte[].class, long.class, byte[].class),
-                client.method(spec, "patchCustomerStatus", byte[].class, long.class, byte[].class),
-                client.method(spec, "deleteCustomer", byte[].class, long.class, byte[].class),
-                client.method(spec, "createCustomerTyped", CustomerMutationResult.class, CreateCustomerCommand.class),
-                client.method(spec, "patchCustomerStatusTyped", CustomerMutationResult.class, long.class, String.class, String.class)
-        );
-    }
-
-    @PreDestroy
-    public void shutdown() {
-        client.close();
+        return new CatalogOnlyClient(client, catalogClient);
     }
 
     private static DubboConsumerConfig dubboConfig() {
@@ -140,5 +80,16 @@ public final class DubboConsumerConfiguration {
                 .cluster(ConsumerProperties.get("reactor.dubbo.cluster"))
                 .loadbalance(ConsumerProperties.get("reactor.dubbo.loadbalance"))
                 .build();
+    }
+
+    public record CatalogOnlyClient(
+            NativeDubboConsumerClient nativeClient,
+            NestedCatalogClient catalogClient
+    ) implements AutoCloseable {
+
+        @Override
+        public void close() {
+            nativeClient.close();
+        }
     }
 }

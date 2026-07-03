@@ -6,7 +6,7 @@
 
     <groupId>com.reactor.sample</groupId>
     <artifactId>rest-sample-dubbo-consumer</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.1</version>
     <packaging>jar</packaging>
 
     <name>rest-sample-dubbo-consumer</name>
@@ -15,12 +15,13 @@
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <rust-java-rest.version>3.2.2</rust-java-rest.version>
-        <java-rust-dubbo.version>0.1.0</java-rust-dubbo.version>
+        <rust-java-rest.version>3.2.5</rust-java-rest.version>
+        <java-rust-dubbo.version>0.2.0</java-rust-dubbo.version>
         <dsl-json.version>2.0.2</dsl-json.version>
         <hessian-lite.version>4.0.3</hessian-lite.version>
         <zookeeper.version>3.7.2</zookeeper.version>
         <junit.version>5.10.2</junit.version>
+        <exec.mainClass>com.reactor.sample.dubbo.consumer.app.RestSampleDubboConsumerApplication</exec.mainClass>
     </properties>
 
     <repositories>
@@ -77,7 +78,7 @@
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.5.0</version>
                 <configuration>
-                    <mainClass>com.reactor.sample.dubbo.consumer.app.RestSampleDubboConsumerApplication</mainClass>
+                    <mainClass>${exec.mainClass}</mainClass>
                 </configuration>
             </plugin>
             <plugin>
@@ -109,6 +110,9 @@
         </profile>
         <profile>
             <id>native-static-consumer</id>
+            <properties>
+                <exec.mainClass>com.reactor.sample.dubbo.consumer.nativestatic.NativeStaticConsumerApplication</exec.mainClass>
+            </properties>
             <dependencies>
                 <dependency>
                     <groupId>com.reactor</groupId>

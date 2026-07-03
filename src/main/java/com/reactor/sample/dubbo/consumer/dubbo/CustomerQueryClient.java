@@ -1,6 +1,7 @@
 package com.reactor.sample.dubbo.consumer.dubbo;
 
 import com.reactor.rust.dubbo.NativeDubboMethodInvoker;
+import com.reactor.rust.dubbo.NativeResponseHandle;
 import com.reactor.rust.dubbo.sample.dto.CustomerStats;
 import com.reactor.rust.dubbo.sample.dto.CustomerSummary;
 
@@ -36,6 +37,12 @@ public final class CustomerQueryClient {
 
     public CompletableFuture<byte[]> databaseCustomersJsonAsync() {
         return DubboReadRetry.onceOnConnectionAbort(retryReadOnConnectionAbort, databaseCustomersJson::invokeAsync);
+    }
+
+    public CompletableFuture<NativeResponseHandle> databaseCustomersNativeJsonAsync() {
+        return DubboReadRetry.onceOnConnectionAbort(
+                retryReadOnConnectionAbort,
+                databaseCustomersJson::invokeNativeJsonResponseAsync);
     }
 
     public CompletableFuture<CustomerSummary> customerAsync(long customerId) {

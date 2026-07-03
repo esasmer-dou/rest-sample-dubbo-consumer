@@ -5,6 +5,7 @@ import com.reactor.rust.dubbo.DubboReferenceSpec;
 import com.reactor.rust.dubbo.NativeDubboConsumerClient;
 import com.reactor.rust.dubbo.NativeDubboConsumers;
 import com.reactor.rust.dubbo.NativeDubboMethodInvoker;
+import com.reactor.rust.dubbo.NativeResponseHandle;
 import com.reactor.rust.dubbo.sample.CatalogJsonService;
 import com.reactor.sample.dubbo.consumer.config.ConsumerProperties;
 
@@ -38,6 +39,7 @@ public final class NativeStaticDubboClient implements AutoCloseable {
         NativeDubboConsumerClient client = NativeDubboConsumers.create(staticConfig());
         DubboReferenceSpec<CatalogJsonService> spec = DubboReferenceSpec
                 .builder(CatalogJsonService.class)
+                .version("0.0.0")
                 .timeoutMs(ConsumerProperties.getInt("reactor.dubbo.timeout-ms"))
                 .retries(ConsumerProperties.getInt("reactor.dubbo.retries"))
                 .check(ConsumerProperties.getBoolean("reactor.dubbo.check"))
@@ -52,6 +54,10 @@ public final class NativeStaticDubboClient implements AutoCloseable {
 
     public CompletableFuture<byte[]> nestedCatalogJsonAsync() {
         return nestedCatalogJson.invokeAsync();
+    }
+
+    public CompletableFuture<NativeResponseHandle> nestedCatalogNativeJsonAsync() {
+        return nestedCatalogJson.invokeNativeJsonResponseAsync();
     }
 
     public String nativeMetricsJson() {
@@ -76,8 +82,10 @@ public final class NativeStaticDubboClient implements AutoCloseable {
                 .maxInflight(ConsumerProperties.getInt("reactor.dubbo.max-inflight"))
                 .maxResponseBytes(ConsumerProperties.getInt("reactor.dubbo.max-response-bytes"))
                 .nativeConnectionsPerEndpoint(ConsumerProperties.getInt("reactor.dubbo.native-connections-per-endpoint"))
+                .nativeMaxIdleConnectionsPerEndpoint(ConsumerProperties.getInt("reactor.dubbo.native-max-idle-connections-per-endpoint"))
                 .nativeAsyncWorkers(ConsumerProperties.getInt("reactor.dubbo.native-async-workers"))
                 .nativeAsyncQueueCapacity(ConsumerProperties.getInt("reactor.dubbo.native-async-queue-capacity"))
+                .nativeAsyncTransport(ConsumerProperties.get("reactor.dubbo.native-async-transport"))
                 .runtimeProfile(ConsumerProperties.get("reactor.dubbo.runtime-profile"))
                 .transport(ConsumerProperties.get("reactor.dubbo.transport"))
                 .cluster(ConsumerProperties.get("reactor.dubbo.cluster"))

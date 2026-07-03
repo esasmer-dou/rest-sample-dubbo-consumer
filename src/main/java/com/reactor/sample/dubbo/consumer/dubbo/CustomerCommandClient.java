@@ -1,6 +1,7 @@
 package com.reactor.sample.dubbo.consumer.dubbo;
 
 import com.reactor.rust.dubbo.NativeDubboMethodInvoker;
+import com.reactor.rust.dubbo.NativeResponseHandle;
 import com.reactor.rust.dubbo.sample.dto.CreateCustomerCommand;
 import com.reactor.rust.dubbo.sample.dto.CustomerMutationResult;
 
@@ -34,16 +35,32 @@ public final class CustomerCommandClient {
         return createCustomer.invokeAsync(commandJson);
     }
 
+    public CompletableFuture<NativeResponseHandle> createCustomerNativeJsonAsync(byte[] commandJson) {
+        return createCustomer.invokeNativeJsonResponseAsync(commandJson);
+    }
+
     public CompletableFuture<byte[]> patchCustomerSegmentAsync(long customerId, byte[] commandJson) {
         return patchCustomerSegment.invokeAsync(customerId, commandJson);
+    }
+
+    public CompletableFuture<NativeResponseHandle> patchCustomerSegmentNativeJsonAsync(long customerId, byte[] commandJson) {
+        return patchCustomerSegment.invokeNativeJsonResponseAsync(customerId, commandJson);
     }
 
     public CompletableFuture<byte[]> patchCustomerStatusAsync(long customerId, byte[] commandJson) {
         return patchCustomerStatus.invokeAsync(customerId, commandJson);
     }
 
+    public CompletableFuture<NativeResponseHandle> patchCustomerStatusNativeJsonAsync(long customerId, byte[] commandJson) {
+        return patchCustomerStatus.invokeNativeJsonResponseAsync(customerId, commandJson);
+    }
+
     public CompletableFuture<byte[]> deleteCustomerAsync(long customerId, byte[] commandJson) {
         return deleteCustomer.invokeAsync(customerId, commandJson);
+    }
+
+    public CompletableFuture<NativeResponseHandle> deleteCustomerNativeJsonAsync(long customerId, byte[] commandJson) {
+        return deleteCustomer.invokeNativeJsonResponseAsync(customerId, commandJson);
     }
 
     public CompletableFuture<CustomerMutationResult> createCustomerTypedAsync(CreateCustomerCommand command) {

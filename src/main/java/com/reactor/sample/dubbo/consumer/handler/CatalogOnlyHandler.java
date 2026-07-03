@@ -1,28 +1,23 @@
 package com.reactor.sample.dubbo.consumer.handler;
 
 import com.reactor.rust.annotations.GetMapping;
-import com.reactor.rust.annotations.RequestParam;
 import com.reactor.rust.annotations.RequestMapping;
 import com.reactor.rust.annotations.RouteAdmission;
-import com.reactor.rust.di.annotation.Autowired;
-import com.reactor.rust.di.annotation.Component;
 import com.reactor.rust.http.HttpStatus;
 import com.reactor.rust.http.RawResponse;
 import com.reactor.rust.http.ResponseEntity;
-import com.reactor.sample.dubbo.consumer.dubbo.CustomerQueryClient;
 import com.reactor.sample.dubbo.consumer.dubbo.NestedCatalogClient;
 
 import java.util.concurrent.CompletableFuture;
 
-@Component
 @RequestMapping("/api/v1/catalog")
-public final class CatalogHandler {
+public final class CatalogOnlyHandler {
 
-    @Autowired
-    private NestedCatalogClient catalogClient;
+    private final NestedCatalogClient catalogClient;
 
-    @Autowired
-    private CustomerQueryClient customerQueryClient;
+    public CatalogOnlyHandler(NestedCatalogClient catalogClient) {
+        this.catalogClient = catalogClient;
+    }
 
     @GetMapping(value = "/nested", responseType = RawResponse.class)
     @RouteAdmission(maxConcurrent = 16, queueTimeoutMs = 100)
@@ -59,7 +54,7 @@ public final class CatalogHandler {
     @GetMapping(value = "/items", responseType = RawResponse.class)
     @RouteAdmission(maxConcurrent = 16, queueTimeoutMs = 100)
     public CompletableFuture<ResponseEntity<RawResponse>> featuredItems(
-            @RequestParam(value = "limit", defaultValue = "3") int limit) {
+            @com.reactor.rust.annotations.RequestParam(value = "limit", defaultValue = "3") int limit) {
         return catalogClient.featuredItemsAsync(limit)
                 .thenApply(items -> ResponseEntity.ok(JsonResponseSupport.catalogItems(items)))
                 .exceptionally(error -> unavailable("dubbo_catalog_items_unavailable", error));
@@ -71,14 +66,6 @@ public final class CatalogHandler {
         return catalogClient.catalogAttributesAsync()
                 .thenApply(attributes -> ResponseEntity.ok(JsonResponseSupport.catalogAttributes(attributes)))
                 .exceptionally(error -> unavailable("dubbo_catalog_attributes_unavailable", error));
-    }
-
-    @GetMapping(value = "/db/customers", responseType = RawResponse.class)
-    @RouteAdmission(maxConcurrent = 8, queueTimeoutMs = 150)
-    public CompletableFuture<ResponseEntity<RawResponse>> databaseCustomers() {
-        return customerQueryClient.databaseCustomersNativeJsonAsync()
-                .thenApply(handle -> ResponseEntity.ok(RawResponse.nativeResponse(handle.nativeId())))
-                .exceptionally(error -> unavailable("dubbo_database_provider_unavailable", error));
     }
 
     @GetMapping(value = "/dubbo-metrics", responseType = RawResponse.class)

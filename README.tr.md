@@ -156,6 +156,84 @@ interface/group/version registry metadata'sı gerekiyorsa, VM/bare-metal provide
 registry'ye register oluyorsa veya disable/enable/routing gibi Dubbo governance özellikleri
 production kararınızın parçasıysa.
 
+## DB Read, Distributed Write ve Hot-Row Write Tuning
+
+Tüm Dubbo route'larını tek bir sepet gibi tune etmeyin. Son sample üç farklı production baskısını
+ayrı ele alır; çünkü bu üç sınıf farklı sebeplerle yavaşlar veya `503` üretir:
+
+| Workload sınıfı | Örnek endpoint | Ana limit | `503` genelde ne demek? | İlk tuning hamlesi |
+|-----------------|----------------|-----------|--------------------------|--------------------|
+| DB read | `GET /api/v1/customers/db` | Consumer route admission + provider query bulkhead + Hikari pool | Read path, kabul edilen queue budget'tan yavaş. | `reactor.rust.route-admission.get.api.v1.customers.db.*` değerlerini provider `CustomerQueryService` ve `sample.db.maximum-pool-size` ile birlikte tune edin. |
+| Distributed write | Çok farklı id'lere giden `PATCH /api/v1/customers/{id}/segment` | Route admission + provider command bulkhead + DB pool | Command path dolu, fakat tek bir row lock'a sıkışmış değil. | Balanced reçeteyi ancak useful 2xx RPS, p99, RSS ve provider DB wait birlikte iyiyse kullanın. |
+| Hot-row write | Aynı id'ye giden çok sayıda `PATCH /api/v1/customers/1/segment` | Per-key command admission | Aynı business key aşırı yükleniyor; bu native Dubbo bug değil, bilinçli fail-fast davranışıdır. | Per-key admission açık kalsın. Her update kabul edilecekse idempotency, optimistic locking, outbox/queue veya serialized command flow tasarlayın. |
+
+Consumer per-key command admission durumunu şu endpoint ile gösterir:
+
+```text
+GET /app/command-key-admission
+```
+
+Örnek cevap:
+
+```json
+{"enabled":true,"stripes":1024,"accepted":405,"rejected":19257}
+```
+
+Bu endpoint iki farklı problemi ayırmak için önemlidir:
+
+| Belirti | Anlamı | Ne yapılmalı? |
+|---------|--------|---------------|
+| `route_admission_rejected` artıyor, `command_key_admission_rejected=0` | Route, daha derin katmana inmeden overload veriyor. | Route max-concurrent/queue timeout veya provider kapasitesini tune edin. |
+| Tek id üzerinde `command_key_admission_rejected` artıyor | Aynı customer/order/account key paralel update almaya çalışıyor. | Global worker artırmayın; business write modelini veya per-key policy'yi düzeltin. |
+| Native Dubbo error `0`, ama non-2xx artıyor | Transport sağlıklı; sistem overload control uyguluyor. | Native transport ayarı değiştirmeden önce route/provider/DB/key metriklerini okuyun. |
+
+Faydalı diagnostic endpoint'ler:
+
+| Endpoint | Ne için kullanılır? |
+|----------|---------------------|
+| `GET /app/native-metrics` | Prometheus formatında native route/JNI/body/cache counter'ları. |
+| `GET /app/native-diagnostics` | RSS incelemesi için native memory ve allocator diagnostic bilgisi. |
+| `GET /app/command-key-admission` | Per-key command admission counter'larının güncel durumu. |
+| `GET /app/metrics/reset` | Ölçümlü benchmark öncesi counter resetlemek için. Public dışarı açmayın. |
+
+Varsayılan key policy konservatiftir:
+
+```properties
+sample.command.customer-key-admission.enabled=true
+sample.command.customer-key-admission.max-concurrent-per-key=1
+sample.command.customer-key-admission.stripes=1024
+```
+
+`max-concurrent-per-key=1`, DB row update için en güvenli başlangıçtır. Bunu artırmak benchmark'ta
+daha iyi görünebilir; fakat PostgreSQL row lock beklemesini p99 spike'a çevirebilir. Sadece provider
+idempotency/optimistic locking kullanıyorsa ve DB aynı key için paralel update'i kaldırdığını
+kanıtladıysa artırın.
+
+### Benchmark Gate Nasıl Okunur?
+
+Benchmark raporu sadece raw RPS vermez; bilinçli olarak şu alanları da taşır:
+
+| Kolon | Neden önemli? |
+|-------|---------------|
+| `workload_class` | Endpoint'i native read, DB read, create command, distributed command veya hot-row command olarak ayırır. Bunları ayrı tune edin. |
+| `successful_2xx_rps` | Faydalı throughput. Raw RPS kontrollü `503` cevaplarını da içerdiği için tek başına yanıltıcıdır. |
+| `non2xx_rate_percent` | Overload/error yüzdesi. Low-RSS profile spike altında bilinçli olarak `503` dönebilir. |
+| `route_admission_rejected` / `route_admission_timeout` | Consumer route budget, request'i daha derine indirmeden reddetti veya timeout verdi. |
+| `command_key_admission_rejected` | Aynı business key için hot-row write koruması devreye girdi. |
+| `native_dubbo_errors` / `native_dubbo_handle_errors` | Native Dubbo transport/handle sağlığı. Temiz gate'te `0` kalmalıdır. |
+
+`balanced-wide-4x4`, `balanced-mid-4x4`, `balanced-stable-4x4` gibi isimler public runtime profile
+değildir; benchmark reçetesidir. Production runtime profile isimleri `micro-dubbo` ve
+`balanced-dubbo` olarak kalır. Bu reçete değerlerini kendi endpoint matrix'inizde fayda sağladığını
+kanıtlamadan default yapmayın.
+
+| Seçim | Ne zaman kullanılır? | Neye bakılır? |
+|-------|----------------------|---------------|
+| `micro-dubbo` | Memory-first servislerde, spike anında kontrollü `503` kabul ediliyorsa. | RSS ve p99 düşük kalmalı; successful 2xx RPS bilinçli sınırlıdır. |
+| `balanced-dubbo` | Daha az overload reject isteniyorsa ve daha fazla RSS/thread/connection bütçesi ayrılabiliyorsa. | Provider CPU, DB pool wait, p99 ve non-2xx oranı birlikte izlenmeli. |
+| Daha geniş route budget | Provider ve DB gerçekten boş kapasiteye sahipse distributed write için. | Useful 2xx RPS artmalı, p99 saniyelere çıkmamalı. |
+| Daha kısa route queue | Eski queued işin fail-fast'ten daha kötü olduğu latency-first endpoint'lerde. | Non-2xx artar; caller retry/backoff biliyorsa kabul edilir. |
+
 ## Production Reçeteleri
 
 ### Reçete 1: ZooKeeper Discovery Kullanan Kubernetes Consumer
@@ -205,7 +283,7 @@ expose ediyorsa bunu kullanın.
 mvn -q -Pnative-static-consumer package
 java -Xms8m -Xmx48m -Xss256k -XX:ActiveProcessorCount=1 `
   -Dreactor.dubbo.providers=provider:20880 `
-  -jar target/rest-sample-dubbo-consumer-0.1.0.jar
+  -jar target/rest-sample-dubbo-consumer-0.1.1.jar
 ```
 
 Etkisi:
@@ -394,11 +472,13 @@ ayrı diagnostics endpoint üzerinde tutun.
 
 ```powershell
 curl http://localhost:8080/app/health
+curl http://localhost:8080/app/ready
 curl http://localhost:8080/api/v1/catalog/dubbo-metrics
 ```
 
-Etkisi: liveness ZooKeeper, provider CPU veya DB latency'ye bağımlı olmaz. Deployment politikanız
-gerektiriyorsa readiness Dubbo/provider durumunu ayrıca kontrol edebilir.
+Etkisi: liveness ZooKeeper, provider CPU veya DB latency'ye bağımlı olmaz. Readiness için
+`/app/ready` gerçek Dubbo/provider yolunu kontrol eder; Kubernetes pod'a trafik vermeden önce bu
+yolun hazır olduğunu görür.
 
 ## Production Senaryo Rehberi
 
@@ -810,18 +890,19 @@ Bu senaryoda karşılaşabileceğiniz farklı durumlar ve doğrudan property kar
 | Büyük history küçük lookup'ı bozuyor | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=12</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6</code><br>small lookup route budget yüksek kalır</small> | Küçük lookup p99 korunur | Büyük JSON RPS düşer |
 | Admission kapatıldı | Route budget yok | Budget'ları geri koy<br>sadece hot read artır | Yavaş route sistemi kilitlemez | Config daha detaylıdır |
 
-## `rust-java-rest` 3.2.2 Bu Örnekte Ne Değiştiriyor?
+## `rust-java-rest` 3.2.5 Bu Örnekte Ne Değiştiriyor?
 
-Bu örnek artık `rust-java-rest` `3.2.2` kullanır. Uygulama kodu modeli değişmez: handler'lar,
+Bu örnek artık `rust-java-rest` `3.2.5` ve `java-rust-dubbo` `0.2.0` kullanır. Uygulama kodu modeli değişmez: handler'lar,
 service adapter'ları, configuration class'ları ve business kararlar Java'da kalır. Değişiklik daha
 çok handler'ların altında çalışan runtime yolundadır.
 
-| v3.2.2 değişikliği | Bu örnekte etkisi |
+| Güncel değişiklik | Bu örnekte etkisi |
 |-----------------|-------------------|
 | Daha düşük retention yapan response pool'lar | Trafik düşükken consumer daha az native response buffer tutar. |
 | Bounded in-flight response byte limiti | Büyük veya yavaş response'lar memory kullanımını limitsiz büyütemez. |
 | UTF-8 response/path/query düzeltmeleri | Request değerleri ve response bytes UTF-8 ise Türkçe karakterler güvenli taşınır. |
-| Raw/precomputed response yolunun olgunlaşması | Provider JSON `byte[]` döner, consumer `RawResponse.json(bytes)` ile DTO parse/serialize yapmadan döner. |
+| Native response handle yolu | Java response body'yi okumayacaksa provider JSON `RawResponse.nativeResponse(handle.nativeId())` ile Java heap'e `byte[]` olarak alınmadan döner. |
+| Raw/precomputed response yolunun olgunlaşması | Java response'u inceleyecek, dönüştürecek veya loglayacaksa provider JSON `byte[]` olarak alınıp `RawResponse.json(bytes)` ile döner. |
 | Startup component/route index'leri | Sample broad classpath scan fallback yapmadan açılabilir; index eskiyse startup erken fail eder. |
 | Route-level admission | Dubbo çağıran route'lar global JNI kuyruğunu doldurmadan önce bounded in-flight limit kullanır. |
 | Route diagnostics ayrımı | Benchmark-only comparison route'lar production heavy-object-graph sayımına karışmaz. |
@@ -834,10 +915,12 @@ service adapter'ları, configuration class'ları ve business kararlar Java'da ka
 Bu örnek için en doğru akış hâlâ basittir:
 
 ```text
-Provider UTF-8 JSON byte[] döner
-Consumer RawResponse.json(bytes) döner
+Provider JSON'u native handle yolu ile döner
+Consumer RawResponse.nativeResponse(handle.nativeId()) döner
 Rust-Java runtime HTTP response'u yazar
 ```
+
+Handler provider payload'ını incelemek veya dönüştürmek zorundaysa `RawResponse.json(bytes)` kullanın.
 
 Native cache'i sadece response bilinçli şekilde cache edilebilir olduğunda ve key, TTL, invalidation
 kuralınız netse kullanın. Bu sample default olarak response cache kullanmaz çünkü provider cevapları
@@ -854,7 +937,7 @@ Bu sample normal `rust-java-rest` Maven artifact'ine bağlıdır:
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.2.2</version>
+  <version>3.2.5</version>
 </dependency>
 ```
 
@@ -988,8 +1071,8 @@ Sample, Dubbo-backed route'larda `@RouteAdmission` kullanır:
 @GetMapping(value = "/nested", responseType = RawResponse.class)
 @RouteAdmission(maxConcurrent = 16, queueTimeoutMs = 100)
 public CompletableFuture<ResponseEntity<RawResponse>> nestedCatalog() {
-    return catalogClient.nestedCatalogJsonAsync()
-            .thenApply(json -> ResponseEntity.ok(RawResponse.json(json)));
+    return catalogClient.nestedCatalogNativeJsonAsync()
+            .thenApply(handle -> ResponseEntity.ok(RawResponse.nativeResponse(handle.nativeId())));
 }
 ```
 
@@ -1023,13 +1106,17 @@ HTTP client
   -> küçük interface-specific client adapter
   -> java-rust-dubbo native consumer
   -> seçilen Dubbo interface
-  -> JSON byte[]
-  -> RawResponse.json(...)
+  -> Rust native memory içinde tutulan JSON bytes
+  -> RawResponse.nativeResponse(nativeResponseId)
   -> Rust HTTP response
 ```
 
 Kritik nokta: consumer provider JSON'unu DTO'ya parse edip tekrar serialize etmez. Provider JSON
-bytes üretiyorsa consumer bu bytes'ı direkt HTTP body olarak taşır.
+bytes üretiyorsa ve consumer response'u incelemeyecekse `invokeNativeJsonResponseAsync()` ile
+`RawResponse.nativeResponse(handle.nativeId())` kullanılır. Böylece response body Java heap'e
+`byte[]` olarak alınmadan Rust HTTP response'a taşınır. Java response'u inceleyecek, dönüştürecek,
+validate edecek veya loglayacaksa `invokeAsync().thenApply(bytes -> RawResponse.json(bytes))` yolu
+hâlâ doğru ve desteklenen yoldur.
 
 Bu sample artık üç Dubbo interface consume eder:
 
@@ -1234,7 +1321,9 @@ Mevcut adapter davranışı:
 
 | Dubbo method şekli | Runtime path | Ana overhead |
 |--------------------|--------------|--------------|
-| `byte[] method()` | No-arg byte-array çağrılar için native fast path. | En düşük allocation; Java hazır bytes alır. |
+| `byte[] method()` | No-arg byte-array çağrılar için native fast path. | En düşük heap için `invokeNativeJsonResponseAsync()` ve `RawResponse.nativeResponse(handle.nativeId())`; Java `byte[]` sadece `invokeAsync()` çağırırsanız oluşur. |
+| `byte[] method(byte[] json)` | Body alan command/read route için native path. | Rust byte[] argümanı encode eder ve response JSON'u native memory'de tutar. Consumer response'u tekrar okumayacaksa idealdir. |
+| `byte[] method(long id, byte[] json)` | Id + body alan command/read route için native path. | Primitive id Rust Hessian subset ile encode edilir; response yine Java heap'e alınmadan taşınır. |
 | `record method()` | Rust transport sonrası Java Hessian2 decode. | Record object graph allocation ve opsiyonel HTTP JSON serialization. |
 | `record method(args...)` | Java Hessian2 encode ve decode. | Request object allocation, response graph allocation, codec CPU. |
 | `String method()` | Object return path üzerinden çalışır. | String allocation ve sonradan JSON yapılırsa escaping/charset maliyeti. |
@@ -1291,13 +1380,13 @@ Büyük Dubbo object graph'ı consumer JVM'e çekip tekrar JSON'a çevirmek bu f
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.2.2</version>
+    <version>3.2.5</version>
 </dependency>
 
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>java-rust-dubbo</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
 </dependency>
 
 <dependency>
@@ -1615,6 +1704,14 @@ Route admission:
 | `reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent` | `8` | Delete command cap. Delete side-effect route olduğu için konservatif kalmalı. |
 | `reactor.rust.route-admission.delete.api.v1.customers.id.queue-timeout-ms` | `150` | Delete command wait budget. Daha strict fail-fast için düşürün. |
 
+Command key admission:
+
+| Property | Default | Ne işe yarar / ne zaman değişir? |
+|----------|---------|----------------------------------|
+| `sample.command.customer-key-admission.enabled` | `true` | PATCH/DELETE gibi write route'larında customer id bazlı korumayı açar. DB row update için açık kalsın. |
+| `sample.command.customer-key-admission.max-concurrent-per-key` | `1` | Tek customer id için aynı anda kaç command çalışabileceğini belirler. `1`, PostgreSQL row lock baskısını azaltır ve hot-row write'ı fail-fast yapar. |
+| `sample.command.customer-key-admission.stripes` | `1024` | Per-key semaphore stripe sayısıdır. Çok yüksek unique-key concurrency varsa artırılabilir; yine de bounded kalır ve customer başına obje üretmez. |
+
 Dubbo consumer:
 
 | Property | Default | Ne işe yarar / ne zaman değişir? |
@@ -1646,6 +1743,7 @@ Dubbo consumer:
 | `reactor.dubbo.native-connections-per-endpoint` | `1` | Provider başına native TCP connection sayısı. Read-heavy p99 iyileştirmede ilk artırılacak knob budur. |
 | `reactor.dubbo.native-async-workers` | `1` | Native Dubbo async worker sayısı. Yüksek concurrency için artırılır; her worker thread/native maliyet getirir. |
 | `reactor.dubbo.native-async-queue-capacity` | `32` | Native Dubbo async queue. Artırmak burst emer ama overload'u saklayabilir ve tail latency artırabilir. |
+| `reactor.dubbo.native-async-transport` | `blocking` | Native async transport seçimidir. `blocking` memory-first varsayılandır; `tokio-demux` yüksek concurrency için Rust async demux yoludur. |
 
 <details>
 <summary>Tüm sample property -> environment variable map'i</summary>
@@ -1655,6 +1753,7 @@ Dubbo consumer:
 | `server.port` | `SERVER_PORT` |
 | `server.host` | `SERVER_HOST` |
 | `reactor.runtime.profile` | `REACTOR_RUNTIME_PROFILE` |
+| `reactor.dubbo.native-async-transport` | `REACTOR_DUBBO_NATIVE_ASYNC_TRANSPORT` |
 | `reactor.startup.component-index.enabled` | `REACTOR_STARTUP_COMPONENT_INDEX_ENABLED` |
 | `reactor.startup.component-index.required` | `REACTOR_STARTUP_COMPONENT_INDEX_REQUIRED` |
 | `reactor.startup.route-index.validate` | `REACTOR_STARTUP_ROUTE_INDEX_VALIDATE` |
@@ -1717,6 +1816,9 @@ Dubbo consumer:
 | `reactor.rust.route-admission.patch.api.v1.customers.id.status.typed.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_PATCH_API_V1_CUSTOMERS_ID_STATUS_TYPED_MAX_CONCURRENT` |
 | `reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_DELETE_API_V1_CUSTOMERS_ID_MAX_CONCURRENT` |
 | `reactor.rust.route-admission.delete.api.v1.customers.id.queue-timeout-ms` | `REACTOR_RUST_ROUTE_ADMISSION_DELETE_API_V1_CUSTOMERS_ID_QUEUE_TIMEOUT_MS` |
+| `sample.command.customer-key-admission.enabled` | `SAMPLE_COMMAND_CUSTOMER_KEY_ADMISSION_ENABLED` |
+| `sample.command.customer-key-admission.max-concurrent-per-key` | `SAMPLE_COMMAND_CUSTOMER_KEY_ADMISSION_MAX_CONCURRENT_PER_KEY` |
+| `sample.command.customer-key-admission.stripes` | `SAMPLE_COMMAND_CUSTOMER_KEY_ADMISSION_STRIPES` |
 | `sample.dubbo.discovery` | `SAMPLE_DUBBO_DISCOVERY` |
 | `reactor.dubbo.enabled` | `REACTOR_DUBBO_ENABLED` |
 | `reactor.dubbo.application-name` | `REACTOR_DUBBO_APPLICATION_NAME` |
@@ -2101,7 +2203,7 @@ spec:
     spec:
       containers:
         - name: app
-          image: registry.example.com/rest-sample-dubbo-consumer:0.1.0-zk
+          image: registry.example.com/rest-sample-dubbo-consumer:0.1.1-zk
           ports:
             - containerPort: 8080
           env:
@@ -2119,7 +2221,7 @@ spec:
               value: "2"
           readinessProbe:
             httpGet:
-              path: /app/health
+              path: /app/ready
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 5
@@ -2158,7 +2260,7 @@ Kubernetes production notları:
 - ZooKeeper discovery açıksa başlangıç memory limitini `160Mi-256Mi` aralığında tutun; sonra kendi image'inizde idle RSS ve p99 testiyle düşürün.
 - `reactor.dubbo.max-inflight` bounded kalmalı. Kör şekilde artırmak RPS'i koruyabilir ama p99'u ve provider stabilitesini bozabilir.
 - Low-latency API'lerde operation idempotent ve retry-safe değilse `reactor.dubbo.retries=0` kalsın.
-- `/app/health` process health endpoint'idir. Readiness provider erişimine bağlı olsun istiyorsanız ayrı bir readiness route ekleyin; liveness'ı Dubbo provider durumuna bağlamayın.
+- `/app/health` liveness için ucuz process health endpoint'idir. `/app/ready` gerçek Dubbo dependency kontrolü yapar; trafik provider hazır olana kadar beklesin istiyorsanız readiness probe olarak bunu kullanın.
 - Static Service DNS modunda provider rolling restart toparlanması K8s readiness/EndpointSlice davranışına bağlıdır. Readiness düzgünse Service sağlıksız pod'u endpoint listesinden çıkarır.
 - Provider rolling restart sırasında yeni provider URL'i ZooKeeper'a yazılmalı ve consumer discovery üzerinden yeniden bağlanmalıdır. Bu olmazsa `/dubbo/{interface}/providers` altındaki provider registration'ı kontrol edin.
 
@@ -2341,8 +2443,8 @@ Provider JSON'u zaten üretiyorsa consumer içinde parse etmeyin.
 @GetMapping(value = "/nested", responseType = RawResponse.class)
 @RouteAdmission(maxConcurrent = 16, queueTimeoutMs = 100)
 public CompletableFuture<ResponseEntity<RawResponse>> nestedCatalog() {
-    return catalogClient.nestedCatalogJsonAsync()
-            .thenApply(json -> ResponseEntity.ok(RawResponse.json(json)));
+    return catalogClient.nestedCatalogNativeJsonAsync()
+            .thenApply(handle -> ResponseEntity.ok(RawResponse.nativeResponse(handle.nativeId())));
 }
 ```
 
@@ -2355,6 +2457,11 @@ reactor.dubbo.providers=127.0.0.1:20880
 reactor.rust.native-cache.max-bytes=0
 reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=16
 ```
+
+Bu akışta provider JSON body Java heap'e `byte[]` olarak alınmaz. Rust native tarafında response id
+olarak tutulur ve HTTP response yine Rust tarafından yazılır. Java tarafında provider response'u
+incelemeniz, dönüştürmeniz, validate etmeniz veya loglamanız gerekiyorsa `nestedCatalogJsonAsync()`
+ve `RawResponse.json(bytes)` yolu hâlâ doğru seçimdir.
 
 Native cache'i sadece catalog bilinçli cache edilebilir olduğunda ve TTL/invalidation kuralınız netse
 açın. Bu sample default olarak kapalı tutar.
@@ -2467,7 +2574,8 @@ ne zaman kullanılmalı sorusunu netleştirmektir.
 Notlar:
 
 - Gerçek HTTP raw byte response için `ResponseEntity<byte[]>` yerine `RawResponse.bytes(...)` kullanın.
-- Hazır JSON byte response için `RawResponse.json(bytes)` kullanın.
+- Hazır JSON provider response'u Java'da incelemeyecekseniz `RawResponse.nativeResponse(handle.nativeId())` kullanın.
+- Hazır JSON byte response'u Java'da incelemeniz veya dönüştürmeniz gerekiyorsa `RawResponse.json(bytes)` kullanın.
 - Normal HTTP JSON DTO için Java `record` kullanın; POJO class'ı DTO default'u yapmayın.
 - `List<CustomerDto>.class` Java'da olmadığı için list response örneklerinde `responseType = List.class` kullanılır, method dönüş tipi yine `ResponseEntity<List<CustomerView>>` olmalıdır.
 - Success ve error body farklı record tipleriyse örneklerde `ResponseEntity<?>` ve `responseType = Object.class` gösterilmiştir. Production'da daha katı contract istiyorsanız ortak bir `ApiResult` envelope record'u kullanabilirsiniz.
