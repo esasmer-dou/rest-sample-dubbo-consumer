@@ -1,14 +1,10 @@
 package com.reactor.sample.dubbo.consumer.app;
 
-import com.reactor.rust.bridge.HandlerRegistry;
-import com.reactor.rust.bridge.NativeBridge;
-import com.reactor.rust.bridge.RouteScanner;
 import com.reactor.rust.config.PropertiesLoader;
 import com.reactor.rust.config.RuntimeProfiles;
 import com.reactor.rust.di.BeanContainer;
 import com.reactor.sample.dubbo.consumer.config.CatalogOnlyDubboClientFactory;
 import com.reactor.sample.dubbo.consumer.config.SampleDubboProfileTuning;
-import com.reactor.sample.dubbo.consumer.config.ConsumerProperties;
 import com.reactor.sample.dubbo.consumer.handler.CatalogOnlyHandler;
 import com.reactor.sample.dubbo.consumer.handler.CatalogHandler;
 import com.reactor.sample.dubbo.consumer.handler.CustomerHandler;
@@ -40,42 +36,24 @@ public final class RestSampleDubboConsumerApplication {
         container.scan(BASE_PACKAGE);
         container.start();
 
-        HandlerRegistry registry = HandlerRegistry.getInstance();
-        registry.registerBean(container.getBean(HealthHandler.class));
-        registry.registerBean(container.getBean(CatalogHandler.class));
-        registry.registerBean(container.getBean(CustomerHandler.class));
-
-        RouteScanner.scanAndRegister();
-        NativeBridge.configureRuntimeFromProperties();
-
-        int port = ConsumerProperties.getInt("server.port");
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> shutdown(container), "sample-shutdown"));
-        NativeBridge.startHttpServer(port);
-
-        sleepForever();
+        ConsumerHttpBootstrap.startWithContainer(
+                container,
+                HealthHandler.class,
+                CatalogHandler.class,
+                CustomerHandler.class);
     }
 
     private static void startCatalogOnly() {
-        disableRouteIndexValidationIfNotExplicit();
+        ConsumerHttpBootstrap.disableRouteIndexValidationIfNotExplicit();
 
         CatalogOnlyDubboClientFactory.CatalogOnlyClient catalogOnlyClient =
                 CatalogOnlyDubboClientFactory.create();
 
-        HandlerRegistry registry = HandlerRegistry.getInstance();
-        registry.registerBean(new HealthHandler(catalogOnlyClient.catalogClient()));
-        registry.registerBean(new CatalogOnlyHandler(catalogOnlyClient.catalogClient()));
-
-        RouteScanner.scanAndRegister();
-        NativeBridge.configureRuntimeFromProperties();
-
-        int port = ConsumerProperties.getInt("server.port");
-        Runtime.getRuntime().addShutdownHook(new Thread(
-                () -> shutdown(catalogOnlyClient),
-                "sample-catalog-only-shutdown"
-        ));
-        NativeBridge.startHttpServer(port);
-
-        sleepForever();
+        ConsumerHttpBootstrap.startWithHandlers(
+                "sample-catalog-only-shutdown",
+                catalogOnlyClient,
+                new HealthHandler(catalogOnlyClient.catalogClient()),
+                new CatalogOnlyHandler(catalogOnlyClient.catalogClient()));
     }
 
     private static boolean isCatalogOnlySurface() {
@@ -83,46 +61,5 @@ public final class RestSampleDubboConsumerApplication {
                 .trim()
                 .toLowerCase(Locale.ROOT);
         return "catalog-only".equals(surface) || "catalog".equals(surface);
-    }
-
-    private static void disableRouteIndexValidationIfNotExplicit() {
-        if (!PropertiesLoader.hasExternalOverride("reactor.startup.route-index.validate")) {
-            System.setProperty("reactor.startup.route-index.validate", "false");
-        }
-        if (!PropertiesLoader.hasExternalOverride("reactor.startup.route-index.required")) {
-            System.setProperty("reactor.startup.route-index.required", "false");
-        }
-    }
-
-    private static void sleepForever() {
-        try {
-            Thread.sleep(Long.MAX_VALUE);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-    }
-
-    private static void shutdown(BeanContainer container) {
-        try {
-            NativeBridge.stopHttpServer();
-        } catch (UnsatisfiedLinkError ignored) {
-            // Native library may be unavailable during failed startup.
-        } finally {
-            container.shutdown();
-        }
-    }
-
-    private static void shutdown(AutoCloseable closeable) {
-        try {
-            NativeBridge.stopHttpServer();
-        } catch (UnsatisfiedLinkError ignored) {
-            // Native library may be unavailable during failed startup.
-        } finally {
-            try {
-                closeable.close();
-            } catch (Exception ignored) {
-                // Shutdown best effort.
-            }
-        }
     }
 }

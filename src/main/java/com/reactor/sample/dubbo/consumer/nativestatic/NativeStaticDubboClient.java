@@ -1,15 +1,13 @@
 package com.reactor.sample.dubbo.consumer.nativestatic;
 
-import com.reactor.rust.dubbo.DubboConsumerConfig;
 import com.reactor.rust.dubbo.DubboReferenceSpec;
 import com.reactor.rust.dubbo.NativeDubboConsumerClient;
 import com.reactor.rust.dubbo.NativeDubboConsumers;
 import com.reactor.rust.dubbo.NativeDubboMethodInvoker;
 import com.reactor.rust.dubbo.NativeResponseHandle;
 import com.reactor.rust.dubbo.sample.CatalogJsonService;
-import com.reactor.sample.dubbo.consumer.config.ConsumerProperties;
+import com.reactor.sample.dubbo.consumer.config.DubboClientSupport;
 
-import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 
 public final class NativeStaticDubboClient implements AutoCloseable {
@@ -26,24 +24,17 @@ public final class NativeStaticDubboClient implements AutoCloseable {
     }
 
     public static NativeStaticDubboClient create() {
-        String discovery = ConsumerProperties.get("sample.dubbo.discovery")
-                .trim()
-                .toLowerCase(Locale.ROOT);
-        if ("zookeeper".equals(discovery) || "zk".equals(discovery)) {
+        if (DubboClientSupport.zookeeperDiscovery()) {
             throw new IllegalStateException(
                     "native-static jlink image supports static providers only. "
                             + "Use the zookeeper jlink image for ZooKeeper discovery."
             );
         }
 
-        NativeDubboConsumerClient client = NativeDubboConsumers.create(staticConfig());
-        DubboReferenceSpec<CatalogJsonService> spec = DubboReferenceSpec
-                .builder(CatalogJsonService.class)
+        NativeDubboConsumerClient client = NativeDubboConsumers.create(DubboClientSupport.staticDubboConfig());
+        DubboReferenceSpec<CatalogJsonService> spec = DubboClientSupport
+                .referenceBuilder(CatalogJsonService.class)
                 .version("0.0.0")
-                .timeoutMs(ConsumerProperties.getInt("reactor.dubbo.timeout-ms"))
-                .retries(ConsumerProperties.getInt("reactor.dubbo.retries"))
-                .check(ConsumerProperties.getBoolean("reactor.dubbo.check"))
-                .lazy(ConsumerProperties.getBoolean("reactor.dubbo.lazy"))
                 .build();
 
         return new NativeStaticDubboClient(
@@ -67,29 +58,5 @@ public final class NativeStaticDubboClient implements AutoCloseable {
     @Override
     public void close() {
         client.close();
-    }
-
-    private static DubboConsumerConfig staticConfig() {
-        return DubboConsumerConfig.builder()
-                .applicationName(ConsumerProperties.get("reactor.dubbo.application-name"))
-                .providers(ConsumerProperties.get("reactor.dubbo.providers"))
-                .protocol(ConsumerProperties.get("reactor.dubbo.protocol"))
-                .serialization(ConsumerProperties.get("reactor.dubbo.serialization"))
-                .timeoutMs(ConsumerProperties.getInt("reactor.dubbo.timeout-ms"))
-                .retries(ConsumerProperties.getInt("reactor.dubbo.retries"))
-                .check(ConsumerProperties.getBoolean("reactor.dubbo.check"))
-                .lazy(ConsumerProperties.getBoolean("reactor.dubbo.lazy"))
-                .maxInflight(ConsumerProperties.getInt("reactor.dubbo.max-inflight"))
-                .maxResponseBytes(ConsumerProperties.getInt("reactor.dubbo.max-response-bytes"))
-                .nativeConnectionsPerEndpoint(ConsumerProperties.getInt("reactor.dubbo.native-connections-per-endpoint"))
-                .nativeMaxIdleConnectionsPerEndpoint(ConsumerProperties.getInt("reactor.dubbo.native-max-idle-connections-per-endpoint"))
-                .nativeAsyncWorkers(ConsumerProperties.getInt("reactor.dubbo.native-async-workers"))
-                .nativeAsyncQueueCapacity(ConsumerProperties.getInt("reactor.dubbo.native-async-queue-capacity"))
-                .nativeAsyncTransport(ConsumerProperties.get("reactor.dubbo.native-async-transport"))
-                .runtimeProfile(ConsumerProperties.get("reactor.dubbo.runtime-profile"))
-                .transport(ConsumerProperties.get("reactor.dubbo.transport"))
-                .cluster(ConsumerProperties.get("reactor.dubbo.cluster"))
-                .loadbalance(ConsumerProperties.get("reactor.dubbo.loadbalance"))
-                .build();
     }
 }

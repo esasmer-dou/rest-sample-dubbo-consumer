@@ -1149,6 +1149,31 @@ $env:REACTOR_DUBBO_REGISTRY_ADDRESS="zookeeper://zookeeper:2181"
 mvn -q -Pzookeeper-discovery exec:java
 ```
 
+### Deklaratif Consumer Yüzeyi
+
+Consumer bootstrap için kural basittir: önce yüzeyi seç, sonra sadece o yüzeye ait handler'ları
+register et.
+
+| Yüzey | Nasıl seçilir? | Register edilen handler'lar | Ne zaman kullanılır? |
+|-------|----------------|-----------------------------|----------------------|
+| `full` | `sample.consumer.surface=full` | Health, catalog, customer query/command | Bütün sample endpoint'leri gerekiyorsa. |
+| `catalog-only` | `sample.consumer.surface=catalog-only` | Health + sadece catalog | Daha küçük read-only consumer gerekiyorsa. |
+| `native-static-consumer` profile | Maven profile + static provider adresi | Native static handler'lar | En küçük no-argument JSON pass-through yolu gerekiyorsa. |
+
+Örnek:
+
+```properties
+sample.consumer.surface=catalog-only
+sample.dubbo.discovery=static
+reactor.dubbo.providers=rest-sample-dubbo-provider:20880
+reactor.runtime.profile=micro-dubbo
+```
+
+Sample, business davranışı belirlemek için geniş bir reflection scanner kullanmaz. Aktif handler'lar
+ve Dubbo client'lar açıkça görünür. Tekrar eden HTTP bootstrap ve Dubbo config builder kodu küçük
+support class'larda durur. Bu yaklaşım class loading'i öngörülebilir tutar ve memory ölçümlerini
+daha güvenilir hale getirir.
+
 Provider repo:
 
 ```text

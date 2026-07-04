@@ -1134,6 +1134,30 @@ $env:REACTOR_DUBBO_REGISTRY_ADDRESS="zookeeper://zookeeper:2181"
 mvn -q -Pzookeeper-discovery exec:java
 ```
 
+### Declarative Consumer Surface
+
+The consumer bootstrap has one small rule: choose the surface first, then register only the handlers
+that belong to that surface.
+
+| Surface | How to select it | Registered handlers | Use it when |
+|---------|------------------|---------------------|-------------|
+| `full` | `sample.consumer.surface=full` | Health, catalog, customer query/command | You want all sample endpoints. |
+| `catalog-only` | `sample.consumer.surface=catalog-only` | Health + catalog only | You want a smaller read-only consumer. |
+| `native-static-consumer` profile | Maven profile + static provider address | Native static handlers | You want the smallest no-argument JSON pass-through path. |
+
+Example:
+
+```properties
+sample.consumer.surface=catalog-only
+sample.dubbo.discovery=static
+reactor.dubbo.providers=rest-sample-dubbo-provider:20880
+reactor.runtime.profile=micro-dubbo
+```
+
+The sample does not use a broad reflection scanner to decide business behavior. Active handlers and
+Dubbo clients are explicit, while repeated HTTP bootstrap and Dubbo config builder code live in small
+support classes. This keeps class loading predictable and makes memory measurements easier to trust.
+
 The provider repository is here:
 
 ```text
