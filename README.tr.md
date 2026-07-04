@@ -33,6 +33,27 @@ RSS, p99, 503 oranı veya Dubbo failover ayarlıyorsan property rehberine bak.
 
 Anlamadığın terim varsa sözlüğe bak.
 
+## Property Katmanları
+
+Varsayılan `src/main/resources/rust-spring.properties` minimum local dosyadır. Sadece server port,
+profile, startup index politikası, discovery modu, provider adresi ve command key admission ayarını içerir.
+
+Production ayarlarını overlay olarak kullanın:
+
+```powershell
+java "-Dreactor.config.file=src/main/resources/config/production.properties" ...
+```
+
+Advanced tuning dosyasını p99, 503 oranı, provider kapasitesi ve RSS ölçmeden kullanmayın:
+
+```powershell
+java "-Dreactor.config.file=src/main/resources/config/production.properties;src/main/resources/config/advanced-tuning.properties" ...
+```
+
+- `config/production.properties`: Kubernetes provider adresi, low-RSS Dubbo limitleri ve static/ZooKeeper geçiş örneklerini içerir.
+- `config/advanced-tuning.properties`: route admission, Rust pool ayarları ve balanced-dubbo reçetesi içindir.
+- Environment alternatifi: `REACTOR_CONFIG_FILE=/app/config/production.properties`.
+
 ## Bu Örnek Ne İçin Hazırlandı?
 
 Bu örnek şu konuları göstermek için hazırlandı:
@@ -1036,9 +1057,9 @@ Bu senaryoda karşılaşabileceğiniz farklı durumlar ve doğrudan property kar
 | Büyük history küçük lookup'ı bozuyor | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=12</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6</code><br>small lookup route budget yüksek kalır</small> | Küçük lookup p99 korunur | Büyük JSON RPS düşer |
 | Admission kapatıldı | Route budget yok | Budget'ları geri koy<br>sadece hot read artır | Yavaş route sistemi kilitlemez | Config daha detaylıdır |
 
-## `rust-java-rest` 3.2.6 Bu Örnekte Ne Değiştiriyor?
+## `rust-java-rest` 3.2.7 Bu Örnekte Ne Değiştiriyor?
 
-Bu örnek artık `rust-java-rest` `3.2.6` ve `java-rust-dubbo` `0.2.2` kullanır. Uygulama kodu modeli değişmez: handler'lar,
+Bu örnek artık `rust-java-rest` `3.2.7` ve `java-rust-dubbo` `0.2.3` kullanır. Uygulama kodu modeli değişmez: handler'lar,
 service adapter'ları, configuration class'ları ve business kararlar Java'da kalır. Değişiklik daha
 çok handler'ların altında çalışan runtime yolundadır.
 
@@ -1085,7 +1106,7 @@ Bu sample normal `rust-java-rest` Maven artifact'ine bağlıdır:
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.2.6</version>
+  <version>3.2.7</version>
 </dependency>
 ```
 
@@ -1553,13 +1574,13 @@ Büyük Dubbo object graph'ı consumer JVM'e çekip tekrar JSON'a çevirmek bu f
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.2.6</version>
+    <version>3.2.7</version>
 </dependency>
 
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>java-rust-dubbo</artifactId>
-    <version>0.2.2</version>
+    <version>0.2.3</version>
 </dependency>
 
 <dependency>
@@ -1790,9 +1811,20 @@ Hızlı semptom rehberi:
 
 ### Tam Runtime Property Rehberi
 
-Bu bölüm sample içindeki `src/main/resources/rust-spring.properties` dosyasındaki tüm key setidir.
-Bu değerleri packaged baseline olarak düşünün. Kubernetes veya standalone runtime'da sadece
-senaryonuza uyan değerleri `-D...` veya environment variable ile override edin.
+Bu bölüm sample'ın tüm runtime yüzeyini anlatır: küçük
+`src/main/resources/rust-spring.properties` başlangıç dosyası, isteğe bağlı
+`src/main/resources/config/production.properties` overlay dosyası ve ölçüm sonrası kullanılan
+`src/main/resources/config/advanced-tuning.properties` overlay dosyası. Bütün key'leri başlangıç
+dosyasına kopyalamayın. Başlangıç dosyası küçük kalsın. Ortama uygun ayarları
+`-Dreactor.config.file=...` veya `REACTOR_CONFIG_FILE` ile ayrıca yükleyin.
+
+Kullanım sırası:
+
+| Adım | Ne kullanılır? | Neden? |
+|------|----------------|--------|
+| Lokal smoke test | Sadece `rust-spring.properties` | Minimum güvenli değerlerle hızlı başlar. |
+| Kubernetes / gerçek ortam | `config/production.properties` overlay | Ölçülmüş production limitlerini, provider adreslerini ve low-RSS gate'lerini ekler. |
+| Ölçüm sonrası tuning | `config/advanced-tuning.properties` overlay | Route admission ve daha büyük/balanced Dubbo ayarlarını load testten sonra ekler. |
 
 Server ve startup:
 

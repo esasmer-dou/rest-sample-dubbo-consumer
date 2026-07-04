@@ -33,6 +33,28 @@ Use the property guide when you tune RSS, p99, 503 ratio, or Dubbo failover.
 
 Use the glossary when a term is unclear.
 
+## Property Layers
+
+The default `src/main/resources/rust-spring.properties` is the minimum local file. It keeps only the
+server port, profile, startup index policy, discovery mode, provider address and command key
+admission.
+
+Use production settings as an overlay:
+
+```powershell
+java "-Dreactor.config.file=src/main/resources/config/production.properties" ...
+```
+
+Use advanced tuning only after measuring p99, 503 ratio, provider capacity and RSS:
+
+```powershell
+java "-Dreactor.config.file=src/main/resources/config/production.properties;src/main/resources/config/advanced-tuning.properties" ...
+```
+
+- `config/production.properties`: Kubernetes provider address, low-RSS Dubbo caps and static/ZooKeeper switch examples.
+- `config/advanced-tuning.properties`: route admission, Rust pool knobs and balanced-dubbo recipe.
+- Environment alternative: `REACTOR_CONFIG_FILE=/app/config/production.properties`.
+
 ## What This Sample Is For
 
 Use this sample when you want to understand:
@@ -1022,9 +1044,9 @@ Different problems in this scenario and the exact property actions:
 | Large history hurts lookup | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=12</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6</code><br>small lookup route budget stays higher</small> | Small lookup p99 protected | Large JSON RPS drops |
 | Admission removed | No route budgets | Restore budgets<br>raise only hot reads | Slow route cannot lock service | Safer but more config |
 
-## What `rust-java-rest` 3.2.6 Changes Here
+## What `rust-java-rest` 3.2.7 Changes Here
 
-This sample now targets `rust-java-rest` `3.2.6` with `java-rust-dubbo` `0.2.2`. The application code model does not change:
+This sample now targets `rust-java-rest` `3.2.7` with `java-rust-dubbo` `0.2.3`. The application code model does not change:
 handlers, service adapters, configuration classes, and business decisions still live in Java. The
 change is mostly about the runtime path underneath those handlers.
 
@@ -1071,7 +1093,7 @@ This sample depends on the normal `rust-java-rest` Maven artifact:
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.2.6</version>
+  <version>3.2.7</version>
 </dependency>
 ```
 
@@ -1540,13 +1562,13 @@ into the consumer JVM and serializing it again is an anti-pattern for this frame
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.2.6</version>
+    <version>3.2.7</version>
 </dependency>
 
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>java-rust-dubbo</artifactId>
-    <version>0.2.2</version>
+    <version>0.2.3</version>
 </dependency>
 
 <dependency>
@@ -1777,9 +1799,20 @@ Quick symptom lookup:
 
 ### Complete Runtime Property Guide
 
-This is the full `src/main/resources/rust-spring.properties` key set for this sample. Treat these
-values as the packaged baseline. In Kubernetes or standalone runtime, override only the keys that
-match your scenario with `-D...` or environment variables.
+This section documents the complete runtime surface for the sample: the small
+`src/main/resources/rust-spring.properties` baseline plus the optional
+`src/main/resources/config/production.properties` and
+`src/main/resources/config/advanced-tuning.properties` overlays. Do not copy every key into the
+baseline file. Keep the packaged file small, then load the overlay that matches the environment
+with `-Dreactor.config.file=...` or `REACTOR_CONFIG_FILE`.
+
+Use this order:
+
+| Step | What to use | Why |
+|------|-------------|-----|
+| Local smoke | `rust-spring.properties` only | Starts with the minimum safe defaults. |
+| Kubernetes / real environment | `config/production.properties` overlay | Adds measured production limits, provider addresses, and low-RSS gates. |
+| Measured tuning | `config/advanced-tuning.properties` overlay | Adds route admission and larger/balanced Dubbo knobs after load testing. |
 
 Server and startup:
 

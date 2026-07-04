@@ -1,6 +1,7 @@
 package com.reactor.sample.dubbo.consumer;
 
 import com.reactor.rust.dubbo.sample.dto.CreateCustomerCommand;
+import com.reactor.rust.dubbo.DubboConsumerConfig;
 import com.reactor.rust.json.DslJsonService;
 import org.junit.jupiter.api.Test;
 
@@ -34,18 +35,19 @@ class ConsumerRuntimeConfigurationTest {
         assertEquals("static", properties.getProperty("sample.dubbo.discovery"));
         assertEquals("true", properties.getProperty("sample.dubbo.read-retry-on-io-error"));
         assertEquals("true", properties.getProperty("reactor.dubbo.enabled"));
-        assertEquals("native", properties.getProperty("reactor.dubbo.transport"));
-        assertEquals("micro-dubbo", properties.getProperty("reactor.dubbo.runtime-profile"));
         assertEquals("127.0.0.1:20880", properties.getProperty("reactor.dubbo.providers"));
-        assertEquals("0", properties.getProperty("reactor.dubbo.retries"));
-        assertTrue(Integer.parseInt(properties.getProperty("reactor.dubbo.max-inflight")) <= 32);
-        assertTrue(Integer.parseInt(properties.getProperty("reactor.dubbo.native-async-workers")) <= 1);
-        assertEquals("0", properties.getProperty("reactor.rust.native-cache.max-bytes"));
+
+        DubboConsumerConfig config = DubboConsumerConfig.fromProperties(properties);
+        assertEquals("native", config.transport());
+        assertEquals("micro-dubbo", config.runtimeProfile());
+        assertEquals(0, config.retries());
+        assertTrue(config.maxInflight() <= 32);
+        assertTrue(config.nativeAsyncWorkers() <= 1);
     }
 
     @Test
     void dubboRoutesHaveAdmissionLimits() throws IOException {
-        Properties properties = loadProperties();
+        Properties properties = loadProperties("config/advanced-tuning.properties");
 
         assertEquals("true", properties.getProperty("reactor.rust.route-admission.enabled"));
         assertEquals("16", properties.getProperty("reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent"));
@@ -106,15 +108,18 @@ class ConsumerRuntimeConfigurationTest {
         assertEquals("req-json-reader", command.requestId());
     }
 
-    private static Properties loadProperties() throws IOException {
-        try (InputStream input = ConsumerRuntimeConfigurationTest.class
-                .getClassLoader()
-                .getResourceAsStream("rust-spring.properties")) {
-            assertNotNull(input, "rust-spring.properties must be available on the test classpath");
-            Properties properties = new Properties();
-            properties.load(input);
-            return properties;
+    private static Properties loadProperties(String... resources) throws IOException {
+        String[] names = resources.length == 0 ? new String[] {"rust-spring.properties"} : resources;
+        Properties properties = new Properties();
+        for (String resource : names) {
+            try (InputStream input = ConsumerRuntimeConfigurationTest.class
+                    .getClassLoader()
+                    .getResourceAsStream(resource)) {
+                assertNotNull(input, resource + " must be available on the test classpath");
+                properties.load(input);
+            }
         }
+        return properties;
     }
 
     private static String resourceText(String name) throws IOException {
