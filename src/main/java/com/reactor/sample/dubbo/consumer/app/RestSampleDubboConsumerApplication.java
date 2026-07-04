@@ -1,8 +1,8 @@
 package com.reactor.sample.dubbo.consumer.app;
 
+import com.reactor.rust.app.RestApplication;
 import com.reactor.rust.config.PropertiesLoader;
 import com.reactor.rust.config.RuntimeProfiles;
-import com.reactor.rust.di.BeanContainer;
 import com.reactor.sample.dubbo.consumer.config.CatalogOnlyDubboClientFactory;
 import com.reactor.sample.dubbo.consumer.config.SampleDubboProfileTuning;
 import com.reactor.sample.dubbo.consumer.handler.CatalogOnlyHandler;
@@ -32,28 +32,30 @@ public final class RestSampleDubboConsumerApplication {
     }
 
     private static void startFullSurface() {
-        BeanContainer container = BeanContainer.getInstance();
-        container.scan(BASE_PACKAGE);
-        container.start();
-
-        ConsumerHttpBootstrap.startWithContainer(
-                container,
-                HealthHandler.class,
-                CatalogHandler.class,
-                CustomerHandler.class);
+        RestApplication.builder()
+                .loadProperties(false)
+                .applyRuntimeProfiles(false)
+                .scan(BASE_PACKAGE)
+                .handlers(HealthHandler.class, CatalogHandler.class, CustomerHandler.class)
+                .shutdownThreadName("sample-shutdown")
+                .start();
     }
 
     private static void startCatalogOnly() {
-        ConsumerHttpBootstrap.disableRouteIndexValidationIfNotExplicit();
+        RestApplication.disableRouteIndexValidationIfNotExplicit();
 
         CatalogOnlyDubboClientFactory.CatalogOnlyClient catalogOnlyClient =
                 CatalogOnlyDubboClientFactory.create();
 
-        ConsumerHttpBootstrap.startWithHandlers(
-                "sample-catalog-only-shutdown",
-                catalogOnlyClient,
-                new HealthHandler(catalogOnlyClient.catalogClient()),
-                new CatalogOnlyHandler(catalogOnlyClient.catalogClient()));
+        RestApplication.builder()
+                .loadProperties(false)
+                .applyRuntimeProfiles(false)
+                .shutdownThreadName("sample-catalog-only-shutdown")
+                .closeable(catalogOnlyClient)
+                .handlerInstances(
+                        new HealthHandler(catalogOnlyClient.catalogClient()),
+                        new CatalogOnlyHandler(catalogOnlyClient.catalogClient()))
+                .start();
     }
 
     private static boolean isCatalogOnlySurface() {

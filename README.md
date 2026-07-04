@@ -1022,14 +1022,16 @@ Different problems in this scenario and the exact property actions:
 | Large history hurts lookup | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=12</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6</code><br>small lookup route budget stays higher</small> | Small lookup p99 protected | Large JSON RPS drops |
 | Admission removed | No route budgets | Restore budgets<br>raise only hot reads | Slow route cannot lock service | Safer but more config |
 
-## What `rust-java-rest` 3.2.5 Changes Here
+## What `rust-java-rest` 3.2.6 Changes Here
 
-This sample now targets `rust-java-rest` `3.2.5` with `java-rust-dubbo` `0.2.0`. The application code model does not change:
+This sample now targets `rust-java-rest` `3.2.6` with `java-rust-dubbo` `0.2.1`. The application code model does not change:
 handlers, service adapters, configuration classes, and business decisions still live in Java. The
 change is mostly about the runtime path underneath those handlers.
 
 | Current change | What it means in this sample |
 |------------|------------------------------|
+| `RestApplication` bootstrap | Repeated HTTP startup/shutdown code moved to the framework; active handlers are still listed explicitly. |
+| `DubboConsumerSupport` | Static vs ZooKeeper discovery and reference defaults are read from properties without hiding the service interface list. |
 | Lower-retention response pools | The consumer keeps fewer native response buffers when traffic is low. |
 | Bounded in-flight response bytes | Large or slow responses cannot grow memory usage without a hard cap. |
 | UTF-8 response/path/query fixes | Turkish characters are safe when request values and response bytes are UTF-8. |
@@ -1069,7 +1071,7 @@ This sample depends on the normal `rust-java-rest` Maven artifact:
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.2.5</version>
+  <version>3.2.6</version>
 </dependency>
 ```
 
@@ -1538,13 +1540,13 @@ into the consumer JVM and serializing it again is an anti-pattern for this frame
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.2.5</version>
+    <version>3.2.6</version>
 </dependency>
 
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>java-rust-dubbo</artifactId>
-    <version>0.2.0</version>
+    <version>0.2.1</version>
 </dependency>
 
 <dependency>

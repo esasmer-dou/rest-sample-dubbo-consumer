@@ -1036,14 +1036,16 @@ Bu senaryoda karşılaşabileceğiniz farklı durumlar ve doğrudan property kar
 | Büyük history küçük lookup'ı bozuyor | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=12</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6</code><br>small lookup route budget yüksek kalır</small> | Küçük lookup p99 korunur | Büyük JSON RPS düşer |
 | Admission kapatıldı | Route budget yok | Budget'ları geri koy<br>sadece hot read artır | Yavaş route sistemi kilitlemez | Config daha detaylıdır |
 
-## `rust-java-rest` 3.2.5 Bu Örnekte Ne Değiştiriyor?
+## `rust-java-rest` 3.2.6 Bu Örnekte Ne Değiştiriyor?
 
-Bu örnek artık `rust-java-rest` `3.2.5` ve `java-rust-dubbo` `0.2.0` kullanır. Uygulama kodu modeli değişmez: handler'lar,
+Bu örnek artık `rust-java-rest` `3.2.6` ve `java-rust-dubbo` `0.2.1` kullanır. Uygulama kodu modeli değişmez: handler'lar,
 service adapter'ları, configuration class'ları ve business kararlar Java'da kalır. Değişiklik daha
 çok handler'ların altında çalışan runtime yolundadır.
 
 | Güncel değişiklik | Bu örnekte etkisi |
 |-----------------|-------------------|
+| `RestApplication` bootstrap | Tekrar eden HTTP startup/shutdown kodu framework'e taşındı; aktif handler listesi yine kodda explicit kalır. |
+| `DubboConsumerSupport` | Static veya ZooKeeper discovery ve reference default'ları property'den okunur; servis interface listesi gizlenmez. |
 | Daha düşük retention yapan response pool'lar | Trafik düşükken consumer daha az native response buffer tutar. |
 | Bounded in-flight response byte limiti | Büyük veya yavaş response'lar memory kullanımını limitsiz büyütemez. |
 | UTF-8 response/path/query düzeltmeleri | Request değerleri ve response bytes UTF-8 ise Türkçe karakterler güvenli taşınır. |
@@ -1083,7 +1085,7 @@ Bu sample normal `rust-java-rest` Maven artifact'ine bağlıdır:
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.2.5</version>
+  <version>3.2.6</version>
 </dependency>
 ```
 
@@ -1551,13 +1553,13 @@ Büyük Dubbo object graph'ı consumer JVM'e çekip tekrar JSON'a çevirmek bu f
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.2.5</version>
+    <version>3.2.6</version>
 </dependency>
 
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>java-rust-dubbo</artifactId>
-    <version>0.2.0</version>
+    <version>0.2.1</version>
 </dependency>
 
 <dependency>

@@ -1,12 +1,13 @@
 package com.reactor.sample.dubbo.consumer.nativestatic;
 
+import com.reactor.rust.config.PropertiesLoader;
 import com.reactor.rust.dubbo.DubboReferenceSpec;
 import com.reactor.rust.dubbo.NativeDubboConsumerClient;
 import com.reactor.rust.dubbo.NativeDubboConsumers;
 import com.reactor.rust.dubbo.NativeDubboMethodInvoker;
 import com.reactor.rust.dubbo.NativeResponseHandle;
 import com.reactor.rust.dubbo.sample.CatalogJsonService;
-import com.reactor.sample.dubbo.consumer.config.DubboClientSupport;
+import com.reactor.rust.dubbo.support.DubboConsumerSupport;
 
 import java.util.concurrent.CompletableFuture;
 
@@ -24,16 +25,16 @@ public final class NativeStaticDubboClient implements AutoCloseable {
     }
 
     public static NativeStaticDubboClient create() {
-        if (DubboClientSupport.zookeeperDiscovery()) {
+        DubboConsumerSupport support = support();
+        if (support.zookeeperDiscovery()) {
             throw new IllegalStateException(
                     "native-static jlink image supports static providers only. "
                             + "Use the zookeeper jlink image for ZooKeeper discovery."
             );
         }
 
-        NativeDubboConsumerClient client = NativeDubboConsumers.create(DubboClientSupport.staticDubboConfig());
-        DubboReferenceSpec<CatalogJsonService> spec = DubboClientSupport
-                .referenceBuilder(CatalogJsonService.class)
+        NativeDubboConsumerClient client = NativeDubboConsumers.create(support.staticConfig());
+        DubboReferenceSpec<CatalogJsonService> spec = support.referenceBuilder(CatalogJsonService.class)
                 .version("0.0.0")
                 .build();
 
@@ -58,5 +59,10 @@ public final class NativeStaticDubboClient implements AutoCloseable {
     @Override
     public void close() {
         client.close();
+    }
+
+    private static DubboConsumerSupport support() {
+        return DubboConsumerSupport.fromProperties(PropertiesLoader.getAll())
+                .discoveryProperty("sample.dubbo.discovery");
     }
 }

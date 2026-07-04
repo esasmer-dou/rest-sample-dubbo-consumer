@@ -1,8 +1,8 @@
 package com.reactor.sample.dubbo.consumer.nativestatic;
 
+import com.reactor.rust.app.RestApplication;
 import com.reactor.rust.config.PropertiesLoader;
 import com.reactor.rust.config.RuntimeProfiles;
-import com.reactor.sample.dubbo.consumer.app.ConsumerHttpBootstrap;
 import com.reactor.sample.dubbo.consumer.config.SampleDubboProfileTuning;
 
 public final class NativeStaticConsumerApplication {
@@ -13,14 +13,18 @@ public final class NativeStaticConsumerApplication {
         PropertiesLoader.load();
         RuntimeProfiles.apply();
         SampleDubboProfileTuning.apply();
-        ConsumerHttpBootstrap.disableRouteIndexValidationIfNotExplicit();
+        RestApplication.disableRouteIndexValidationIfNotExplicit();
 
         NativeStaticDubboClient dubboClient = NativeStaticDubboClient.create();
 
-        ConsumerHttpBootstrap.startWithHandlers(
-                "native-static-consumer-shutdown",
-                dubboClient,
-                new NativeStaticHealthHandler(dubboClient),
-                new NativeStaticCatalogHandler(dubboClient));
+        RestApplication.builder()
+                .loadProperties(false)
+                .applyRuntimeProfiles(false)
+                .shutdownThreadName("native-static-consumer-shutdown")
+                .closeable(dubboClient)
+                .handlerInstances(
+                        new NativeStaticHealthHandler(dubboClient),
+                        new NativeStaticCatalogHandler(dubboClient))
+                .start();
     }
 }

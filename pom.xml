@@ -15,8 +15,8 @@
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <rust-java-rest.version>3.2.5</rust-java-rest.version>
-        <java-rust-dubbo.version>0.2.0</java-rust-dubbo.version>
+        <rust-java-rest.version>3.2.6</rust-java-rest.version>
+        <java-rust-dubbo.version>0.2.1</java-rust-dubbo.version>
         <dsl-json.version>2.0.2</dsl-json.version>
         <hessian-lite.version>4.0.3</hessian-lite.version>
         <zookeeper.version>3.7.2</zookeeper.version>
