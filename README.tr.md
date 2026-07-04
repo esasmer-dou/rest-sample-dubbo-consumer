@@ -1038,7 +1038,7 @@ Bu senaryoda karşılaşabileceğiniz farklı durumlar ve doğrudan property kar
 
 ## `rust-java-rest` 3.2.6 Bu Örnekte Ne Değiştiriyor?
 
-Bu örnek artık `rust-java-rest` `3.2.6` ve `java-rust-dubbo` `0.2.1` kullanır. Uygulama kodu modeli değişmez: handler'lar,
+Bu örnek artık `rust-java-rest` `3.2.6` ve `java-rust-dubbo` `0.2.2` kullanır. Uygulama kodu modeli değişmez: handler'lar,
 service adapter'ları, configuration class'ları ve business kararlar Java'da kalır. Değişiklik daha
 çok handler'ların altında çalışan runtime yolundadır.
 
@@ -1559,7 +1559,7 @@ Büyük Dubbo object graph'ı consumer JVM'e çekip tekrar JSON'a çevirmek bu f
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>java-rust-dubbo</artifactId>
-    <version>0.2.1</version>
+    <version>0.2.2</version>
 </dependency>
 
 <dependency>

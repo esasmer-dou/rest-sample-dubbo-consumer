@@ -1024,7 +1024,7 @@ Different problems in this scenario and the exact property actions:
 
 ## What `rust-java-rest` 3.2.6 Changes Here
 
-This sample now targets `rust-java-rest` `3.2.6` with `java-rust-dubbo` `0.2.1`. The application code model does not change:
+This sample now targets `rust-java-rest` `3.2.6` with `java-rust-dubbo` `0.2.2`. The application code model does not change:
 handlers, service adapters, configuration classes, and business decisions still live in Java. The
 change is mostly about the runtime path underneath those handlers.
 
@@ -1546,7 +1546,7 @@ into the consumer JVM and serializing it again is an anti-pattern for this frame
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>java-rust-dubbo</artifactId>
-    <version>0.2.1</version>
+    <version>0.2.2</version>
 </dependency>
 
 <dependency>
