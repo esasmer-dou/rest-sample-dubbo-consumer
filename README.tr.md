@@ -2,12 +2,36 @@
 
 [English](README.md) | Türkçe
 
-`java-rust-dubbo` adapter'ı ile Dubbo provider çağıran ve provider'dan gelen JSON cevapları
-düşük overhead ile REST endpoint olarak dışarı açan minimal Rust-Java REST örnek uygulamasıdır.
+`java-rust-dubbo` ile Dubbo provider çağıran minimal Rust-Java REST örneğidir.
 
-Bu repo bilinçli olarak küçük tutuldu. Amaç, bir `rust-java-rest` uygulamasının Spring Boot, Dubbo
-Spring Boot starter, resmi Dubbo consumer stack, Netty veya ZooKeeper'ı hot HTTP process içine
-varsayılan olarak taşımadan nasıl Dubbo consumer olacağını göstermektir.
+Provider verisini REST endpoint olarak dışarı açar. Java handler mantığını taşır. Rust HTTP I/O ve düşük seviyeli Dubbo data path işini yapar.
+
+Bu örnek hot REST process içine varsayılan olarak Spring Boot, resmi Dubbo consumer stack veya Netty taşımaz.
+
+## İçindekiler
+
+1. [Bu Örnek Ne İçin Hazırlandı?](#bu-örnek-ne-için-hazırlandı)
+2. [Kopyala-Yapıştır: Provider Üzerinden REST API Çalıştır](#kopyala-yapıştır-provider-üzerinden-rest-api-çalıştır)
+3. [Buradan Başlayın: Consumer Şeklinizi Seçin](#buradan-başlayın-consumer-şeklinizi-seçin)
+4. [ZooKeeper ve Static Discovery](#zookeeper-ne-sağlar-ne-zaman-gerekir)
+5. [Production Reçeteleri](#production-reçeteleri)
+6. [Production Senaryo Rehberi](#production-senaryo-rehberi)
+7. [Konfigürasyon](#konfigürasyon)
+8. [Tam Runtime Property Rehberi](#tam-runtime-property-rehberi)
+9. [Ortama Göre Çalıştırma](#ortama-göre-çalıştırma)
+10. [Endpoint'ler](#endpointler)
+11. [Sözlük](#sözlük)
+12. [Sorun Giderme](#sorun-giderme)
+
+## Bu README Nasıl Okunmalı?
+
+Sadece çalıştırmak istiyorsan kopyala-yapıştır bölümüyle başla.
+
+Kubernetes'e çıkacaksan production reçetelerini oku.
+
+RSS, p99, 503 oranı veya Dubbo failover ayarlıyorsan property rehberine bak.
+
+Anlamadığın terim varsa sözlüğe bak.
 
 ## Bu Örnek Ne İçin Hazırlandı?
 
@@ -1700,26 +1724,26 @@ Repo içindeki değerler bilinçli olarak low-RSS yönlüdür; bu değerleri anc
 
 Önemli property'ler:
 
-| Property | Açıklama |
-|----------|----------|
-| `server.port` | Rust-Java REST HTTP portu. |
-| `reactor.runtime.profile` | Runtime preset'i. Bu sample düşük RSS ve native Dubbo için `micro-dubbo` kullanır. |
-| `reactor.startup.component-index.*` | Component index zorunlu tutulur; startup broad classpath scan'e sessizce dönmez. |
-| `reactor.startup.route-index.*` | Route index doğrulanır; route metadata eskiyse startup fail-fast olur. |
-| `reactor.rust.jni.workers` | JNI worker sayısı. Low RSS için küçük tutulur. |
-| `reactor.rust.http.max-response-body-bytes` | Tek response body limiti. |
-| `reactor.rust.http.max-inflight-response-bytes` | Toplam in-flight response byte limiti. |
-| `reactor.rust.http.max-connections` | Kabul edilecek HTTP connection üst limiti. Kubernetes içinde bounded kalmalı. |
-| `reactor.rust.response-pool.small-capacity` / `medium-capacity` / `large-capacity` | Native response buffer retention limitleri.<br>Küçük değer idle RSS'i düşürür; büyük değer allocation churn azaltır. |
-| `reactor.rust.json.writer-retain-max-bytes` | Retain edilecek maksimum JSON writer buffer boyutu. Ara sıra gelen büyük response'ların kalıcı retained memory büyütmesini engeller. |
-| `reactor.rust.native-cache.max-bytes` | Opsiyonel native response cache için hard limit. Endpoint bilinçli cache edilebilir değilse küçük veya kullanılmamış kalmalı. |
-| `reactor.rust.route-admission.*` | Global JNI queue öncesinde route bazlı in-flight ve queue timeout limiti. |
-| `sample.dubbo.discovery` | `static` veya `zookeeper`. |
-| `reactor.dubbo.providers` | Static provider listesi. Tek Service DNS veya virgülle ayrılmış liste olabilir: `rest-sample-dubbo-provider:20880` veya `customer-provider:20880,order-provider:20880`. |
-| `reactor.dubbo.registry-address` | Discovery modunda ZooKeeper adresi. |
-| `reactor.dubbo.timeout-ms` | RPC timeout. |
-| `reactor.dubbo.max-inflight` | Bounded RPC concurrency. |
-| `reactor.dubbo.native-connections-per-endpoint` | Provider başına native Dubbo TCP connection pool boyutu. Memory-first servislerde düşük tutun; sadece p99/RSS ölçümüyle artırın. |
+| Property | Ne işe yarar? | Ne zaman değiştirirsin? |
+|----------|---------------|-------------------------|
+| `server.port` | HTTP portunu belirler. | Container veya lokal port farklıysa değiştir. |
+| `reactor.runtime.profile` | Runtime preset seçer. | Düşük RSS için `micro-dubbo` kalsın. Sadece benchmark sonrası değiştir. |
+| `reactor.startup.component-index.*` | Checked-in component index kullanır. | Component eklediğinde index'i yeniden üret. |
+| `reactor.startup.route-index.*` | Checked-in route index doğrular. | Route eklediğinde index'i yeniden üret. |
+| `reactor.rust.jni.workers` | Java handler worker sayısını belirler. | Sadece Java handler işi darboğaz ise artır. |
+| `reactor.rust.http.max-response-body-bytes` | Tek HTTP response body limitidir. | Büyük provider JSON için artır. |
+| `reactor.rust.http.max-inflight-response-bytes` | Aktif tüm response byte bütçesidir. | Büyük response reject oluyorsa body limitiyle birlikte artır. |
+| `reactor.rust.http.max-connections` | Kabul edilen HTTP connection sayısını sınırlar. | Kubernetes içinde bounded tut. |
+| `reactor.rust.response-pool.*` | Native response buffer retention limitlerini belirler. | Idle RSS için düşür. Allocation churn ölçülürse artır. |
+| `reactor.rust.json.writer-retain-max-bytes` | JSON writer buffer retention üst sınırıdır. | Idle RSS önemliyse düşür. |
+| `reactor.rust.native-cache.max-bytes` | Opsiyonel native response cache byte limitidir. | Sadece bilinçli cacheable response için kullan. |
+| `reactor.rust.route-admission.*` | Her route'u global queue öncesinde sınırlar. | Global worker artırmadan önce hot endpoint'i tune et. |
+| `sample.dubbo.discovery` | `static` veya `zookeeper` modunu seçer. | Service DNS için `static`; discovery zorunluysa `zookeeper`. |
+| `reactor.dubbo.providers` | Static provider adreslerini verir. | Static modda doldur. Kubernetes'te `127.0.0.1` kullanma. |
+| `reactor.dubbo.registry-address` | ZooKeeper adresini verir. | Sadece ZooKeeper modunda doldur. |
+| `reactor.dubbo.timeout-ms` | RPC timeout değeridir. | Provider p99 ve HTTP timeout ile hizala. |
+| `reactor.dubbo.max-inflight` | Eşzamanlı RPC çağrılarını sınırlar. | Memory için düşür. Provider boşluğu varsa artır. |
+| `reactor.dubbo.native-connections-per-endpoint` | Provider başına native TCP pool boyutudur. | Memory-first servislerde düşük tut. Sadece p99/RSS kanıtıyla artır. |
 
 Hızlı semptom rehberi:
 
@@ -1745,7 +1769,7 @@ senaryonuza uyan değerleri `-D...` veya environment variable ile override edin.
 
 Server ve startup:
 
-| Property | Default | Ne işe yarar / ne zaman değişir? |
+| Property | Default | Ne işe yarar / Ne zaman değiştirirsin? |
 |----------|---------|----------------------------------|
 | `server.port` | `8080` | HTTP portu. Pod/container portu farklıysa değiştirin. |
 | `server.host` | `0.0.0.0` | Bind adresi. Container içinde `0.0.0.0` kalsın; sadece lokal-only testte `127.0.0.1` kullanın. |
@@ -1758,7 +1782,7 @@ Server ve startup:
 
 HTTP ve request/response limitleri:
 
-| Property | Default | Ne işe yarar / ne zaman değişir? |
+| Property | Default | Ne işe yarar / Ne zaman değiştirirsin? |
 |----------|---------|----------------------------------|
 | `reactor.rust.http.max-request-body-bytes` | `1048576` | Maksimum request body. Büyük POST/PATCH payload varsa artırın; upload yolu gibi sınırsız kullanmayın. |
 | `reactor.rust.http.max-response-body-bytes` | `8388608` | Tek REST response üst limiti. Büyük provider JSON için Dubbo ve in-flight response limitleriyle birlikte artırın. |
@@ -1775,7 +1799,7 @@ HTTP ve request/response limitleri:
 
 Runtime, queue, pool ve memory:
 
-| Property | Default | Ne işe yarar / ne zaman değişir? |
+| Property | Default | Ne işe yarar / Ne zaman değiştirirsin? |
 |----------|---------|----------------------------------|
 | `reactor.rust.log.level` | `error` | Native log seviyesi. Diagnose için geçici artırın; hot path'te düşük kalsın. |
 | `reactor.rust.java.log.level` | `warn` | Java framework log seviyesi. Startup/config debug için artırın; steady production'da düşük tutun. |
@@ -1801,7 +1825,7 @@ Runtime, queue, pool ve memory:
 
 Route admission:
 
-| Property | Default | Ne işe yarar / ne zaman değişir? |
+| Property | Default | Ne işe yarar / Ne zaman değiştirirsin? |
 |----------|---------|----------------------------------|
 | `reactor.rust.route-admission.enabled` | `true` | Route-level bounded overload kontrolünü açar. Dubbo-backed route'larda açık kalsın. |
 | `reactor.rust.route-admission.default-max-concurrent` | `0` | Global default route limiti. `0` default cap yok demektir; sample explicit route key kullanır. |
@@ -1828,7 +1852,7 @@ Route admission:
 
 Command key admission:
 
-| Property | Default | Ne işe yarar / ne zaman değişir? |
+| Property | Default | Ne işe yarar / Ne zaman değiştirirsin? |
 |----------|---------|----------------------------------|
 | `sample.command.customer-key-admission.enabled` | `true` | PATCH/DELETE gibi write route'larında customer id bazlı korumayı açar. DB row update için açık kalsın. |
 | `sample.command.customer-key-admission.max-concurrent-per-key` | `1` | Tek customer id için aynı anda kaç command çalışabileceğini belirler. `1`, PostgreSQL row lock baskısını azaltır ve hot-row write'ı fail-fast yapar. |
@@ -1836,7 +1860,7 @@ Command key admission:
 
 Dubbo consumer:
 
-| Property | Default | Ne işe yarar / ne zaman değişir? |
+| Property | Default | Ne işe yarar / Ne zaman değiştirirsin? |
 |----------|---------|----------------------------------|
 | `sample.dubbo.discovery` | `static` | Sample switch: `static` `reactor.dubbo.providers` kullanır; `zookeeper` registry discovery kullanır. |
 | `reactor.dubbo.enabled` | `true` | Dubbo consumer adapter'ını açar. Bu sample için true kalmalı. |
@@ -2975,6 +2999,25 @@ Minimum-overhead yol static provider + native transport'tur:
 
 ZooKeeper discovery ihtiyaç olduğunda kullanılabilir. Ancak düşük RSS servislerde static provider,
 Kubernetes Service DNS veya sidecar-generated provider list daha doğru başlangıçtır.
+
+## Sözlük
+
+| Terim | Anlamı |
+|---|---|
+| RSS | Kubernetes memory limitinin gördüğü process memory değeridir. |
+| p99 | En yavaş yüzde 1 çağrının latency çizgisidir. p99 yüksekse tail latency kötüdür. |
+| 503 | Kontrollü overload response kodudur. Limit dolunca pod'u korur. |
+| Provider | Business method'u çalıştıran Dubbo server'dır. |
+| Consumer | Bu REST servisidir. HTTP alır ve provider çağırır. |
+| Static discovery | Consumer sabit adres veya Kubernetes Service DNS kullanır. |
+| ZooKeeper discovery | Consumer provider adreslerini ZooKeeper'dan okur. |
+| Route admission | Endpoint bazlı concurrency ve queue limitidir. |
+| Bulkhead | Yoğun bir route veya RPC'nin diğer işleri bozmasını engelleyen limittir. |
+| RawResponse | Hazır JSON byte verisini DTO kurmadan dönen response tipidir. |
+| DTO graph | Request veya response için oluşturulan Java object yapısıdır. Heap ve GC maliyeti yaratır. |
+| Native handle | Native taraftaki response referansıdır. JSON'u Java heap'e kopyalamayı azaltır. |
+| Timeout | İsteğin başarısız sayılmadan önce bekleyebileceği üst süredir. |
+| In-flight | Başlamış ama henüz bitmemiş iştir. |
 
 ## Sorun Giderme
 

@@ -2,12 +2,36 @@
 
 English | [Turkish](README.tr.md)
 
-Minimal Rust-Java REST sample application that consumes Dubbo providers through the lightweight
-`java-rust-dubbo` adapter and exposes provider JSON responses as low-overhead REST endpoints.
+Minimal Rust-Java REST sample application that consumes Dubbo providers through `java-rust-dubbo`.
 
-This repository is intentionally small. It is meant to show how a `rust-java-rest` application can
-become a Dubbo consumer without pulling Spring Boot, Dubbo Spring Boot starter, the official Dubbo
-consumer stack, Netty, or ZooKeeper into the hot HTTP process by default.
+It exposes Dubbo provider data as REST endpoints. Java owns the handler logic. Rust owns HTTP I/O and the low-level Dubbo data path.
+
+This sample avoids Spring Boot and the official Dubbo consumer stack in the hot REST process by default.
+
+## Contents
+
+1. [What This Sample Is For](#what-this-sample-is-for)
+2. [Copy-Paste: Run REST Over A Dubbo Provider](#copy-paste-run-rest-over-a-dubbo-provider)
+3. [Start Here: Pick Your Consumer Shape](#start-here-pick-your-consumer-shape)
+4. [ZooKeeper And Static Discovery](#what-zookeeper-provides-and-when-you-need-it)
+5. [Production Recipes](#production-recipes)
+6. [Production Scenario Guide](#production-scenario-guide)
+7. [Configuration](#configuration)
+8. [Complete Runtime Property Guide](#complete-runtime-property-guide)
+9. [Running By Environment](#running-by-environment)
+10. [Endpoints](#endpoints)
+11. [Glossary](#glossary)
+12. [Troubleshooting](#troubleshooting)
+
+## How To Read This README
+
+Start with the copy-paste section if you only want to run it.
+
+Use the production recipes when you deploy to Kubernetes.
+
+Use the property guide when you tune RSS, p99, 503 ratio, or Dubbo failover.
+
+Use the glossary when a term is unclear.
 
 ## What This Sample Is For
 
@@ -1688,26 +1712,26 @@ throughput, p99 latency, 503 rate, and RSS together.
 
 Important properties:
 
-| Property | Purpose |
-|----------|---------|
-| `server.port` | HTTP port for the Rust-Java REST server. |
-| `reactor.runtime.profile` | Runtime preset. This sample uses `micro-dubbo` for low RSS with native Dubbo enabled. |
-| `reactor.startup.component-index.*` | Requires checked-in component indexes so startup does not silently fall back to broad classpath scanning. |
-| `reactor.startup.route-index.*` | Validates checked-in route indexes and fails fast if route metadata is stale. |
-| `reactor.rust.jni.workers` | Number of JNI worker threads. Kept small for low RSS. |
-| `reactor.rust.http.max-response-body-bytes` | Per-response body size limit. |
-| `reactor.rust.http.max-inflight-response-bytes` | Total in-flight response byte cap. |
-| `reactor.rust.http.max-connections` | Upper bound for accepted HTTP connections. Keep bounded in Kubernetes. |
-| `reactor.rust.response-pool.small-capacity` / `medium-capacity` / `large-capacity` | Native response buffer retention caps. Lower values reduce idle RSS; higher values reduce allocation churn under steady load. |
-| `reactor.rust.json.writer-retain-max-bytes` | Maximum retained JSON writer buffer size. Keeps occasional larger responses from permanently increasing retained memory. |
-| `reactor.rust.native-cache.max-bytes` | Hard cap for optional native response cache. Leave small or unused unless the endpoint is explicitly cacheable. |
-| `reactor.rust.route-admission.*` | Per-route in-flight and queue timeout limits enforced before the global JNI queue. |
-| `sample.dubbo.discovery` | `static` or `zookeeper`. |
-| `reactor.dubbo.providers` | Static provider list. Can be one Service DNS or a comma-separated list: `rest-sample-dubbo-provider:20880` or `customer-provider:20880,order-provider:20880`. |
-| `reactor.dubbo.registry-address` | ZooKeeper address used in discovery mode. |
-| `reactor.dubbo.timeout-ms` | Per-RPC timeout. |
-| `reactor.dubbo.max-inflight` | Bounded RPC concurrency. |
-| `reactor.dubbo.native-connections-per-endpoint` | Native Dubbo TCP connection pool size per provider. Keep it low for memory-first services; increase only with p99/RSS measurements. |
+| Property | What it does | When to change |
+|----------|--------------|----------------|
+| `server.port` | Sets the HTTP port. | Change when the container or local port is different. |
+| `reactor.runtime.profile` | Selects the runtime preset. | Keep `micro-dubbo` for low RSS. Change only after benchmark. |
+| `reactor.startup.component-index.*` | Uses checked-in component indexes. | Regenerate after adding components. |
+| `reactor.startup.route-index.*` | Validates checked-in route indexes. | Regenerate after adding routes. |
+| `reactor.rust.jni.workers` | Sets Java handler worker count. | Increase only if Java handler work is the bottleneck. |
+| `reactor.rust.http.max-response-body-bytes` | Limits one HTTP response body. | Raise for larger provider JSON. |
+| `reactor.rust.http.max-inflight-response-bytes` | Limits all active response bytes. | Raise with response body limit if large responses are rejected. |
+| `reactor.rust.http.max-connections` | Caps accepted HTTP connections. | Keep bounded in Kubernetes. |
+| `reactor.rust.response-pool.*` | Controls retained native response buffers. | Lower for idle RSS. Raise only to reduce measured allocation churn. |
+| `reactor.rust.json.writer-retain-max-bytes` | Caps retained JSON writer buffers. | Lower when idle RSS matters. |
+| `reactor.rust.native-cache.max-bytes` | Caps optional native response cache. | Use only for explicit cacheable responses. |
+| `reactor.rust.route-admission.*` | Limits each route before the global queue. | Tune hot endpoints before raising global workers. |
+| `sample.dubbo.discovery` | Selects `static` or `zookeeper`. | Use `static` for Service DNS. Use `zookeeper` when discovery is required. |
+| `reactor.dubbo.providers` | Lists static provider addresses. | Set for static mode. Do not use `127.0.0.1` in Kubernetes. |
+| `reactor.dubbo.registry-address` | Points to ZooKeeper. | Set only for ZooKeeper mode. |
+| `reactor.dubbo.timeout-ms` | Sets per-RPC timeout. | Align with provider p99 and HTTP timeout. |
+| `reactor.dubbo.max-inflight` | Bounds concurrent RPC calls. | Lower for memory. Raise only with provider headroom. |
+| `reactor.dubbo.native-connections-per-endpoint` | Sets native TCP pool size per provider. | Keep low for memory-first services. Raise only with p99/RSS evidence. |
 
 Quick symptom lookup:
 
@@ -1733,7 +1757,7 @@ match your scenario with `-D...` or environment variables.
 
 Server and startup:
 
-| Property | Default | What it means / when to change |
+| Property | Default | What it does / When to change |
 |----------|---------|--------------------------------|
 | `server.port` | `8080` | HTTP port. Change when the pod/container port is different. |
 | `server.host` | `0.0.0.0` | Bind address. Keep `0.0.0.0` in containers; use `127.0.0.1` only for local-only tests. |
@@ -1746,7 +1770,7 @@ Server and startup:
 
 HTTP and request/response bounds:
 
-| Property | Default | What it means / when to change |
+| Property | Default | What it does / When to change |
 |----------|---------|--------------------------------|
 | `reactor.rust.http.max-request-body-bytes` | `1048576` | Maximum request body. Increase for larger POST/PATCH payloads; do not use it as an unlimited upload path. |
 | `reactor.rust.http.max-response-body-bytes` | `8388608` | Maximum single REST response. Increase together with Dubbo and in-flight response limits for larger provider JSON. |
@@ -1763,7 +1787,7 @@ HTTP and request/response bounds:
 
 Runtime, queues, pools, and memory:
 
-| Property | Default | What it means / when to change |
+| Property | Default | What it does / When to change |
 |----------|---------|--------------------------------|
 | `reactor.rust.log.level` | `error` | Native log level. Raise temporarily for diagnostics; keep low on hot paths. |
 | `reactor.rust.java.log.level` | `warn` | Java framework log level. Raise for debugging startup/config, not for steady production. |
@@ -1789,7 +1813,7 @@ Runtime, queues, pools, and memory:
 
 Route admission:
 
-| Property | Default | What it means / when to change |
+| Property | Default | What it does / When to change |
 |----------|---------|--------------------------------|
 | `reactor.rust.route-admission.enabled` | `true` | Enables bounded route-level overload control. Keep on for Dubbo-backed routes. |
 | `reactor.rust.route-admission.default-max-concurrent` | `0` | Global default route limit. `0` means no default cap; this sample uses explicit route keys instead. |
@@ -1816,7 +1840,7 @@ Route admission:
 
 Command key admission:
 
-| Property | Default | What it means / when to change |
+| Property | Default | What it does / When to change |
 |----------|---------|--------------------------------|
 | `sample.command.customer-key-admission.enabled` | `true` | Enables per-customer-key command protection for PATCH/DELETE style write routes. Keep enabled for DB row updates. |
 | `sample.command.customer-key-admission.max-concurrent-per-key` | `1` | Maximum concurrent commands for one customer id. `1` protects PostgreSQL row locks and keeps hot-row writes fail-fast. |
@@ -1824,7 +1848,7 @@ Command key admission:
 
 Dubbo consumer:
 
-| Property | Default | What it means / when to change |
+| Property | Default | What it does / When to change |
 |----------|---------|--------------------------------|
 | `sample.dubbo.discovery` | `static` | Sample switch: `static` uses `reactor.dubbo.providers`; `zookeeper` uses registry discovery. |
 | `reactor.dubbo.enabled` | `true` | Enables the Dubbo consumer adapter. Keep true for this sample. |
@@ -2959,6 +2983,25 @@ The minimum-overhead path is static-provider native transport:
 
 ZooKeeper discovery is available when needed, but static provider mode is the better starting point
 for low RSS services, Kubernetes Service DNS, or sidecar-generated provider lists.
+
+## Glossary
+
+| Term | Meaning |
+|---|---|
+| RSS | Process memory seen by Kubernetes memory limits. |
+| p99 | The slowest 1 percent latency line. High p99 means bad tail latency. |
+| 503 | Controlled overload response. It protects the pod when a limit is reached. |
+| Provider | The Dubbo server that owns the business method. |
+| Consumer | This REST service. It receives HTTP and calls the provider. |
+| Static discovery | The consumer uses a fixed address or Kubernetes Service DNS. |
+| ZooKeeper discovery | The consumer reads provider addresses from ZooKeeper. |
+| Route admission | Per-endpoint concurrency and queue limit. |
+| Bulkhead | A limit that isolates one busy route or RPC from other work. |
+| RawResponse | Prepared JSON bytes returned without rebuilding DTOs. |
+| DTO graph | Java objects created for request or response data. It costs heap and GC. |
+| Native handle | A native response reference. It avoids copying JSON into Java heap. |
+| Timeout | Maximum wait time before a request fails. |
+| In-flight | Work that has started but has not completed yet. |
 
 ## Troubleshooting
 
