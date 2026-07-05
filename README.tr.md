@@ -8,6 +8,11 @@ Provider verisini REST endpoint olarak dışarı açar. Java handler mantığın
 
 Bu örnek hot REST process içine varsayılan olarak Spring Boot, resmi Dubbo consumer stack veya Netty taşımaz.
 
+Ortak sample contract'ları `com.reactor.sample:sample-utility:0.1.0` paketinden gelir. Ortak DTO
+record'ları transitif olarak `com.reactor.sample:sample-model:0.1.0` paketinden gelir. Dubbo
+interface package adı `com.reactor.rust.dubbo.sample` olarak korunur. Böylece provider ve consumer
+aynı service kimliğini kullanmaya devam eder.
+
 ## İçindekiler
 
 1. [Bu Örnek Ne İçin Hazırlandı?](#bu-örnek-ne-için-hazırlandı)
@@ -1659,8 +1664,8 @@ HTTP'ye taşıyorsa `byte[] + RawResponse` yolunu koruyun.
 
 ## GitHub Packages
 
-`rust-java-rest` ve `java-rust-dubbo` sadece GitHub Packages üzerinden yayınlandıysa Maven için repo ve
-credential gerekir.
+`rust-java-rest`, `java-rust-dubbo`, `sample-utility` ve `sample-model` sadece GitHub Packages
+üzerinden yayınlandıysa Maven için repo ve credential gerekir.
 
 `pom.xml` içinde repository tanımları hazırdır:
 
@@ -1673,6 +1678,14 @@ credential gerekir.
     <repository>
         <id>github-java-rust-dubbo</id>
         <url>https://maven.pkg.github.com/esasmer-dou/java-rust-dubbo</url>
+    </repository>
+    <repository>
+        <id>github-sample-utility</id>
+        <url>https://maven.pkg.github.com/esasmer-dou/sample-utility</url>
+    </repository>
+    <repository>
+        <id>github-sample-model</id>
+        <url>https://maven.pkg.github.com/esasmer-dou/sample-model</url>
     </repository>
 </repositories>
 ```
@@ -1689,6 +1702,16 @@ credential gerekir.
         </server>
         <server>
             <id>github-java-rust-dubbo</id>
+            <username>YOUR_GITHUB_USERNAME</username>
+            <password>${env.GITHUB_PACKAGES_TOKEN}</password>
+        </server>
+        <server>
+            <id>github-sample-utility</id>
+            <username>YOUR_GITHUB_USERNAME</username>
+            <password>${env.GITHUB_PACKAGES_TOKEN}</password>
+        </server>
+        <server>
+            <id>github-sample-model</id>
             <username>YOUR_GITHUB_USERNAME</username>
             <password>${env.GITHUB_PACKAGES_TOKEN}</password>
         </server>
