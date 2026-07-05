@@ -1,6 +1,6 @@
 # rest-sample-dubbo-consumer
 
-English | [Turkish](README.tr.md)
+[English](https://github.com/esasmer-dou/rest-sample-dubbo-consumer/blob/master/README.md) | [Turkish](https://github.com/esasmer-dou/rest-sample-dubbo-consumer/blob/master/README.tr.md)
 
 Minimal Rust-Java REST sample application that consumes Dubbo providers through `java-rust-dubbo`.
 
