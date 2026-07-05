@@ -17,7 +17,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <rust-java-rest.version>3.2.7</rust-java-rest.version>
         <java-rust-dubbo.version>0.2.3</java-rust-dubbo.version>
-        <sample-utility.version>0.1.0</sample-utility.version>
+        <rest-sample-utility.version>0.1.0</rest-sample-utility.version>
         <dsl-json.version>2.0.2</dsl-json.version>
         <hessian-lite.version>4.0.3</hessian-lite.version>
         <zookeeper.version>3.7.2</zookeeper.version>
@@ -37,22 +37,22 @@
             <url>https://maven.pkg.github.com/esasmer-dou/java-rust-dubbo</url>
         </repository>
         <repository>
-            <id>github-sample-utility</id>
-            <name>GitHub Packages - sample-utility</name>
-            <url>https://maven.pkg.github.com/esasmer-dou/sample-utility</url>
+            <id>github-rest-sample-utility</id>
+            <name>GitHub Packages - rest-sample-utility</name>
+            <url>https://maven.pkg.github.com/esasmer-dou/rest-sample-utility</url>
         </repository>
         <repository>
-            <id>github-sample-model</id>
-            <name>GitHub Packages - sample-model</name>
-            <url>https://maven.pkg.github.com/esasmer-dou/sample-model</url>
+            <id>github-rust-sample-model</id>
+            <name>GitHub Packages - rust-sample-model</name>
+            <url>https://maven.pkg.github.com/esasmer-dou/rust-sample-model</url>
         </repository>
     </repositories>
 
     <dependencies>
         <dependency>
             <groupId>com.reactor.sample</groupId>
-            <artifactId>sample-utility</artifactId>
-            <version>${sample-utility.version}</version>
+            <artifactId>rest-sample-utility</artifactId>
+            <version>${rest-sample-utility.version}</version>
         </dependency>
         <dependency>
             <groupId>com.reactor</groupId>

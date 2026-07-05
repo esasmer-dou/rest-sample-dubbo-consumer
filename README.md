@@ -8,8 +8,8 @@ It exposes Dubbo provider data as REST endpoints. Java owns the handler logic. R
 
 This sample avoids Spring Boot and the official Dubbo consumer stack in the hot REST process by default.
 
-Shared sample contracts come from `com.reactor.sample:sample-utility:0.1.0`. Shared DTO records
-come transitively from `com.reactor.sample:sample-model:0.1.0`. The Dubbo interface package name is
+Shared sample contracts come from `com.reactor.sample:rest-sample-utility:0.1.0`. Shared DTO records
+come transitively from `com.reactor.sample:rust-sample-model:0.1.0`. The Dubbo interface package name is
 kept as `com.reactor.rust.dubbo.sample` so the provider and consumer keep the same service identity.
 
 ## Contents
@@ -1651,7 +1651,7 @@ hot read paths where the consumer only forwards provider JSON.
 
 ## GitHub Packages
 
-If `rust-java-rest`, `java-rust-dubbo`, `sample-utility`, and `sample-model` are published only to
+If `rust-java-rest`, `java-rust-dubbo`, `rest-sample-utility`, and `rust-sample-model` are published only to
 GitHub Packages, Maven needs repository and credential configuration.
 
 `pom.xml` already contains:
@@ -1667,12 +1667,12 @@ GitHub Packages, Maven needs repository and credential configuration.
         <url>https://maven.pkg.github.com/esasmer-dou/java-rust-dubbo</url>
     </repository>
     <repository>
-        <id>github-sample-utility</id>
-        <url>https://maven.pkg.github.com/esasmer-dou/sample-utility</url>
+        <id>github-rest-sample-utility</id>
+        <url>https://maven.pkg.github.com/esasmer-dou/rest-sample-utility</url>
     </repository>
     <repository>
-        <id>github-sample-model</id>
-        <url>https://maven.pkg.github.com/esasmer-dou/sample-model</url>
+        <id>github-rust-sample-model</id>
+        <url>https://maven.pkg.github.com/esasmer-dou/rust-sample-model</url>
     </repository>
 </repositories>
 ```
@@ -1693,12 +1693,12 @@ Add credentials to `~/.m2/settings.xml`:
             <password>${env.GITHUB_PACKAGES_TOKEN}</password>
         </server>
         <server>
-            <id>github-sample-utility</id>
+            <id>github-rest-sample-utility</id>
             <username>YOUR_GITHUB_USERNAME</username>
             <password>${env.GITHUB_PACKAGES_TOKEN}</password>
         </server>
         <server>
-            <id>github-sample-model</id>
+            <id>github-rust-sample-model</id>
             <username>YOUR_GITHUB_USERNAME</username>
             <password>${env.GITHUB_PACKAGES_TOKEN}</password>
         </server>
