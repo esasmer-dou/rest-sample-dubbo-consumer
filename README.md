@@ -380,17 +380,56 @@ The benchmark report intentionally includes more than raw RPS:
 | `command_key_admission_rejected` | Per-business-key guard rejected hot-row writes. |
 | `native_dubbo_errors` / `native_dubbo_handle_errors` | Native Dubbo transport/handle health. These should stay `0` in a clean gate. |
 
-Benchmark labels such as `balanced-wide-4x4`, `balanced-mid-4x4`, and `balanced-stable-4x4` are
-measurement recipes, not public runtime profile names. Production runtime profiles remain
-`micro-dubbo` and `balanced-dubbo`; use the recipe values only after your own endpoint matrix proves
-they help.
+### Runtime Profiles And Benchmark Recipes
 
-| Choice | When to use it | What to watch |
-|--------|----------------|---------------|
-| `micro-dubbo` | Memory-first services where controlled `503` during spikes is acceptable. | RSS and p99 should stay low; successful 2xx RPS is intentionally capped. |
-| `balanced-dubbo` | Services that need fewer overload rejects and can spend more RSS/thread/connection budget. | Provider CPU, DB pool wait, p99, and non-2xx rate must be checked together. |
-| Wider route budgets | Distributed writes where provider and DB have real headroom. | Useful 2xx RPS should rise without turning p99 into seconds. |
-| Shorter route queues | Latency-first endpoints where stale queued work is worse than fail-fast. | Non-2xx rate will rise; this is acceptable only if callers handle retry/backoff. |
+There are two names to keep separate.
+
+| Name type | Example | Where you use it | Meaning |
+|-----------|---------|------------------|---------|
+| Runtime profile | `micro-dubbo`, `balanced-dubbo` | Real application properties and Kubernetes env values. | Selects the default memory/throughput posture. |
+| Benchmark recipe | `micro-1x1`, `micro-2x2`, `balanced-stable-4x4` | Benchmark reports and tuning notes. | Shows the exact connection, worker, queue, and route limits used during a test. |
+
+Do not set `reactor.runtime.profile=micro-1x1`. That is not a runtime profile. Use
+`reactor.runtime.profile=micro-dubbo`, then set the individual properties shown below if you want the
+same behavior.
+
+| Term | Plain meaning |
+|------|---------------|
+| `micro` | Memory-first. Small queues, few workers, few connections, controlled `503` under spikes. |
+| `balanced` | More successful RPS. Uses more connections, workers, queue space, and RSS. |
+| `1x1` | `1` native Dubbo connection per provider endpoint and `1` native async worker. |
+| `2x2` | `2` native Dubbo connections and `2` native async workers. |
+| `4x4` | `4` native Dubbo connections and `4` native async workers. |
+| `wide` | Wider route budgets. It can reduce `503`, but may increase RSS and p99. |
+| `mid` | Middle route budgets. Safer than `wide` when provider capacity is not large. |
+| `stable` | Narrower route budgets and shorter queue timeout. It protects p99/RSS and may return `503` earlier. |
+
+| Recipe | Use when | Key settings | Trade-off |
+|--------|----------|--------------|-----------|
+| `micro-1x1` | Smallest Dubbo consumer pod, low or moderate traffic, DB-backed provider with a small pool. | <small><code>reactor.runtime.profile=micro-dubbo</code><br><code>reactor.dubbo.native-connections-per-endpoint=1</code><br><code>reactor.dubbo.native-async-workers=1</code><br><code>reactor.dubbo.native-async-queue-capacity=32</code><br><code>reactor.dubbo.max-inflight=16</code></small> | Lowest RSS. Spikes may get controlled `503`. |
+| `micro-2x2` | Provider has some headroom and p99 is high with `1x1`. | <small><code>reactor.dubbo.native-connections-per-endpoint=2</code><br><code>reactor.dubbo.native-async-workers=2</code><br><code>reactor.dubbo.native-async-queue-capacity=128</code><br><code>reactor.dubbo.max-inflight=32</code></small> | Better parallelism. More RSS and provider pressure. |
+| `balanced-stable-4x4` | Read-heavy service, provider returns ready JSON, and you want more 2xx without hiding overload. | <small><code>reactor.runtime.profile=balanced-dubbo</code><br><code>reactor.dubbo.native-connections-per-endpoint=4</code><br><code>reactor.dubbo.native-async-workers=4</code><br><code>reactor.dubbo.native-async-queue-capacity=512</code><br><code>reactor.dubbo.max-inflight=64</code></small> | Higher RPS. Needs provider CPU/DB proof. |
+| `balanced-mid-4x4` | Distributed commands need more accepted work and provider capacity is measured. | Same `4x4` native settings, with wider route budgets than `stable`. | More 2xx possible. p99/RSS must be watched. |
+| `balanced-wide-4x4` | Only for a measured high-capacity provider, not as a default. | Same `4x4` native settings, with the widest route budgets. | Can hide overload in queues. Use with caution. |
+
+Copy-paste starting point for a `micro-1x1` style service:
+
+```properties
+reactor.runtime.profile=micro-dubbo
+reactor.dubbo.runtime-profile=micro-dubbo
+reactor.dubbo.native-connections-per-endpoint=1
+reactor.dubbo.native-max-idle-connections-per-endpoint=1
+reactor.dubbo.native-async-workers=1
+reactor.dubbo.native-async-queue-capacity=32
+reactor.dubbo.native-async-transport=blocking
+reactor.dubbo.max-inflight=16
+reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=8
+reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms=150
+```
+
+Use this rule for DB-backed endpoints: do not size the consumer for client concurrency first. Size it
+from provider and Hikari capacity first. If the provider has only two DB connections, `c64` traffic
+must either wait briefly or get controlled `503`; deep queues only increase RSS and p99.
 
 ## Production Recipes
 

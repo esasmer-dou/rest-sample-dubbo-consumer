@@ -394,17 +394,55 @@ Benchmark raporu sadece raw RPS vermez; bilinçli olarak şu alanları da taşı
 | `command_key_admission_rejected` | Aynı business key için hot-row write koruması devreye girdi. |
 | `native_dubbo_errors` / `native_dubbo_handle_errors` | Native Dubbo transport/handle sağlığı. Temiz gate'te `0` kalmalıdır. |
 
-`balanced-wide-4x4`, `balanced-mid-4x4`, `balanced-stable-4x4` gibi isimler public runtime profile
-değildir; benchmark reçetesidir. Production runtime profile isimleri `micro-dubbo` ve
-`balanced-dubbo` olarak kalır. Bu reçete değerlerini kendi endpoint matrix'inizde fayda sağladığını
-kanıtlamadan default yapmayın.
+### Runtime Profile Ve Benchmark Reçeteleri
 
-| Seçim | Ne zaman kullanılır? | Neye bakılır? |
-|-------|----------------------|---------------|
-| `micro-dubbo` | Memory-first servislerde, spike anında kontrollü `503` kabul ediliyorsa. | RSS ve p99 düşük kalmalı; successful 2xx RPS bilinçli sınırlıdır. |
-| `balanced-dubbo` | Daha az overload reject isteniyorsa ve daha fazla RSS/thread/connection bütçesi ayrılabiliyorsa. | Provider CPU, DB pool wait, p99 ve non-2xx oranı birlikte izlenmeli. |
-| Daha geniş route budget | Provider ve DB gerçekten boş kapasiteye sahipse distributed write için. | Useful 2xx RPS artmalı, p99 saniyelere çıkmamalı. |
-| Daha kısa route queue | Eski queued işin fail-fast'ten daha kötü olduğu latency-first endpoint'lerde. | Non-2xx artar; caller retry/backoff biliyorsa kabul edilir. |
+İki isim tipini ayrı düşünün.
+
+| İsim tipi | Örnek | Nerede kullanılır? | Anlamı |
+|-----------|-------|--------------------|--------|
+| Runtime profile | `micro-dubbo`, `balanced-dubbo` | Gerçek application property ve Kubernetes env değerlerinde. | Memory/throughput davranışını seçer. |
+| Benchmark reçetesi | `micro-1x1`, `micro-2x2`, `balanced-stable-4x4` | Benchmark raporlarında ve tuning notlarında. | Test sırasında kullanılan connection, worker, queue ve route limitlerini gösterir. |
+
+`reactor.runtime.profile=micro-1x1` yazmayın. Bu gerçek profile adı değildir. Aynı davranışı istiyorsanız
+`reactor.runtime.profile=micro-dubbo` kullanın ve aşağıdaki property'leri ayrıca verin.
+
+| Terim | Basit anlamı |
+|-------|--------------|
+| `micro` | Memory-first. Küçük queue, az worker, az connection, spike anında kontrollü `503`. |
+| `balanced` | Daha fazla başarılı RPS. Daha çok connection, worker, queue ve RSS kullanır. |
+| `1x1` | Provider endpoint başına `1` native Dubbo connection ve `1` native async worker. |
+| `2x2` | `2` native Dubbo connection ve `2` native async worker. |
+| `4x4` | `4` native Dubbo connection ve `4` native async worker. |
+| `wide` | Route budget daha geniştir. `503` azalabilir ama RSS ve p99 artabilir. |
+| `mid` | Orta route budget kullanır. Provider kapasitesi çok yüksek değilse `wide` değerinden daha güvenlidir. |
+| `stable` | Route budget daha dar, queue timeout daha kısadır. p99/RSS korur, `503` daha erken gelebilir. |
+
+| Reçete | Ne zaman kullanılır? | Ana ayarlar | Bedel |
+|--------|----------------------|-------------|-------|
+| `micro-1x1` | En küçük Dubbo consumer pod, düşük/orta trafik, küçük DB pool kullanan provider. | <small><code>reactor.runtime.profile=micro-dubbo</code><br><code>reactor.dubbo.native-connections-per-endpoint=1</code><br><code>reactor.dubbo.native-async-workers=1</code><br><code>reactor.dubbo.native-async-queue-capacity=32</code><br><code>reactor.dubbo.max-inflight=16</code></small> | En düşük RSS. Spike altında kontrollü `503` dönebilir. |
+| `micro-2x2` | Provider tarafında boş kapasite var ve `1x1` ile p99 yüksek kalıyor. | <small><code>reactor.dubbo.native-connections-per-endpoint=2</code><br><code>reactor.dubbo.native-async-workers=2</code><br><code>reactor.dubbo.native-async-queue-capacity=128</code><br><code>reactor.dubbo.max-inflight=32</code></small> | Paralellik artar. RSS ve provider baskısı artar. |
+| `balanced-stable-4x4` | Read-heavy servis, provider hazır JSON dönüyor ve overload saklanmadan daha çok 2xx isteniyor. | <small><code>reactor.runtime.profile=balanced-dubbo</code><br><code>reactor.dubbo.native-connections-per-endpoint=4</code><br><code>reactor.dubbo.native-async-workers=4</code><br><code>reactor.dubbo.native-async-queue-capacity=512</code><br><code>reactor.dubbo.max-inflight=64</code></small> | RPS artar. Provider CPU/DB ölçümü gerekir. |
+| `balanced-mid-4x4` | Distributed command endpoint'leri daha çok kabul edilen iş istiyor ve provider kapasitesi ölçüldü. | Aynı `4x4` native ayarları, `stable` değerinden daha geniş route budget. | Daha çok 2xx alınabilir. p99/RSS izlenmelidir. |
+| `balanced-wide-4x4` | Sadece ölçülmüş yüksek kapasiteli provider için. Default yapılmamalıdır. | Aynı `4x4` native ayarları, en geniş route budget. | Overload queue içinde saklanabilir. Dikkatli kullanın. |
+
+`micro-1x1` tarzı servis için kopyala-yapıştır başlangıç:
+
+```properties
+reactor.runtime.profile=micro-dubbo
+reactor.dubbo.runtime-profile=micro-dubbo
+reactor.dubbo.native-connections-per-endpoint=1
+reactor.dubbo.native-max-idle-connections-per-endpoint=1
+reactor.dubbo.native-async-workers=1
+reactor.dubbo.native-async-queue-capacity=32
+reactor.dubbo.native-async-transport=blocking
+reactor.dubbo.max-inflight=16
+reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=8
+reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms=150
+```
+
+DB-backed endpoint için kural basittir: consumer'ı önce client concurrency değerine göre değil,
+provider ve Hikari kapasitesine göre boyutlandırın. Provider'da iki DB connection varsa `c64`
+trafik ya kısa süre beklemeli ya da kontrollü `503` almalıdır. Derin queue sadece RSS ve p99 artırır.
 
 ## Production Reçeteleri
 
