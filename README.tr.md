@@ -2,6 +2,8 @@
 
 [English](https://github.com/esasmer-dou/rest-sample-dubbo-consumer/blob/master/README.md) | [Turkish](https://github.com/esasmer-dou/rest-sample-dubbo-consumer/blob/master/README.tr.md)
 
+[Kısa Kullanıcı Rehberi](docs/USER_GUIDE.tr.md)
+
 `java-rust-dubbo` ile Dubbo provider çağıran minimal Rust-Java REST örneğidir.
 
 Provider verisini REST endpoint olarak dışarı açar. Java handler mantığını taşır. Rust HTTP I/O ve düşük seviyeli Dubbo data path işini yapar.
