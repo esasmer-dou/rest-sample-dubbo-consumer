@@ -2,7 +2,7 @@
 
 [English](https://github.com/esasmer-dou/rest-sample-dubbo-consumer/blob/master/README.md) | [Turkish](https://github.com/esasmer-dou/rest-sample-dubbo-consumer/blob/master/README.tr.md)
 
-[Kısa Kullanıcı Rehberi](docs/USER_GUIDE.tr.md) | [PDF](docs/USER_GUIDE.tr.pdf)
+[Kısa Kullanıcı Rehberi](docs/USER_GUIDE.tr.md) | [PDF](docs/rest-sample-dubbo-consumer-user-guide.tr.pdf)
 
 `java-rust-dubbo` ile Dubbo provider çağıran minimal Rust-Java REST örneğidir.
 
