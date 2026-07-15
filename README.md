@@ -255,7 +255,7 @@ consumer must validate fields or branch on a typed result, but it needs two expl
 | File / setup | Why it exists | If it is missing |
 |--------------|---------------|------------------|
 | DTO records annotated with `@CompiledJson` | Generates DSL-JSON readers/writers at build time for REST request parsing. | `@RequestBody CreateCustomerCommand` fails with "Unable to find reader". |
-| `META-INF/services/com.dslplatform.json.Configuration` | Lets `rust-java-rest` discover generated DSL-JSON converters without reflection fallback. | The generated converter classes exist, but the framework does not load them. |
+| `rust-sample-model` JAR's `META-INF/services/com.dslplatform.json.Configuration` | Lets `rust-java-rest` discover generated DSL-JSON converters without a consumer-local list. | The generated converter classes exist, but the framework does not load them. |
 | `security/serialize.allowlist` | Lets Dubbo/Hessian deserialize only the DTO package you explicitly trust. | Provider may return Hessian status `40` for typed command requests. |
 | `java-rust-dubbo` full profile + `hessian-lite` | Required for argument methods and typed record/list/scalar responses. | Only no-arg `byte[]` native-static calls are safe. |
 
@@ -1221,6 +1221,47 @@ reactor.dubbo.providers=rest-sample-dubbo-provider:20880
 reactor.runtime.profile=micro-dubbo
 ```
 
+The application bootstrap only declares the active module and resources:
+
+```java
+RestApplication.builder()
+    .module(context -> {
+        SampleDubboProfileTuning.apply();
+        if (isCatalogOnlySurface()) {
+            CatalogOnlyClient client = context.manage(CatalogOnlyDubboClientFactory.create());
+            context.handlers(
+                    new HealthHandler(client.catalogClient()),
+                    new CatalogOnlyHandler(client.catalogClient()));
+        } else {
+            context.scan(BASE_PACKAGE)
+                   .handlerTypes(HealthHandler.class, CatalogHandler.class, CustomerHandler.class);
+        }
+    })
+    .start();
+```
+
+Each RPC adapter owns its method descriptors in one factory method:
+
+```java
+DubboReferenceSpec<NestedCatalogService> spec = support.reference(NestedCatalogService.class);
+return new NestedCatalogClient(
+        client.method(spec, "getNestedCatalogJson", byte[].class),
+        client.method(spec, "getCatalogTitle", String.class),
+        client.method(spec, "countCatalogItems", Integer.class),
+        client.method(spec, "getCatalogInfo", CatalogInfo.class),
+        client.method(spec, "listFeaturedItems", List.class, int.class),
+        client.method(spec, "getCatalogAttributes", Map.class),
+        client,
+        support.booleanProperty("sample.dubbo.read-retry-on-io-error", false));
+```
+
+This keeps protocol descriptors out of REST handlers. The handler still owns HTTP behavior and the
+adapter still lists every callable Dubbo method explicitly.
+
+The `native-static-consumer` Maven profile also narrows the compiled application surface. Its JAR
+contains only the native-static application, handlers, client, profile tuning, and controlled error
+helper. Full customer handlers and their startup indexes are not packaged in that artifact.
+
 The sample does not use a broad reflection scanner to decide business behavior. Active handlers and
 Dubbo clients are explicit, while repeated HTTP bootstrap and Dubbo config builder code live in small
 support classes. This keeps class loading predictable and makes memory measurements easier to trust.
@@ -1395,8 +1436,8 @@ choice is a Java `record`; runtime behavior, config, handlers, and Dubbo interfa
 | Type | Role | HTTP JSON contract type |
 |------|------|-------------------------|
 | `RestSampleDubboConsumerApplication` | Starts the process and HTTP server. | Java class (startup/runtime); does not produce an HTTP JSON body. |
-| `ConsumerProperties` | Reads and validates runtime properties. | Java class (config); does not produce an HTTP JSON body. |
-| `DubboConsumerConfiguration` | Creates and closes Dubbo client beans. | Java class (resource/config); does not produce an HTTP JSON body. |
+| `RestApplication.ModuleContext` | Owns explicitly managed clients and active handlers during REST startup. | Framework lifecycle API; does not produce an HTTP JSON body. |
+| `DubboConsumerConfiguration` | Creates and closes the full-surface Dubbo client beans. | Java class (resource/config); does not produce an HTTP JSON body. |
 | `NestedCatalogClient` | Adapter around native Dubbo method invokers. | Java class (RPC adapter); not a JSON DTO or POJO response contract. |
 | `CustomerQueryClient` | Adapter around the customer Dubbo interface. | Java class (RPC adapter); not a JSON DTO or POJO response contract. |
 | `CatalogHandler` | REST endpoint behavior. | Java class (HTTP handler/controller); not a body type. It can return `RawResponse` or a Java `record` DTO. |

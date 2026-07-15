@@ -6,7 +6,7 @@
 
     <groupId>com.reactor.sample</groupId>
     <artifactId>rest-sample-dubbo-consumer</artifactId>
-    <version>0.1.1</version>
+    <version>0.2.0</version>
     <packaging>jar</packaging>
 
     <name>rest-sample-dubbo-consumer</name>
@@ -15,9 +15,9 @@
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <rust-java-rest.version>3.2.7</rust-java-rest.version>
-        <java-rust-dubbo.version>0.2.3</java-rust-dubbo.version>
-        <rest-sample-utility.version>0.1.0</rest-sample-utility.version>
+        <rust-java-rest.version>3.3.0</rust-java-rest.version>
+        <java-rust-dubbo.version>0.3.0</java-rust-dubbo.version>
+        <rest-sample-utility.version>0.2.0</rest-sample-utility.version>
         <dsl-json.version>2.0.2</dsl-json.version>
         <hessian-lite.version>4.0.3</hessian-lite.version>
         <zookeeper.version>3.7.2</zookeeper.version>
@@ -137,6 +137,34 @@
                     <classifier>native-static</classifier>
                 </dependency>
             </dependencies>
+            <build>
+                <resources>
+                    <resource>
+                        <directory>src/main/resources</directory>
+                        <excludes>
+                            <exclude>META-INF/reactor/components.idx</exclude>
+                            <exclude>META-INF/reactor/routes.idx</exclude>
+                        </excludes>
+                    </resource>
+                </resources>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-compiler-plugin</artifactId>
+                        <configuration>
+                            <includes>
+                                <include>com/reactor/sample/dubbo/consumer/nativestatic/**</include>
+                                <include>com/reactor/sample/dubbo/consumer/config/SampleDubboProfileTuning.java</include>
+                                <include>com/reactor/sample/dubbo/consumer/http/**</include>
+                            </includes>
+                            <testIncludes>
+                                <testInclude>com/reactor/sample/dubbo/consumer/http/ConsumerErrorResponsesTest.java</testInclude>
+                                <testInclude>com/reactor/sample/dubbo/consumer/nativestatic/NativeStaticHealthHandlerTest.java</testInclude>
+                            </testIncludes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
         </profile>
         <profile>
             <id>zookeeper-discovery</id>

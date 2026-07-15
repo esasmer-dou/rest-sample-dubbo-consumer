@@ -2,7 +2,6 @@ package com.reactor.sample.dubbo.consumer.app;
 
 import com.reactor.rust.app.RestApplication;
 import com.reactor.rust.config.PropertiesLoader;
-import com.reactor.rust.config.RuntimeProfiles;
 import com.reactor.sample.dubbo.consumer.config.CatalogOnlyDubboClientFactory;
 import com.reactor.sample.dubbo.consumer.config.SampleDubboProfileTuning;
 import com.reactor.sample.dubbo.consumer.handler.CatalogOnlyHandler;
@@ -19,42 +18,22 @@ public final class RestSampleDubboConsumerApplication {
     private RestSampleDubboConsumerApplication() {}
 
     public static void main(String[] args) {
-        PropertiesLoader.load();
-        RuntimeProfiles.apply();
-        SampleDubboProfileTuning.apply();
-
-        if (isCatalogOnlySurface()) {
-            startCatalogOnly();
-            return;
-        }
-
-        startFullSurface();
-    }
-
-    private static void startFullSurface() {
         RestApplication.builder()
-                .loadProperties(false)
-                .applyRuntimeProfiles(false)
-                .scan(BASE_PACKAGE)
-                .handlers(HealthHandler.class, CatalogHandler.class, CustomerHandler.class)
                 .shutdownThreadName("sample-shutdown")
-                .start();
-    }
-
-    private static void startCatalogOnly() {
-        RestApplication.disableRouteIndexValidationIfNotExplicit();
-
-        CatalogOnlyDubboClientFactory.CatalogOnlyClient catalogOnlyClient =
-                CatalogOnlyDubboClientFactory.create();
-
-        RestApplication.builder()
-                .loadProperties(false)
-                .applyRuntimeProfiles(false)
-                .shutdownThreadName("sample-catalog-only-shutdown")
-                .closeable(catalogOnlyClient)
-                .handlerInstances(
-                        new HealthHandler(catalogOnlyClient.catalogClient()),
-                        new CatalogOnlyHandler(catalogOnlyClient.catalogClient()))
+                .module(context -> {
+                    SampleDubboProfileTuning.apply();
+                    if (isCatalogOnlySurface()) {
+                        RestApplication.disableRouteIndexValidationIfNotExplicit();
+                        CatalogOnlyDubboClientFactory.CatalogOnlyClient client =
+                                context.manage(CatalogOnlyDubboClientFactory.create());
+                        context.handlers(
+                                new HealthHandler(client.catalogClient()),
+                                new CatalogOnlyHandler(client.catalogClient()));
+                    } else {
+                        context.scan(BASE_PACKAGE)
+                                .handlerTypes(HealthHandler.class, CatalogHandler.class, CustomerHandler.class);
+                    }
+                })
                 .start();
     }
 

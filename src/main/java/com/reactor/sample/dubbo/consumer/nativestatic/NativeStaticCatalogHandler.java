@@ -3,11 +3,12 @@ package com.reactor.sample.dubbo.consumer.nativestatic;
 import com.reactor.rust.annotations.GetMapping;
 import com.reactor.rust.annotations.RequestMapping;
 import com.reactor.rust.annotations.RouteAdmission;
-import com.reactor.rust.http.HttpStatus;
 import com.reactor.rust.http.RawResponse;
 import com.reactor.rust.http.ResponseEntity;
 
 import java.util.concurrent.CompletableFuture;
+
+import static com.reactor.sample.dubbo.consumer.http.ConsumerErrorResponses.unavailable;
 
 @RequestMapping("/api/v1/catalog")
 public final class NativeStaticCatalogHandler {
@@ -33,29 +34,4 @@ public final class NativeStaticCatalogHandler {
                 "application/json; charset=utf-8"));
     }
 
-    private static ResponseEntity<RawResponse> unavailable(String code, Throwable error) {
-        return ResponseEntity
-                .status(HttpStatus.SERVICE_UNAVAILABLE)
-                .body(RawResponse.text(
-                        "{\"code\":\"" + code + "\",\"message\":\"" + escape(rootMessage(error)) + "\"}",
-                        "application/json; charset=utf-8"
-                ));
-    }
-
-    private static String rootMessage(Throwable error) {
-        Throwable current = error;
-        while (current.getCause() != null) {
-            current = current.getCause();
-        }
-        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
-    }
-
-    private static String escape(String value) {
-        return value
-                .replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t");
-    }
 }

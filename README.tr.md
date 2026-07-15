@@ -269,7 +269,7 @@ ama iki kayıt mekanizması açık olmalıdır:
 | Dosya / ayar | Neden var? | Eksikse ne olur? |
 |--------------|------------|------------------|
 | DTO record'larında `@CompiledJson` | REST request parse için build-time DSL-JSON reader/writer üretir. | `@RequestBody CreateCustomerCommand` "Unable to find reader" hatası verir. |
-| `META-INF/services/com.dslplatform.json.Configuration` | Üretilen DSL-JSON converter'ları reflection fallback açmadan framework'e tanıtır. | Converter class'ları oluşur ama framework yükleyemez. |
+| `rust-sample-model` JAR'ındaki `META-INF/services/com.dslplatform.json.Configuration` | Üretilen DSL-JSON converter'ları consumer içinde ayrı liste tutmadan framework'e tanıtır. | Converter class'ları oluşur ama framework yükleyemez. |
 | `security/serialize.allowlist` | Dubbo/Hessian sadece güvenilen DTO paketini deserialize edebilsin diye vardır. | Provider typed command request için Hessian status `40` dönebilir. |
 | `java-rust-dubbo` full profile + `hessian-lite` | Argümanlı method'lar ve typed record/list/scalar cevaplar için gerekir. | Sadece argümansız `byte[]` native-static çağrıları güvenli kalır. |
 
@@ -1237,6 +1237,47 @@ reactor.dubbo.providers=rest-sample-dubbo-provider:20880
 reactor.runtime.profile=micro-dubbo
 ```
 
+Uygulama başlangıcı sadece aktif modülü ve kaynakları tanımlar:
+
+```java
+RestApplication.builder()
+    .module(context -> {
+        SampleDubboProfileTuning.apply();
+        if (isCatalogOnlySurface()) {
+            CatalogOnlyClient client = context.manage(CatalogOnlyDubboClientFactory.create());
+            context.handlers(
+                    new HealthHandler(client.catalogClient()),
+                    new CatalogOnlyHandler(client.catalogClient()));
+        } else {
+            context.scan(BASE_PACKAGE)
+                   .handlerTypes(HealthHandler.class, CatalogHandler.class, CustomerHandler.class);
+        }
+    })
+    .start();
+```
+
+Her RPC adapter'ı kendi metot tanımlarını tek bir factory metodunda toplar:
+
+```java
+DubboReferenceSpec<NestedCatalogService> spec = support.reference(NestedCatalogService.class);
+return new NestedCatalogClient(
+        client.method(spec, "getNestedCatalogJson", byte[].class),
+        client.method(spec, "getCatalogTitle", String.class),
+        client.method(spec, "countCatalogItems", Integer.class),
+        client.method(spec, "getCatalogInfo", CatalogInfo.class),
+        client.method(spec, "listFeaturedItems", List.class, int.class),
+        client.method(spec, "getCatalogAttributes", Map.class),
+        client,
+        support.booleanProperty("sample.dubbo.read-retry-on-io-error", false));
+```
+
+Böylece protocol tanımları REST handler içine dağılmaz. Handler HTTP davranışını yönetir. Adapter ise
+çağrılabilecek Dubbo metotlarını açıkça listeler.
+
+`native-static-consumer` Maven profile'ı compile edilen uygulama yüzeyini de daraltır. Bu JAR yalnızca
+native-static application, handler, client, profile tuning ve kontrollü hata helper sınıfını taşır.
+Full customer handler'ları ve onlara ait startup index dosyaları bu artifact'e girmez.
+
 Sample, business davranışı belirlemek için geniş bir reflection scanner kullanmaz. Aktif handler'lar
 ve Dubbo client'lar açıkça görünür. Tekrar eden HTTP bootstrap ve Dubbo config builder kodu küçük
 support class'larda durur. Bu yaklaşım class loading'i öngörülebilir tutar ve memory ölçümlerini
@@ -1410,8 +1451,8 @@ Bu örnekteki class ve interface'ler response DTO değildir. DTO gerekiyorsa nor
 | Tip | Rol | HTTP JSON contract tipi |
 |-----|-----|-------------------------|
 | `RestSampleDubboConsumerApplication` | Process ve HTTP server başlatır. | Java class (startup/runtime); HTTP JSON body üretmez. |
-| `ConsumerProperties` | Runtime property okur ve validate eder. | Java class (config); HTTP JSON body üretmez. |
-| `DubboConsumerConfiguration` | Dubbo client bean'lerini oluşturur/kapatır. | Java class (resource/config); HTTP JSON body üretmez. |
+| `RestApplication.ModuleContext` | REST başlangıcında açıkça verilen client ve handler yaşam döngüsünü yönetir. | Framework lifecycle API'sidir; HTTP JSON body üretmez. |
+| `DubboConsumerConfiguration` | Full yüzey için Dubbo client bean'lerini oluşturur ve kapatır. | Java class'tır; HTTP JSON body üretmez. |
 | `NestedCatalogClient` | Native Dubbo method invoker adapter'ıdır. | Java class (RPC adapter); JSON DTO veya POJO response contract değildir. |
 | `CustomerQueryClient` | Customer Dubbo interface adapter'ıdır. | Java class (RPC adapter); JSON DTO veya POJO response contract değildir. |
 | `CatalogHandler` | REST endpoint davranışını taşır. | Java class (HTTP handler/controller); body tipi değildir. Response `RawResponse` veya Java `record` DTO olabilir. |

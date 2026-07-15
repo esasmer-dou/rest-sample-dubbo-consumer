@@ -3,12 +3,13 @@ package com.reactor.sample.dubbo.consumer.handler;
 import com.reactor.rust.annotations.GetMapping;
 import com.reactor.rust.annotations.RequestMapping;
 import com.reactor.rust.annotations.RouteAdmission;
-import com.reactor.rust.http.HttpStatus;
 import com.reactor.rust.http.RawResponse;
 import com.reactor.rust.http.ResponseEntity;
 import com.reactor.sample.dubbo.consumer.dubbo.NestedCatalogClient;
 
 import java.util.concurrent.CompletableFuture;
+
+import static com.reactor.sample.dubbo.consumer.http.ConsumerErrorResponses.unavailable;
 
 @RequestMapping("/api/v1/catalog")
 public final class CatalogOnlyHandler {
@@ -75,17 +76,4 @@ public final class CatalogOnlyHandler {
                 "application/json; charset=utf-8"));
     }
 
-    private static ResponseEntity<RawResponse> unavailable(String code, Throwable error) {
-        return ResponseEntity
-                .status(HttpStatus.SERVICE_UNAVAILABLE)
-                .body(JsonResponseSupport.error(code, rootMessage(error)));
-    }
-
-    private static String rootMessage(Throwable error) {
-        Throwable current = error;
-        while (current.getCause() != null) {
-            current = current.getCause();
-        }
-        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
-    }
 }

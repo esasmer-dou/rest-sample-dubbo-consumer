@@ -1,6 +1,0 @@
-com.reactor.rust.dubbo.sample.dto._CatalogInfo_DslJsonConverter
-com.reactor.rust.dubbo.sample.dto._CatalogItem_DslJsonConverter
-com.reactor.rust.dubbo.sample.dto._CreateCustomerCommand_DslJsonConverter
-com.reactor.rust.dubbo.sample.dto._CustomerMutationResult_DslJsonConverter
-com.reactor.rust.dubbo.sample.dto._CustomerStats_DslJsonConverter
-com.reactor.rust.dubbo.sample.dto._CustomerSummary_DslJsonConverter

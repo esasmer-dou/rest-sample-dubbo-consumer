@@ -73,7 +73,7 @@ Sonra consumer'ı çalıştırın:
 
 ```powershell
 mvn -q package
-java -jar target/rest-sample-dubbo-consumer-0.1.1.jar
+java -jar target/rest-sample-dubbo-consumer-0.2.0.jar
 ```
 
 Health:

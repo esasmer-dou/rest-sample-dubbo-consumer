@@ -22,6 +22,8 @@ import com.reactor.sample.dubbo.consumer.dubbo.CustomerQueryClient;
 
 import java.util.concurrent.CompletableFuture;
 
+import static com.reactor.sample.dubbo.consumer.http.ConsumerErrorResponses.unavailable;
+
 @Component
 @RequestMapping("/api/v1/customers")
 public final class CustomerHandler {
@@ -167,17 +169,4 @@ public final class CustomerHandler {
                 .exceptionally(error -> unavailable("dubbo_customer_delete_unavailable", error));
     }
 
-    private static ResponseEntity<RawResponse> unavailable(String code, Throwable error) {
-        return ResponseEntity
-                .status(HttpStatus.SERVICE_UNAVAILABLE)
-                .body(JsonResponseSupport.error(code, rootMessage(error)));
-    }
-
-    private static String rootMessage(Throwable error) {
-        Throwable current = error;
-        while (current.getCause() != null) {
-            current = current.getCause();
-        }
-        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
-    }
 }

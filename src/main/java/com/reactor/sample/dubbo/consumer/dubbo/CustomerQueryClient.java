@@ -1,9 +1,13 @@
 package com.reactor.sample.dubbo.consumer.dubbo;
 
+import com.reactor.rust.dubbo.DubboReferenceSpec;
+import com.reactor.rust.dubbo.NativeDubboConsumerClient;
 import com.reactor.rust.dubbo.NativeDubboMethodInvoker;
 import com.reactor.rust.dubbo.NativeResponseHandle;
+import com.reactor.rust.dubbo.sample.CustomerQueryService;
 import com.reactor.rust.dubbo.sample.dto.CustomerStats;
 import com.reactor.rust.dubbo.sample.dto.CustomerSummary;
+import com.reactor.rust.dubbo.support.DubboConsumerSupport;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -33,6 +37,20 @@ public final class CustomerQueryClient {
         this.customerExists = customerExists;
         this.customerDisplayName = customerDisplayName;
         this.retryReadOnConnectionAbort = retryReadOnConnectionAbort;
+    }
+
+    public static CustomerQueryClient create(
+            NativeDubboConsumerClient client,
+            DubboConsumerSupport support) {
+        DubboReferenceSpec<CustomerQueryService> spec = support.reference(CustomerQueryService.class);
+        return new CustomerQueryClient(
+                client.method(spec, "getDatabaseCustomersJson", byte[].class),
+                client.method(spec, "getCustomer", CustomerSummary.class, long.class),
+                client.method(spec, "findCustomersBySegment", List.class, String.class, int.class),
+                client.method(spec, "getCustomerStats", CustomerStats.class),
+                client.method(spec, "customerExists", Boolean.class, long.class),
+                client.method(spec, "getCustomerDisplayName", String.class, long.class),
+                support.booleanProperty("sample.dubbo.read-retry-on-io-error", false));
     }
 
     public CompletableFuture<byte[]> databaseCustomersJsonAsync() {

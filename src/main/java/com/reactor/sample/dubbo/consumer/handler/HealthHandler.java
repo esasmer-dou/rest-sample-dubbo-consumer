@@ -5,7 +5,12 @@ import com.reactor.rust.bridge.NativeBridge;
 import com.reactor.rust.di.annotation.Autowired;
 import com.reactor.rust.di.annotation.Component;
 import com.reactor.rust.dubbo.NativeDubboBridge;
+import com.reactor.rust.dubbo.sample.dto.ApplicationHealthResponse;
+import com.reactor.rust.dubbo.sample.dto.ApplicationReadinessResponse;
+import com.reactor.rust.dubbo.sample.dto.DependencyCheckResponse;
+import com.reactor.rust.dubbo.sample.dto.StatusResponse;
 import com.reactor.rust.http.HttpStatus;
+import com.reactor.rust.http.JsonResponses;
 import com.reactor.rust.http.RawResponse;
 import com.reactor.rust.http.ResponseEntity;
 import com.reactor.sample.dubbo.consumer.admission.CustomerCommandKeyAdmission;
@@ -13,6 +18,9 @@ import com.reactor.sample.dubbo.consumer.dubbo.CustomerQueryClient;
 import com.reactor.sample.dubbo.consumer.dubbo.NestedCatalogClient;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.List;
+
+import static com.reactor.sample.dubbo.consumer.http.ConsumerErrorResponses.dependencyUnavailable;
 
 @Component
 public final class HealthHandler {
@@ -35,15 +43,14 @@ public final class HealthHandler {
 
     @GetMapping(value = "/app/health", responseType = RawResponse.class)
     public ResponseEntity<RawResponse> health() {
-        return ResponseEntity.ok(RawResponse.text(
-                "{\"status\":\"UP\",\"app\":\"rest-sample-dubbo-consumer\"}",
-                "application/json; charset=utf-8"));
+        return ResponseEntity.ok(JsonResponses.body(
+                new ApplicationHealthResponse("UP", "rest-sample-dubbo-consumer")));
     }
 
     @GetMapping(value = "/app/ready", responseType = RawResponse.class)
     public CompletableFuture<ResponseEntity<RawResponse>> ready() {
-        CompletableFuture<DependencyCheck> catalog = checkCatalog();
-        CompletableFuture<DependencyCheck> customers = checkCustomers();
+        CompletableFuture<DependencyCheckResponse> catalog = checkCatalog();
+        CompletableFuture<DependencyCheckResponse> customers = checkCustomers();
         return catalog.thenCombine(customers, HealthHandler::readyResponse);
     }
 
@@ -76,88 +83,57 @@ public final class HealthHandler {
         if (customerCommandKeyAdmission != null) {
             customerCommandKeyAdmission.reset();
         }
-        return ResponseEntity.ok(RawResponse.text(
-                "{\"status\":\"reset\"}",
-                "application/json; charset=utf-8"));
+        return ResponseEntity.ok(JsonResponses.body(new StatusResponse("reset")));
     }
 
-    private CompletableFuture<DependencyCheck> checkCatalog() {
+    private CompletableFuture<DependencyCheckResponse> checkCatalog() {
         if (catalogClient == null) {
-            return CompletableFuture.completedFuture(DependencyCheck.skipped("catalog"));
+            return CompletableFuture.completedFuture(skipped("catalog"));
         }
         return catalogClient.nestedCatalogJsonAsync()
-                .thenApply(bytes -> DependencyCheck.up("catalog", bytes == null ? 0 : bytes.length))
-                .exceptionally(error -> DependencyCheck.down("catalog", rootMessage(error)));
+                .thenApply(bytes -> up("catalog", bytes == null ? 0 : bytes.length))
+                .exceptionally(error -> down(
+                        "catalog",
+                        dependencyUnavailable("dubbo_catalog_readiness_unavailable", error)));
     }
 
-    private CompletableFuture<DependencyCheck> checkCustomers() {
+    private CompletableFuture<DependencyCheckResponse> checkCustomers() {
         if (customerQueryClient == null) {
-            return CompletableFuture.completedFuture(DependencyCheck.skipped("customers"));
+            return CompletableFuture.completedFuture(skipped("customers"));
         }
         return customerQueryClient.databaseCustomersJsonAsync()
-                .thenApply(bytes -> DependencyCheck.up("customers", bytes == null ? 0 : bytes.length))
-                .exceptionally(error -> DependencyCheck.down("customers", rootMessage(error)));
+                .thenApply(bytes -> up("customers", bytes == null ? 0 : bytes.length))
+                .exceptionally(error -> down(
+                        "customers",
+                        dependencyUnavailable("dubbo_customer_readiness_unavailable", error)));
     }
 
-    private static ResponseEntity<RawResponse> readyResponse(DependencyCheck catalog, DependencyCheck customers) {
-        boolean up = catalog.healthyForReadiness() && customers.healthyForReadiness();
-        String body = "{\"status\":\"" + (up ? "UP" : "DOWN") + "\","
-                + "\"app\":\"rest-sample-dubbo-consumer\","
-                + "\"checks\":[" + catalog.toJson() + "," + customers.toJson() + "]}";
-        RawResponse response = RawResponse.text(body, "application/json; charset=utf-8");
+    private static ResponseEntity<RawResponse> readyResponse(
+            DependencyCheckResponse catalog,
+            DependencyCheckResponse customers) {
+        boolean up = healthy(catalog) && healthy(customers);
+        RawResponse response = JsonResponses.body(new ApplicationReadinessResponse(
+                up ? "UP" : "DOWN",
+                "rest-sample-dubbo-consumer",
+                List.of(catalog, customers)));
         return up
                 ? ResponseEntity.ok(response)
                 : ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(response);
     }
 
-    private static String rootMessage(Throwable error) {
-        Throwable current = error;
-        while (current.getCause() != null) {
-            current = current.getCause();
-        }
-        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
+    private static DependencyCheckResponse up(String name, int bytes) {
+        return new DependencyCheckResponse(name, "UP", true, bytes, "");
     }
 
-    private static String escape(String value) {
-        StringBuilder out = new StringBuilder(value.length() + 8);
-        for (int i = 0; i < value.length(); i++) {
-            char ch = value.charAt(i);
-            switch (ch) {
-                case '"' -> out.append("\\\"");
-                case '\\' -> out.append("\\\\");
-                case '\n' -> out.append("\\n");
-                case '\r' -> out.append("\\r");
-                case '\t' -> out.append("\\t");
-                default -> out.append(ch);
-            }
-        }
-        return out.toString();
+    private static DependencyCheckResponse down(String name, String message) {
+        return new DependencyCheckResponse(name, "DOWN", true, 0, message);
     }
 
-    private record DependencyCheck(String name, String status, boolean required, int bytes, String message) {
+    private static DependencyCheckResponse skipped(String name) {
+        return new DependencyCheckResponse(name, "SKIPPED", false, 0, "");
+    }
 
-        static DependencyCheck up(String name, int bytes) {
-            return new DependencyCheck(name, "UP", true, bytes, "");
-        }
-
-        static DependencyCheck down(String name, String message) {
-            return new DependencyCheck(name, "DOWN", true, 0, message);
-        }
-
-        static DependencyCheck skipped(String name) {
-            return new DependencyCheck(name, "SKIPPED", false, 0, "");
-        }
-
-        boolean healthyForReadiness() {
-            return !required || "UP".equals(status);
-        }
-
-        String toJson() {
-            return "{\"name\":\"" + escape(name) + "\","
-                    + "\"status\":\"" + status + "\","
-                    + "\"required\":" + required + ","
-                    + "\"bytes\":" + bytes + ","
-                    + "\"message\":\"" + escape(message) + "\"}";
-        }
+    private static boolean healthy(DependencyCheckResponse check) {
+        return !check.required() || "UP".equals(check.status());
     }
 }

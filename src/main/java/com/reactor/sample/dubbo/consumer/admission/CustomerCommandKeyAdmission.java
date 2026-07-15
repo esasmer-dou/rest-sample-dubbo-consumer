@@ -1,7 +1,7 @@
 package com.reactor.sample.dubbo.consumer.admission;
 
 import com.reactor.rust.di.annotation.Component;
-import com.reactor.sample.dubbo.consumer.config.ConsumerProperties;
+import com.reactor.rust.config.PropertiesLoader;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Semaphore;
@@ -18,9 +18,11 @@ public final class CustomerCommandKeyAdmission {
     private final LongAdder rejected = new LongAdder();
 
     public CustomerCommandKeyAdmission() {
-        this.enabled = ConsumerProperties.getBoolean("sample.command.customer-key-admission.enabled");
-        int maxConcurrentPerKey = ConsumerProperties.getInt("sample.command.customer-key-admission.max-concurrent-per-key");
-        int stripeCount = nextPowerOfTwo(ConsumerProperties.getInt("sample.command.customer-key-admission.stripes"));
+        this.enabled = PropertiesLoader.requireBoolean("sample.command.customer-key-admission.enabled");
+        int maxConcurrentPerKey =
+                PropertiesLoader.requireInt("sample.command.customer-key-admission.max-concurrent-per-key");
+        int stripeCount = nextPowerOfTwo(
+                PropertiesLoader.requireInt("sample.command.customer-key-admission.stripes"));
         this.mask = stripeCount - 1;
         this.stripes = new Semaphore[stripeCount];
         for (int i = 0; i < stripeCount; i++) {

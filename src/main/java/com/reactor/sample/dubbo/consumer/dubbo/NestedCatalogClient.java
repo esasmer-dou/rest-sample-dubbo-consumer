@@ -1,10 +1,13 @@
 package com.reactor.sample.dubbo.consumer.dubbo;
 
+import com.reactor.rust.dubbo.DubboReferenceSpec;
 import com.reactor.rust.dubbo.NativeDubboConsumerClient;
 import com.reactor.rust.dubbo.NativeDubboMethodInvoker;
 import com.reactor.rust.dubbo.NativeResponseHandle;
+import com.reactor.rust.dubbo.sample.NestedCatalogService;
 import com.reactor.rust.dubbo.sample.dto.CatalogInfo;
 import com.reactor.rust.dubbo.sample.dto.CatalogItem;
+import com.reactor.rust.dubbo.support.DubboConsumerSupport;
 
 import java.util.List;
 import java.util.Map;
@@ -38,6 +41,21 @@ public final class NestedCatalogClient {
         this.catalogAttributes = catalogAttributes;
         this.client = client;
         this.retryReadOnConnectionAbort = retryReadOnConnectionAbort;
+    }
+
+    public static NestedCatalogClient create(
+            NativeDubboConsumerClient client,
+            DubboConsumerSupport support) {
+        DubboReferenceSpec<NestedCatalogService> spec = support.reference(NestedCatalogService.class);
+        return new NestedCatalogClient(
+                client.method(spec, "getNestedCatalogJson", byte[].class),
+                client.method(spec, "getCatalogTitle", String.class),
+                client.method(spec, "countCatalogItems", Integer.class),
+                client.method(spec, "getCatalogInfo", CatalogInfo.class),
+                client.method(spec, "listFeaturedItems", List.class, int.class),
+                client.method(spec, "getCatalogAttributes", Map.class),
+                client,
+                support.booleanProperty("sample.dubbo.read-retry-on-io-error", false));
     }
 
     public CompletableFuture<byte[]> nestedCatalogJsonAsync() {
