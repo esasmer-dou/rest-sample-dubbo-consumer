@@ -1087,9 +1087,9 @@ Different problems in this scenario and the exact property actions:
 | Large history hurts lookup | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=12</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6</code><br>small lookup route budget stays higher</small> | Small lookup p99 protected | Large JSON RPS drops |
 | Admission removed | No route budgets | Restore budgets<br>raise only hot reads | Slow route cannot lock service | Safer but more config |
 
-## What `rust-java-rest` 3.2.7 Changes Here
+## What `rust-java-rest` 3.3.1 Changes Here
 
-This sample now targets `rust-java-rest` `3.2.7` with `java-rust-dubbo` `0.2.3`. The application code model does not change:
+This sample now targets `rust-java-rest` `3.3.1` with `java-rust-dubbo` `0.3.1`. The application code model does not change:
 handlers, service adapters, configuration classes, and business decisions still live in Java. The
 change is mostly about the runtime path underneath those handlers.
 
@@ -1136,7 +1136,7 @@ This sample depends on the normal `rust-java-rest` Maven artifact:
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.2.7</version>
+  <version>3.3.1</version>
 </dependency>
 ```
 
@@ -1224,21 +1224,14 @@ reactor.runtime.profile=micro-dubbo
 The application bootstrap only declares the active module and resources:
 
 ```java
-RestApplication.builder()
-    .module(context -> {
-        SampleDubboProfileTuning.apply();
-        if (isCatalogOnlySurface()) {
-            CatalogOnlyClient client = context.manage(CatalogOnlyDubboClientFactory.create());
-            context.handlers(
-                    new HealthHandler(client.catalogClient()),
-                    new CatalogOnlyHandler(client.catalogClient()));
-        } else {
-            context.scan(BASE_PACKAGE)
-                   .handlerTypes(HealthHandler.class, CatalogHandler.class, CustomerHandler.class);
-        }
-    })
-    .start();
+public static void main(String[] args) {
+    RestApplication.run(DubboConsumerModule.INSTANCE);
+}
 ```
+
+`DubboConsumerModule` applies profile tuning after properties are loaded. It then registers either
+the full or catalog-only surface. Client ownership and handler selection remain explicit in that
+module; the process entry point does not repeat lifecycle plumbing.
 
 Each RPC adapter owns its method descriptors in one factory method:
 
@@ -1263,8 +1256,8 @@ contains only the native-static application, handlers, client, profile tuning, a
 helper. Full customer handlers and their startup indexes are not packaged in that artifact.
 
 The sample does not use a broad reflection scanner to decide business behavior. Active handlers and
-Dubbo clients are explicit, while repeated HTTP bootstrap and Dubbo config builder code live in small
-support classes. This keeps class loading predictable and makes memory measurements easier to trust.
+Dubbo clients are explicit in named modules. Repeated HTTP bootstrap stays inside the libraries. This
+keeps class loading predictable and makes memory measurements easier to trust.
 
 The provider repository is here:
 
@@ -1646,13 +1639,13 @@ into the consumer JVM and serializing it again is an anti-pattern for this frame
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.2.7</version>
+    <version>3.3.1</version>
 </dependency>
 
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>java-rust-dubbo</artifactId>
-    <version>0.2.3</version>
+    <version>0.3.1</version>
 </dependency>
 
 <dependency>

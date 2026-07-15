@@ -1102,9 +1102,9 @@ Bu senaryoda karşılaşabileceğiniz farklı durumlar ve doğrudan property kar
 | Büyük history küçük lookup'ı bozuyor | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=12</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6</code><br>small lookup route budget yüksek kalır</small> | Küçük lookup p99 korunur | Büyük JSON RPS düşer |
 | Admission kapatıldı | Route budget yok | Budget'ları geri koy<br>sadece hot read artır | Yavaş route sistemi kilitlemez | Config daha detaylıdır |
 
-## `rust-java-rest` 3.2.7 Bu Örnekte Ne Değiştiriyor?
+## `rust-java-rest` 3.3.1 Bu Örnekte Ne Değiştiriyor?
 
-Bu örnek artık `rust-java-rest` `3.2.7` ve `java-rust-dubbo` `0.2.3` kullanır. Uygulama kodu modeli değişmez: handler'lar,
+Bu örnek artık `rust-java-rest` `3.3.1` ve `java-rust-dubbo` `0.3.1` kullanır. Uygulama kodu modeli değişmez: handler'lar,
 service adapter'ları, configuration class'ları ve business kararlar Java'da kalır. Değişiklik daha
 çok handler'ların altında çalışan runtime yolundadır.
 
@@ -1151,7 +1151,7 @@ Bu sample normal `rust-java-rest` Maven artifact'ine bağlıdır:
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.2.7</version>
+  <version>3.3.1</version>
 </dependency>
 ```
 
@@ -1240,21 +1240,14 @@ reactor.runtime.profile=micro-dubbo
 Uygulama başlangıcı sadece aktif modülü ve kaynakları tanımlar:
 
 ```java
-RestApplication.builder()
-    .module(context -> {
-        SampleDubboProfileTuning.apply();
-        if (isCatalogOnlySurface()) {
-            CatalogOnlyClient client = context.manage(CatalogOnlyDubboClientFactory.create());
-            context.handlers(
-                    new HealthHandler(client.catalogClient()),
-                    new CatalogOnlyHandler(client.catalogClient()));
-        } else {
-            context.scan(BASE_PACKAGE)
-                   .handlerTypes(HealthHandler.class, CatalogHandler.class, CustomerHandler.class);
-        }
-    })
-    .start();
+public static void main(String[] args) {
+    RestApplication.run(DubboConsumerModule.INSTANCE);
+}
 ```
+
+`DubboConsumerModule`, property değerleri yüklendikten sonra profil ayarlarını uygular. Ardından full
+veya catalog-only yüzeyini kaydeder. Client sahipliği ve handler seçimi bu modülde açık kalır. Process
+başlangıç sınıfı lifecycle ayrıntılarını tekrar etmez.
 
 Her RPC adapter'ı kendi metot tanımlarını tek bir factory metodunda toplar:
 
@@ -1279,9 +1272,8 @@ native-static application, handler, client, profile tuning ve kontrollü hata he
 Full customer handler'ları ve onlara ait startup index dosyaları bu artifact'e girmez.
 
 Sample, business davranışı belirlemek için geniş bir reflection scanner kullanmaz. Aktif handler'lar
-ve Dubbo client'lar açıkça görünür. Tekrar eden HTTP bootstrap ve Dubbo config builder kodu küçük
-support class'larda durur. Bu yaklaşım class loading'i öngörülebilir tutar ve memory ölçümlerini
-daha güvenilir hale getirir.
+ve Dubbo client'lar named module sınıflarında açıkça görünür. Tekrar eden HTTP bootstrap library içinde
+kalır. Bu yaklaşım class loading davranışını öngörülebilir tutar ve memory ölçümlerini güvenilir kılar.
 
 Provider repo:
 
@@ -1660,13 +1652,13 @@ Büyük Dubbo object graph'ı consumer JVM'e çekip tekrar JSON'a çevirmek bu f
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.2.7</version>
+    <version>3.3.1</version>
 </dependency>
 
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>java-rust-dubbo</artifactId>
-    <version>0.2.3</version>
+    <version>0.3.1</version>
 </dependency>
 
 <dependency>
