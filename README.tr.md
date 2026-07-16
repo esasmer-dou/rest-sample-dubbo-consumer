@@ -10,10 +10,12 @@ Provider verisini REST endpoint olarak dışarı açar. Java handler mantığın
 
 Bu örnek hot REST process içine varsayılan olarak Spring Boot, resmi Dubbo consumer stack veya Netty taşımaz.
 
-Ortak sample contract'ları `com.reactor.sample:rest-sample-utility:0.1.0` paketinden gelir. Ortak DTO
-record'ları transitif olarak `com.reactor.sample:rust-sample-model:0.1.0` paketinden gelir. Dubbo
+Ortak sample contract'ları `com.reactor.sample:rest-sample-utility:0.2.0` paketinden gelir. Ortak DTO
+record'ları transitif olarak `com.reactor.sample:rust-sample-model:0.2.0` paketinden gelir. Dubbo
 interface package adı `com.reactor.rust.dubbo.sample` olarak korunur. Böylece provider ve consumer
 aynı service kimliğini kullanmaya devam eder.
+
+[v0.3.0 sürüm notları](docs/RELEASE_NOTES_v0.3.0.md)
 
 ## İçindekiler
 
@@ -1102,9 +1104,9 @@ Bu senaryoda karşılaşabileceğiniz farklı durumlar ve doğrudan property kar
 | Büyük history küçük lookup'ı bozuyor | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=12</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6</code><br>small lookup route budget yüksek kalır</small> | Küçük lookup p99 korunur | Büyük JSON RPS düşer |
 | Admission kapatıldı | Route budget yok | Budget'ları geri koy<br>sadece hot read artır | Yavaş route sistemi kilitlemez | Config daha detaylıdır |
 
-## `rust-java-rest` 3.3.1 Bu Örnekte Ne Değiştiriyor?
+## `rust-java-rest` 3.4.0 Bu Örnekte Ne Değiştiriyor?
 
-Bu örnek artık `rust-java-rest` `3.3.1` ve `java-rust-dubbo` `0.3.1` kullanır. Uygulama kodu modeli değişmez: handler'lar,
+Bu örnek artık `rust-java-rest` `3.4.0` ve `java-rust-dubbo` `0.4.0` kullanır. Uygulama kodu modeli değişmez: handler'lar,
 service adapter'ları, configuration class'ları ve business kararlar Java'da kalır. Değişiklik daha
 çok handler'ların altında çalışan runtime yolundadır.
 
@@ -1151,7 +1153,7 @@ Bu sample normal `rust-java-rest` Maven artifact'ine bağlıdır:
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.3.1</version>
+  <version>3.4.0</version>
 </dependency>
 ```
 
@@ -1652,13 +1654,13 @@ Büyük Dubbo object graph'ı consumer JVM'e çekip tekrar JSON'a çevirmek bu f
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.3.1</version>
+    <version>3.4.0</version>
 </dependency>
 
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>java-rust-dubbo</artifactId>
-    <version>0.3.1</version>
+    <version>0.4.0</version>
 </dependency>
 
 <dependency>
@@ -2045,6 +2047,7 @@ Dubbo consumer:
 | `reactor.dubbo.native-async-workers` | `1` | Native Dubbo async worker sayısı. Yüksek concurrency için artırılır; her worker thread/native maliyet getirir. |
 | `reactor.dubbo.native-async-queue-capacity` | `32` | Native Dubbo async queue. Artırmak burst emer ama overload'u saklayabilir ve tail latency artırabilir. |
 | `reactor.dubbo.native-async-transport` | `blocking` | Native async transport seçimidir. `blocking` memory-first varsayılandır; `tokio-demux` yüksek concurrency için Rust async demux yoludur. |
+| `reactor.dubbo.native-thread-stack-bytes` | `262144` | Native Dubbo worker/Tokio thread stack bütçesini sınırlar. Daha düşük değer yalnız stack bütçesini azaltır ve tüm route smoke testlerini gerektirir. |
 
 <details>
 <summary>Tüm sample property -> environment variable map'i</summary>
@@ -2055,6 +2058,7 @@ Dubbo consumer:
 | `server.host` | `SERVER_HOST` |
 | `reactor.runtime.profile` | `REACTOR_RUNTIME_PROFILE` |
 | `reactor.dubbo.native-async-transport` | `REACTOR_DUBBO_NATIVE_ASYNC_TRANSPORT` |
+| `reactor.dubbo.native-thread-stack-bytes` | `REACTOR_DUBBO_NATIVE_THREAD_STACK_BYTES` |
 | `reactor.startup.component-index.enabled` | `REACTOR_STARTUP_COMPONENT_INDEX_ENABLED` |
 | `reactor.startup.component-index.required` | `REACTOR_STARTUP_COMPONENT_INDEX_REQUIRED` |
 | `reactor.startup.route-index.validate` | `REACTOR_STARTUP_ROUTE_INDEX_VALIDATE` |

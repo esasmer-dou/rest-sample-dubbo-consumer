@@ -65,6 +65,7 @@ ENV JAVA_HOME=/opt/reactor-jre \
     REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT=1 \
     REACTOR_DUBBO_NATIVE_ASYNC_WORKERS=1 \
     REACTOR_DUBBO_NATIVE_ASYNC_QUEUE_CAPACITY=32 \
+    REACTOR_DUBBO_NATIVE_THREAD_STACK_BYTES=262144 \
     REACTOR_DUBBO_MAX_INFLIGHT=16 \
     JAVA_TOOL_OPTIONS="-Xms20m -Xmx64m -Xss160k -Xgc:threads=1 -XX:ActiveProcessorCount=1 -Xtune:virtualized -Dreactor.startup.route-index.validate=false -Dreactor.startup.route-index.required=false"
 
@@ -74,7 +75,7 @@ RUN mkdir -p /app/.reactor/native \
     && chown -R app:app /app/.reactor
 
 COPY --from=build /opt/reactor-jre /opt/reactor-jre
-COPY --from=build /workspace/rest-sample-dubbo-consumer/target/rest-sample-dubbo-consumer-0.1.1.jar /app/app.jar
+COPY --from=build /workspace/rest-sample-dubbo-consumer/target/rest-sample-dubbo-consumer-*.jar /app/app.jar
 COPY --from=build /workspace/rest-sample-dubbo-consumer/target/dependency-native-static /app/lib
 
 USER app

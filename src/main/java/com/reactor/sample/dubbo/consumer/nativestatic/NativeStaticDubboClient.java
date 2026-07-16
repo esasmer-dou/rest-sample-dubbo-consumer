@@ -44,10 +44,6 @@ public final class NativeStaticDubboClient implements AutoCloseable {
         );
     }
 
-    public CompletableFuture<byte[]> nestedCatalogJsonAsync() {
-        return nestedCatalogJson.invokeAsync();
-    }
-
     public CompletableFuture<NativeResponseHandle> nestedCatalogNativeJsonAsync() {
         return nestedCatalogJson.invokeNativeJsonResponseAsync();
     }

@@ -3,21 +3,21 @@ package com.reactor.sample.dubbo.consumer.nativestatic;
 import com.reactor.rust.annotations.GetMapping;
 import com.reactor.rust.bridge.NativeBridge;
 import com.reactor.rust.dubbo.NativeDubboBridge;
-import com.reactor.rust.dubbo.sample.dto.ApplicationReadinessResponse;
-import com.reactor.rust.dubbo.sample.dto.ApplicationRuntimeHealthResponse;
-import com.reactor.rust.dubbo.sample.dto.DependencyCheckResponse;
-import com.reactor.rust.dubbo.sample.dto.StatusResponse;
 import com.reactor.rust.http.HttpStatus;
+import com.reactor.rust.http.JsonResponses;
 import com.reactor.rust.http.RawResponse;
 import com.reactor.rust.http.ResponseEntity;
 
-import java.util.List;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CompletableFuture;
 
-import static com.reactor.rust.http.JsonResponses.body;
 import static com.reactor.sample.dubbo.consumer.http.ConsumerErrorResponses.dependencyUnavailable;
 
 public final class NativeStaticHealthHandler {
+
+    private static final RawResponse HEALTH_RESPONSE = RawResponse.json(
+            "{\"status\":\"UP\",\"app\":\"rest-sample-dubbo-consumer\",\"image\":\"native-static\"}"
+                    .getBytes(StandardCharsets.UTF_8));
 
     private final NativeStaticDubboClient dubboClient;
 
@@ -27,20 +27,17 @@ public final class NativeStaticHealthHandler {
 
     @GetMapping(value = "/app/health", responseType = RawResponse.class)
     public ResponseEntity<RawResponse> health() {
-        return ResponseEntity.ok(body(new ApplicationRuntimeHealthResponse(
-                "UP",
-                "rest-sample-dubbo-consumer",
-                "native-static")));
+        return ResponseEntity.ok(HEALTH_RESPONSE);
     }
 
     @GetMapping(value = "/app/ready", responseType = RawResponse.class)
     public CompletableFuture<ResponseEntity<RawResponse>> ready() {
-        return dubboClient.nestedCatalogJsonAsync()
-                .thenApply(bytes -> readyResponse(true, bytes == null ? 0 : bytes.length, ""))
-                .exceptionally(error -> readyResponse(
-                        false,
-                        0,
-                        dependencyUnavailable("dubbo_catalog_readiness_unavailable", error)));
+        return dubboClient.nestedCatalogNativeJsonAsync()
+                .thenApply(handle -> ResponseEntity.ok(RawResponse.nativeResponse(handle.nativeId())))
+                .exceptionally(error -> ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                        .body(JsonResponses.error(
+                                "dubbo_catalog_readiness_unavailable",
+                                dependencyUnavailable("dubbo_catalog_readiness_unavailable", error))));
     }
 
     @GetMapping(value = "/app/native-metrics", responseType = RawResponse.class)
@@ -61,17 +58,6 @@ public final class NativeStaticHealthHandler {
     public ResponseEntity<RawResponse> resetMetrics() {
         NativeBridge.nativeResetMetrics();
         NativeDubboBridge.resetMetrics();
-        return ResponseEntity.ok(body(new StatusResponse("reset")));
-    }
-
-    private static ResponseEntity<RawResponse> readyResponse(boolean up, int bytes, String message) {
-        String status = up ? "UP" : "DOWN";
-        RawResponse response = body(new ApplicationReadinessResponse(
-                status,
-                "rest-sample-dubbo-consumer",
-                List.of(new DependencyCheckResponse("catalog", status, true, bytes, message))));
-        return up
-                ? ResponseEntity.ok(response)
-                : ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(response);
+        return ResponseEntity.ok(JsonResponses.stringField("status", "reset"));
     }
 }

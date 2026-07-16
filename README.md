@@ -8,9 +8,11 @@ It exposes Dubbo provider data as REST endpoints. Java owns the handler logic. R
 
 This sample avoids Spring Boot and the official Dubbo consumer stack in the hot REST process by default.
 
-Shared sample contracts come from `com.reactor.sample:rest-sample-utility:0.1.0`. Shared DTO records
-come transitively from `com.reactor.sample:rust-sample-model:0.1.0`. The Dubbo interface package name is
+Shared sample contracts come from `com.reactor.sample:rest-sample-utility:0.2.0`. Shared DTO records
+come transitively from `com.reactor.sample:rust-sample-model:0.2.0`. The Dubbo interface package name is
 kept as `com.reactor.rust.dubbo.sample` so the provider and consumer keep the same service identity.
+
+[Release notes for v0.3.0](docs/RELEASE_NOTES_v0.3.0.md)
 
 ## Contents
 
@@ -1087,9 +1089,9 @@ Different problems in this scenario and the exact property actions:
 | Large history hurts lookup | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=12</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6</code><br>small lookup route budget stays higher</small> | Small lookup p99 protected | Large JSON RPS drops |
 | Admission removed | No route budgets | Restore budgets<br>raise only hot reads | Slow route cannot lock service | Safer but more config |
 
-## What `rust-java-rest` 3.3.1 Changes Here
+## What `rust-java-rest` 3.4.0 Changes Here
 
-This sample now targets `rust-java-rest` `3.3.1` with `java-rust-dubbo` `0.3.1`. The application code model does not change:
+This sample now targets `rust-java-rest` `3.4.0` with `java-rust-dubbo` `0.4.0`. The application code model does not change:
 handlers, service adapters, configuration classes, and business decisions still live in Java. The
 change is mostly about the runtime path underneath those handlers.
 
@@ -1136,7 +1138,7 @@ This sample depends on the normal `rust-java-rest` Maven artifact:
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.3.1</version>
+  <version>3.4.0</version>
 </dependency>
 ```
 
@@ -1639,13 +1641,13 @@ into the consumer JVM and serializing it again is an anti-pattern for this frame
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.3.1</version>
+    <version>3.4.0</version>
 </dependency>
 
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>java-rust-dubbo</artifactId>
-    <version>0.3.1</version>
+    <version>0.4.0</version>
 </dependency>
 
 <dependency>
@@ -2032,6 +2034,7 @@ Dubbo consumer:
 | `reactor.dubbo.native-async-workers` | `1` | Native Dubbo async workers. Raise for high concurrency; each worker adds thread/native cost. |
 | `reactor.dubbo.native-async-queue-capacity` | `32` | Native Dubbo async queue. Raising absorbs bursts but can hide overload and increase tail latency. |
 | `reactor.dubbo.native-async-transport` | `blocking` | Native async transport. `blocking` is the memory-first default; `tokio-demux` is the high-concurrency Rust async demux path. |
+| `reactor.dubbo.native-thread-stack-bytes` | `262144` | Bounds native Dubbo worker/Tokio thread stacks. Lower values save only stack budget and require route smoke tests. |
 
 <details>
 <summary>Complete sample property to environment variable map</summary>
@@ -2042,6 +2045,7 @@ Dubbo consumer:
 | `server.host` | `SERVER_HOST` |
 | `reactor.runtime.profile` | `REACTOR_RUNTIME_PROFILE` |
 | `reactor.dubbo.native-async-transport` | `REACTOR_DUBBO_NATIVE_ASYNC_TRANSPORT` |
+| `reactor.dubbo.native-thread-stack-bytes` | `REACTOR_DUBBO_NATIVE_THREAD_STACK_BYTES` |
 | `reactor.startup.component-index.enabled` | `REACTOR_STARTUP_COMPONENT_INDEX_ENABLED` |
 | `reactor.startup.component-index.required` | `REACTOR_STARTUP_COMPONENT_INDEX_REQUIRED` |
 | `reactor.startup.route-index.validate` | `REACTOR_STARTUP_ROUTE_INDEX_VALIDATE` |
