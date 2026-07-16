@@ -7,6 +7,7 @@ import java.util.Locale;
 public final class SampleDubboProfileTuning {
 
     private static final String BALANCED_DUBBO = "balanced-dubbo";
+    private static final String MICRO_2X2 = "micro-2x2";
 
     private static final String[] CATALOG_READ_ROUTES = {
             "get.api.v1.catalog.nested",
@@ -49,7 +50,26 @@ public final class SampleDubboProfileTuning {
                 .toLowerCase(Locale.ROOT);
         if (BALANCED_DUBBO.equals(profile)) {
             applyBalancedDubbo();
+            return;
         }
+        String capacityProfile = PropertiesLoader.get("sample.dubbo.capacity-profile", "micro-1x1")
+                .trim()
+                .toLowerCase(Locale.ROOT);
+        if (MICRO_2X2.equals(capacityProfile)) {
+            applyMicro2x2();
+        }
+    }
+
+    private static void applyMicro2x2() {
+        setIfNoExternalOverride("reactor.dubbo.max-inflight", "64");
+        setIfNoExternalOverride("reactor.dubbo.native-connections-per-endpoint", "2");
+        setIfNoExternalOverride("reactor.dubbo.native-max-idle-connections-per-endpoint", "2");
+        setIfNoExternalOverride("reactor.dubbo.native-idle-connection-ttl-ms", "30000");
+        setIfNoExternalOverride("reactor.dubbo.native-async-workers", "2");
+        setIfNoExternalOverride("reactor.dubbo.native-async-queue-capacity", "64");
+        setIfNoExternalOverride("reactor.dubbo.native-async-transport", "blocking");
+        setRouteAdmissionIfNoExternalOverride("post.api.v1.customers.typed", "8", "250");
+        setRouteAdmissionIfNoExternalOverride("patch.api.v1.customers.id.status.typed", "8", "250");
     }
 
     private static void applyBalancedDubbo() {
@@ -60,6 +80,7 @@ public final class SampleDubboProfileTuning {
         setIfNoExternalOverride("reactor.dubbo.max-inflight", "512");
         setIfNoExternalOverride("reactor.dubbo.native-connections-per-endpoint", "16");
         setIfNoExternalOverride("reactor.dubbo.native-max-idle-connections-per-endpoint", "4");
+        setIfNoExternalOverride("reactor.dubbo.native-idle-connection-ttl-ms", "30000");
         setIfNoExternalOverride("reactor.dubbo.native-async-workers", "8");
         setIfNoExternalOverride("reactor.dubbo.native-async-queue-capacity", "1024");
         setIfNoExternalOverride("reactor.dubbo.native-async-transport", "tokio-demux");

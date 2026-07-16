@@ -15,7 +15,7 @@ record'ları transitif olarak `com.reactor.sample:rust-sample-model:0.2.0` paket
 interface package adı `com.reactor.rust.dubbo.sample` olarak korunur. Böylece provider ve consumer
 aynı service kimliğini kullanmaya devam eder.
 
-[v0.3.0 sürüm notları](docs/RELEASE_NOTES_v0.3.0.md)
+[v0.3.1 sürüm notları](docs/RELEASE_NOTES_v0.3.1.md)
 
 ## İçindekiler
 
@@ -424,7 +424,7 @@ Benchmark raporu sadece raw RPS vermez; bilinçli olarak şu alanları da taşı
 | Reçete | Ne zaman kullanılır? | Ana ayarlar | Bedel |
 |--------|----------------------|-------------|-------|
 | `micro-1x1` | En küçük Dubbo consumer pod, düşük/orta trafik, küçük DB pool kullanan provider. | <small><code>reactor.runtime.profile=micro-dubbo</code><br><code>reactor.dubbo.native-connections-per-endpoint=1</code><br><code>reactor.dubbo.native-async-workers=1</code><br><code>reactor.dubbo.native-async-queue-capacity=32</code><br><code>reactor.dubbo.max-inflight=16</code></small> | En düşük RSS. Spike altında kontrollü `503` dönebilir. |
-| `micro-2x2` | Provider tarafında boş kapasite var ve `1x1` ile p99 yüksek kalıyor. | <small><code>reactor.dubbo.native-connections-per-endpoint=2</code><br><code>reactor.dubbo.native-async-workers=2</code><br><code>reactor.dubbo.native-async-queue-capacity=128</code><br><code>reactor.dubbo.max-inflight=32</code></small> | Paralellik artar. RSS ve provider baskısı artar. |
+| `micro-2x2` | Full sample DB'ye yazıyor veya Hikari `2` olduğu halde `1x1` çağrıları DB'ye ulaşmadan seri hale getiriyor. | <small><code>sample.dubbo.capacity-profile=micro-2x2</code><br><code>reactor.dubbo.native-connections-per-endpoint=2</code><br><code>reactor.dubbo.native-async-workers=2</code><br><code>reactor.dubbo.native-async-queue-capacity=64</code><br><code>reactor.dubbo.max-inflight=64</code></small> | Bir ek native worker ve connection kullanır. Full sample varsayılanıdır; catalog-only `1x1` kalır. |
 | `balanced-stable-4x4` | Read-heavy servis, provider hazır JSON dönüyor ve overload saklanmadan daha çok 2xx isteniyor. | <small><code>reactor.runtime.profile=balanced-dubbo</code><br><code>reactor.dubbo.native-connections-per-endpoint=4</code><br><code>reactor.dubbo.native-async-workers=4</code><br><code>reactor.dubbo.native-async-queue-capacity=512</code><br><code>reactor.dubbo.max-inflight=64</code></small> | RPS artar. Provider CPU/DB ölçümü gerekir. |
 | `balanced-mid-4x4` | Distributed command endpoint'leri daha çok kabul edilen iş istiyor ve provider kapasitesi ölçüldü. | Aynı `4x4` native ayarları, `stable` değerinden daha geniş route budget. | Daha çok 2xx alınabilir. p99/RSS izlenmelidir. |
 | `balanced-wide-4x4` | Sadece ölçülmüş yüksek kapasiteli provider için. Default yapılmamalıdır. | Aynı `4x4` native ayarları, en geniş route budget. | Overload queue içinde saklanabilir. Dikkatli kullanın. |
@@ -447,6 +447,20 @@ reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms=150
 DB-backed endpoint için kural basittir: consumer'ı önce client concurrency değerine göre değil,
 provider ve Hikari kapasitesine göre boyutlandırın. Provider'da iki DB connection varsa `c64`
 trafik ya kısa süre beklemeli ya da kontrollü `503` almalıdır. Derin queue sadece RSS ve p99 artırır.
+
+Consumer, provider ve PostgreSQL container'ları aynı Docker network'üne bağlandıktan sonra tekrarlanabilir
+raw/typed karma write gate'i çalıştırın:
+
+```powershell
+docker run --rm --network YOUR_NETWORK `
+  -v "${PWD}/benchmark:/work" `
+  -e BASE_URL=http://consumer:8080 `
+  -e MODE=mixed -e VUS=8 -e DURATION=30s `
+  grafana/k6:0.52.0 run /work/dubbo-write-gate.js
+```
+
+Normal gate sıfır hatalı write ve `250 ms` altında p99 ister. Yüksek concurrency overload testinde
+kontrollü `503` kabul edilebilir. Ancak native Dubbo hatası, DB rollback veya pool exhaustion olmamalıdır.
 
 ## Production Reçeteleri
 
@@ -1104,9 +1118,9 @@ Bu senaryoda karşılaşabileceğiniz farklı durumlar ve doğrudan property kar
 | Büyük history küçük lookup'ı bozuyor | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=12</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6</code><br>small lookup route budget yüksek kalır</small> | Küçük lookup p99 korunur | Büyük JSON RPS düşer |
 | Admission kapatıldı | Route budget yok | Budget'ları geri koy<br>sadece hot read artır | Yavaş route sistemi kilitlemez | Config daha detaylıdır |
 
-## `rust-java-rest` 3.4.0 Bu Örnekte Ne Değiştiriyor?
+## `rust-java-rest` 3.4.1 Bu Örnekte Ne Değiştiriyor?
 
-Bu örnek artık `rust-java-rest` `3.4.0` ve `java-rust-dubbo` `0.4.0` kullanır. Uygulama kodu modeli değişmez: handler'lar,
+Bu örnek artık `rust-java-rest` `3.4.1` ve `java-rust-dubbo` `0.4.1` kullanır. Uygulama kodu modeli değişmez: handler'lar,
 service adapter'ları, configuration class'ları ve business kararlar Java'da kalır. Değişiklik daha
 çok handler'ların altında çalışan runtime yolundadır.
 
@@ -1153,7 +1167,7 @@ Bu sample normal `rust-java-rest` Maven artifact'ine bağlıdır:
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.4.0</version>
+  <version>3.4.1</version>
 </dependency>
 ```
 
@@ -1654,13 +1668,13 @@ Büyük Dubbo object graph'ı consumer JVM'e çekip tekrar JSON'a çevirmek bu f
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.4.0</version>
+    <version>3.4.1</version>
 </dependency>
 
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>java-rust-dubbo</artifactId>
-    <version>0.4.0</version>
+    <version>0.4.1</version>
 </dependency>
 
 <dependency>
@@ -1890,6 +1904,7 @@ Repo içindeki değerler bilinçli olarak low-RSS yönlüdür; bu değerleri anc
 | `reactor.dubbo.timeout-ms` | RPC timeout değeridir. | Provider p99 ve HTTP timeout ile hizala. |
 | `reactor.dubbo.max-inflight` | Eşzamanlı RPC çağrılarını sınırlar. | Memory için düşür. Provider boşluğu varsa artır. |
 | `reactor.dubbo.native-connections-per-endpoint` | Provider başına native TCP pool boyutudur. | Memory-first servislerde düşük tut. Sadece p99/RSS kanıtıyla artır. |
+| `reactor.dubbo.native-idle-connection-ttl-ms` | Idle pooled socket'in belirlenen süreden sonra yeniden kullanılmadan önce yenilenmesini sağlar. | `30000` değerini koruyun. Provider veya load balancer idle TCP'yi daha erken kapatıyorsa azaltın. |
 
 Hızlı semptom rehberi:
 
@@ -1905,6 +1920,7 @@ Hızlı semptom rehberi:
 | K8s ZooKeeper consumer provider bulamıyor | `sample.dubbo.discovery`<br>`registry-address`<br>`registry-root` | `zookeeper-discovery` ile build edin.<br>Registry DNS ve provider node'u kontrol edin. |
 | Docker static consumer yanlış yere bağlanıyor | `reactor.dubbo.providers` | Docker network içinde `127.0.0.1` değil container/service DNS kullanın. |
 | Write command yavaş veya dengesiz | `reactor.dubbo.retries`, command route admission key'leri, `reactor.dubbo.timeout-ms` | Retry `0` kalsın; bounded queue ve timeout'u tune edin. |
+| Idle sonrası veya provider restartından sonraki ilk çağrı `Broken pipe` alıyor | `reactor.dubbo.native-idle-connection-ttl-ms`, `nativeDubboStaleIdleConnectionsDiscarded` | TTL değerini altyapının idle timeout değerinden düşük tutun. Restart testinde stale-discard metriğinin arttığını ve native error değerinin sıfır kaldığını doğrulayın. |
 | Çok sayıda idle HTTP client kaynak tutuyor | `reactor.rust.http.max-connections`, `reactor.rust.http.idle-timeout-ms`, `reactor.rust.http.keep-alive-enabled` | Keep-alive kapatmadan önce idle timeout'u düşürün. |
 
 ### Tam Runtime Property Rehberi
@@ -1998,12 +2014,12 @@ Route admission:
 | `reactor.rust.route-admission.get.api.v1.customers.id.exists/display-name.*` | `8` / `150` | Küçük scalar lookup cap'leri. Bu method'lar DB'ye gidiyorsa provider DB pool ile tune edin. |
 | `reactor.rust.route-admission.post.api.v1.customers.max-concurrent` | `8` | Create command cap. Duplicate write baskısı ve DB queue büyümesini önlemek için bounded kalmalı. |
 | `reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms` | `150` | Create command wait budget. Write p99 burst absorption'dan önemliyse düşürün. |
-| `reactor.rust.route-admission.post.api.v1.customers.typed.*` | `4` / `150` | Typed create command cap. REST record parse ve Hessian record encode/decode olduğu için byte pass-through'dan düşük tutulur. |
+| `reactor.rust.route-admission.post.api.v1.customers.typed.*` | `8` / `250` | `micro-2x2` typed create sınırıdır. Normal write gate'teki hatalı admission timeout'larını kaldırır. |
 | `reactor.rust.route-admission.patch.api.v1.customers.id.segment.max-concurrent` | `8` | Segment patch cap. Command provider kapasitesiyle hizalayın. |
 | `reactor.rust.route-admission.patch.api.v1.customers.id.segment.queue-timeout-ms` | `150` | Segment patch queue wait. Sadece idempotent caller ve p99 ölçümü varsa artırın. |
 | `reactor.rust.route-admission.patch.api.v1.customers.id.status.max-concurrent` | `8` | Status patch cap. Write-side stabilite için bounded kalmalı. |
 | `reactor.rust.route-admission.patch.api.v1.customers.id.status.queue-timeout-ms` | `150` | Status patch queue wait. Overload hızlı görünmeli ise düşürün. |
-| `reactor.rust.route-admission.patch.api.v1.customers.id.status.typed.*` | `4` / `150` | Typed status command cap. Typed command provider method limitiyle hizalı tutun. |
+| `reactor.rust.route-admission.patch.api.v1.customers.id.status.typed.*` | `8` / `250` | Typed status sınırıdır. Customer key admission aynı satıra yazmayı yine tek concurrent command ile sınırlar. |
 | `reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent` | `8` | Delete command cap. Delete side-effect route olduğu için konservatif kalmalı. |
 | `reactor.rust.route-admission.delete.api.v1.customers.id.queue-timeout-ms` | `150` | Delete command wait budget. Daha strict fail-fast için düşürün. |
 
@@ -2024,6 +2040,7 @@ Dubbo consumer:
 | `reactor.dubbo.application-name` | `rest-sample-dubbo-consumer` | Dubbo client metadata içindeki uygulama adı. Servise göre değiştirin. |
 | `reactor.dubbo.transport` | `native` | Lightweight native data-plane kullanır. Low-overhead path için native kalsın. |
 | `reactor.dubbo.runtime-profile` | `micro-dubbo` | Dubbo runtime sizing preset. RPC p99/RSS ölçerek artırın. |
+| `sample.dubbo.capacity-profile` | `micro-2x2` | Ölçülmüş iki connection/iki worker write reçetesini uygular. Sadece okuma yapan en düşük RSS serviste `micro-1x1` kullanın. |
 | `reactor.dubbo.registry-address` | `zookeeper://127.0.0.1:2181` | Discovery modunda ZooKeeper adresi. Kubernetes'te override edilmeli. |
 | `reactor.dubbo.registry-root` | `dubbo` | ZooKeeper registry root. Provider registration ile aynı olmalı. |
 | `reactor.dubbo.registry-timeout-ms` | `3000` | ZooKeeper operation timeout. Registry network yavaşsa artırın. |
@@ -2041,11 +2058,13 @@ Dubbo consumer:
 | `reactor.dubbo.connections` | `1` | Logical connection sayısı. Native pool sizing ağırlıklı olarak native connection key'leriyle yapılır. |
 | `reactor.dubbo.share-connections` | `1` | Compatibility için shared connection ayarı. Küçük kalsın. |
 | `reactor.dubbo.refer-thread-num` | `1` | Reference thread sayısı. RSS için düşük tutulur. |
-| `reactor.dubbo.max-inflight` | `32` | Concurrent RPC üst limiti. Throughput için artırın; low-RSS/fail-fast için düşürün. |
+| `reactor.dubbo.max-inflight` | `64` | Full write sample için concurrent RPC üst limitidir. `micro-1x1` reçetesinde düşürün. |
 | `reactor.dubbo.max-response-bytes` | `8388608` | Dubbo response üst limiti. Büyük provider JSON için HTTP response limitleriyle birlikte artırın. |
-| `reactor.dubbo.native-connections-per-endpoint` | `1` | Provider başına native TCP connection sayısı. Read-heavy p99 iyileştirmede ilk artırılacak knob budur. |
-| `reactor.dubbo.native-async-workers` | `1` | Native Dubbo async worker sayısı. Yüksek concurrency için artırılır; her worker thread/native maliyet getirir. |
-| `reactor.dubbo.native-async-queue-capacity` | `32` | Native Dubbo async queue. Artırmak burst emer ama overload'u saklayabilir ve tail latency artırabilir. |
+| `reactor.dubbo.native-connections-per-endpoint` | `2` | Full write sample'da provider başına native TCP connection sayısıdır. Ölçülmüş provider kapasitesiyle hizalı tutun. |
+| `reactor.dubbo.native-max-idle-connections-per-endpoint` | `2` | Tekrar kullanılmak üzere tutulacak tamamlanmış native connection sayısıdır. Connection limitinden büyük olmamalıdır. |
+| `reactor.dubbo.native-idle-connection-ttl-ms` | `30000` | Pooled socket'in yenilenmeden önce idle kalabileceği en uzun süredir. Düşük trafikte provider tarafından kapatılmış socket'in tekrar kullanılmasını önler. |
+| `reactor.dubbo.native-async-workers` | `2` | Full write sample'daki native worker sayısıdır. `1`, ölçülen Hikari `2` yolunu seri hale getiriyordu. |
+| `reactor.dubbo.native-async-queue-capacity` | `64` | Bounded native queue'dur. Kısa burst'leri emer; sürekli overload'u route admission reddeder. |
 | `reactor.dubbo.native-async-transport` | `blocking` | Native async transport seçimidir. `blocking` memory-first varsayılandır; `tokio-demux` yüksek concurrency için Rust async demux yoludur. |
 | `reactor.dubbo.native-thread-stack-bytes` | `262144` | Native Dubbo worker/Tokio thread stack bütçesini sınırlar. Daha düşük değer yalnız stack bütçesini azaltır ve tüm route smoke testlerini gerektirir. |
 
@@ -2057,6 +2076,7 @@ Dubbo consumer:
 | `server.port` | `SERVER_PORT` |
 | `server.host` | `SERVER_HOST` |
 | `reactor.runtime.profile` | `REACTOR_RUNTIME_PROFILE` |
+| `sample.dubbo.capacity-profile` | `SAMPLE_DUBBO_CAPACITY_PROFILE` |
 | `reactor.dubbo.native-async-transport` | `REACTOR_DUBBO_NATIVE_ASYNC_TRANSPORT` |
 | `reactor.dubbo.native-thread-stack-bytes` | `REACTOR_DUBBO_NATIVE_THREAD_STACK_BYTES` |
 | `reactor.startup.component-index.enabled` | `REACTOR_STARTUP_COMPONENT_INDEX_ENABLED` |
@@ -2149,6 +2169,8 @@ Dubbo consumer:
 | `reactor.dubbo.max-inflight` | `REACTOR_DUBBO_MAX_INFLIGHT` |
 | `reactor.dubbo.max-response-bytes` | `REACTOR_DUBBO_MAX_RESPONSE_BYTES` |
 | `reactor.dubbo.native-connections-per-endpoint` | `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT` |
+| `reactor.dubbo.native-max-idle-connections-per-endpoint` | `REACTOR_DUBBO_NATIVE_MAX_IDLE_CONNECTIONS_PER_ENDPOINT` |
+| `reactor.dubbo.native-idle-connection-ttl-ms` | `REACTOR_DUBBO_NATIVE_IDLE_CONNECTION_TTL_MS` |
 | `reactor.dubbo.native-async-workers` | `REACTOR_DUBBO_NATIVE_ASYNC_WORKERS` |
 | `reactor.dubbo.native-async-queue-capacity` | `REACTOR_DUBBO_NATIVE_ASYNC_QUEUE_CAPACITY` |
 

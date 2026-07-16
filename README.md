@@ -12,7 +12,7 @@ Shared sample contracts come from `com.reactor.sample:rest-sample-utility:0.2.0`
 come transitively from `com.reactor.sample:rust-sample-model:0.2.0`. The Dubbo interface package name is
 kept as `com.reactor.rust.dubbo.sample` so the provider and consumer keep the same service identity.
 
-[Release notes for v0.3.0](docs/RELEASE_NOTES_v0.3.0.md)
+[Release notes for v0.3.1](docs/RELEASE_NOTES_v0.3.1.md)
 
 ## Contents
 
@@ -409,7 +409,7 @@ same behavior.
 | Recipe | Use when | Key settings | Trade-off |
 |--------|----------|--------------|-----------|
 | `micro-1x1` | Smallest Dubbo consumer pod, low or moderate traffic, DB-backed provider with a small pool. | <small><code>reactor.runtime.profile=micro-dubbo</code><br><code>reactor.dubbo.native-connections-per-endpoint=1</code><br><code>reactor.dubbo.native-async-workers=1</code><br><code>reactor.dubbo.native-async-queue-capacity=32</code><br><code>reactor.dubbo.max-inflight=16</code></small> | Lowest RSS. Spikes may get controlled `503`. |
-| `micro-2x2` | Provider has some headroom and p99 is high with `1x1`. | <small><code>reactor.dubbo.native-connections-per-endpoint=2</code><br><code>reactor.dubbo.native-async-workers=2</code><br><code>reactor.dubbo.native-async-queue-capacity=128</code><br><code>reactor.dubbo.max-inflight=32</code></small> | Better parallelism. More RSS and provider pressure. |
+| `micro-2x2` | Full sample writes to DB, or Hikari is `2` and `1x1` serializes calls before the DB. | <small><code>sample.dubbo.capacity-profile=micro-2x2</code><br><code>reactor.dubbo.native-connections-per-endpoint=2</code><br><code>reactor.dubbo.native-async-workers=2</code><br><code>reactor.dubbo.native-async-queue-capacity=64</code><br><code>reactor.dubbo.max-inflight=64</code></small> | One extra native worker and connection. This is the full sample default; catalog-only stays `1x1`. |
 | `balanced-stable-4x4` | Read-heavy service, provider returns ready JSON, and you want more 2xx without hiding overload. | <small><code>reactor.runtime.profile=balanced-dubbo</code><br><code>reactor.dubbo.native-connections-per-endpoint=4</code><br><code>reactor.dubbo.native-async-workers=4</code><br><code>reactor.dubbo.native-async-queue-capacity=512</code><br><code>reactor.dubbo.max-inflight=64</code></small> | Higher RPS. Needs provider CPU/DB proof. |
 | `balanced-mid-4x4` | Distributed commands need more accepted work and provider capacity is measured. | Same `4x4` native settings, with wider route budgets than `stable`. | More 2xx possible. p99/RSS must be watched. |
 | `balanced-wide-4x4` | Only for a measured high-capacity provider, not as a default. | Same `4x4` native settings, with the widest route budgets. | Can hide overload in queues. Use with caution. |
@@ -432,6 +432,20 @@ reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms=150
 Use this rule for DB-backed endpoints: do not size the consumer for client concurrency first. Size it
 from provider and Hikari capacity first. If the provider has only two DB connections, `c64` traffic
 must either wait briefly or get controlled `503`; deep queues only increase RSS and p99.
+
+Run the repeatable mixed raw/typed write gate after the consumer, provider, and PostgreSQL containers
+join the same Docker network:
+
+```powershell
+docker run --rm --network YOUR_NETWORK `
+  -v "${PWD}/benchmark:/work" `
+  -e BASE_URL=http://consumer:8080 `
+  -e MODE=mixed -e VUS=8 -e DURATION=30s `
+  grafana/k6:0.52.0 run /work/dubbo-write-gate.js
+```
+
+The normal gate requires zero failed writes and p99 below `250 ms`. A high-concurrency overload test
+may allow controlled `503`, but it must not report native Dubbo errors, DB rollbacks, or pool exhaustion.
 
 ## Production Recipes
 
@@ -1089,9 +1103,9 @@ Different problems in this scenario and the exact property actions:
 | Large history hurts lookup | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=12</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6</code><br>small lookup route budget stays higher</small> | Small lookup p99 protected | Large JSON RPS drops |
 | Admission removed | No route budgets | Restore budgets<br>raise only hot reads | Slow route cannot lock service | Safer but more config |
 
-## What `rust-java-rest` 3.4.0 Changes Here
+## What `rust-java-rest` 3.4.1 Changes Here
 
-This sample now targets `rust-java-rest` `3.4.0` with `java-rust-dubbo` `0.4.0`. The application code model does not change:
+This sample now targets `rust-java-rest` `3.4.1` with `java-rust-dubbo` `0.4.1`. The application code model does not change:
 handlers, service adapters, configuration classes, and business decisions still live in Java. The
 change is mostly about the runtime path underneath those handlers.
 
@@ -1138,7 +1152,7 @@ This sample depends on the normal `rust-java-rest` Maven artifact:
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.4.0</version>
+  <version>3.4.1</version>
 </dependency>
 ```
 
@@ -1641,13 +1655,13 @@ into the consumer JVM and serializing it again is an anti-pattern for this frame
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.4.0</version>
+    <version>3.4.1</version>
 </dependency>
 
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>java-rust-dubbo</artifactId>
-    <version>0.4.0</version>
+    <version>0.4.1</version>
 </dependency>
 
 <dependency>
@@ -1877,6 +1891,7 @@ Important properties:
 | `reactor.dubbo.timeout-ms` | Sets per-RPC timeout. | Align with provider p99 and HTTP timeout. |
 | `reactor.dubbo.max-inflight` | Bounds concurrent RPC calls. | Lower for memory. Raise only with provider headroom. |
 | `reactor.dubbo.native-connections-per-endpoint` | Sets native TCP pool size per provider. | Keep low for memory-first services. Raise only with p99/RSS evidence. |
+| `reactor.dubbo.native-idle-connection-ttl-ms` | Reconnects an idle pooled socket before reuse after the configured age. | Keep `30000`. Lower it only when the provider or load balancer closes idle TCP sooner. |
 
 Quick symptom lookup:
 
@@ -1892,6 +1907,7 @@ Quick symptom lookup:
 | K8s ZooKeeper consumer cannot find provider | `sample.dubbo.discovery`<br>`registry-address`<br>`registry-root` | Build with `zookeeper-discovery`.<br>Check registry DNS/provider node. |
 | Static Docker consumer connects to the wrong place | `reactor.dubbo.providers` | Use container/service DNS, not `127.0.0.1`, inside Docker networks. |
 | Slow/unstable write commands | `reactor.dubbo.retries`, command route admission keys, `reactor.dubbo.timeout-ms` | Keep retries `0`; tune bounded queue and timeout. |
+| First call after idle or provider restart fails with `Broken pipe` | `reactor.dubbo.native-idle-connection-ttl-ms`, `nativeDubboStaleIdleConnectionsDiscarded` | Keep TTL below infrastructure idle timeout. Confirm the stale-discard metric rises and native errors stay at zero during restart tests. |
 | Too many idle HTTP clients hold resources | `reactor.rust.http.max-connections`, `reactor.rust.http.idle-timeout-ms`, `reactor.rust.http.keep-alive-enabled` | Lower idle timeout before disabling keep-alive. |
 
 ### Complete Runtime Property Guide
@@ -1985,12 +2001,12 @@ Route admission:
 | `reactor.rust.route-admission.get.api.v1.customers.id.exists/display-name.*` | `8` / `150` | Small scalar lookup caps. Tune with provider DB pool if these call the database. |
 | `reactor.rust.route-admission.post.api.v1.customers.max-concurrent` | `8` | Create command cap. Keep bounded to avoid duplicate-write pressure and DB queue buildup. |
 | `reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms` | `150` | Create command wait budget. Lower if write p99 matters more than absorbing bursts. |
-| `reactor.rust.route-admission.post.api.v1.customers.typed.*` | `4` / `150` | Typed create command cap. Lower than byte pass-through because REST record parse and Hessian record encode/decode are involved. |
+| `reactor.rust.route-admission.post.api.v1.customers.typed.*` | `8` / `250` | Typed create cap for `micro-2x2`. This removes false admission timeouts at the normal write gate. |
 | `reactor.rust.route-admission.patch.api.v1.customers.id.segment.max-concurrent` | `8` | Segment patch cap. Keep aligned with command provider capacity. |
 | `reactor.rust.route-admission.patch.api.v1.customers.id.segment.queue-timeout-ms` | `150` | Segment patch queue wait. Raise only with idempotent caller behavior and measured p99. |
 | `reactor.rust.route-admission.patch.api.v1.customers.id.status.max-concurrent` | `8` | Status patch cap. Keep bounded for write-side stability. |
 | `reactor.rust.route-admission.patch.api.v1.customers.id.status.queue-timeout-ms` | `150` | Status patch queue wait. Lower when overload should be visible quickly. |
-| `reactor.rust.route-admission.patch.api.v1.customers.id.status.typed.*` | `4` / `150` | Typed status command cap. Keep aligned with typed command provider method limit. |
+| `reactor.rust.route-admission.patch.api.v1.customers.id.status.typed.*` | `8` / `250` | Typed status cap. Per-customer key admission still limits same-row writes to one concurrent command. |
 | `reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent` | `8` | Delete command cap. Keep conservative; delete is usually a write/side-effect route. |
 | `reactor.rust.route-admission.delete.api.v1.customers.id.queue-timeout-ms` | `150` | Delete command wait budget. Lower for stricter fail-fast behavior. |
 
@@ -2009,6 +2025,7 @@ Dubbo consumer:
 | `sample.dubbo.discovery` | `static` | Sample switch: `static` uses `reactor.dubbo.providers`; `zookeeper` uses registry discovery. |
 | `reactor.dubbo.enabled` | `true` | Enables the Dubbo consumer adapter. Keep true for this sample. |
 | `reactor.dubbo.application-name` | `rest-sample-dubbo-consumer` | Dubbo application name used in client metadata. Change per service. |
+| `sample.dubbo.capacity-profile` | `micro-2x2` | Applies the measured two-connection/two-worker write recipe. Use `micro-1x1` for a read-only, lowest-RSS service. |
 | `reactor.dubbo.transport` | `native` | Uses the lightweight native data-plane. Keep native for the low-overhead path. |
 | `reactor.dubbo.runtime-profile` | `micro-dubbo` | Dubbo runtime sizing preset. Increase only after measuring RPC p99/RSS. |
 | `reactor.dubbo.registry-address` | `zookeeper://127.0.0.1:2181` | ZooKeeper address for discovery mode. Override in Kubernetes. |
@@ -2028,11 +2045,13 @@ Dubbo consumer:
 | `reactor.dubbo.connections` | `1` | Logical connection count. Native pool sizing is mainly controlled by native connection keys. |
 | `reactor.dubbo.share-connections` | `1` | Shared connection setting for compatibility. Keep small. |
 | `reactor.dubbo.refer-thread-num` | `1` | Reference thread count. Keep low for RSS. |
-| `reactor.dubbo.max-inflight` | `32` | Bounded concurrent RPC calls. Raise for more throughput; lower for low-RSS/fail-fast behavior. |
+| `reactor.dubbo.max-inflight` | `64` | Bounded concurrent RPC calls for the full write sample. Lower it with the `micro-1x1` recipe. |
 | `reactor.dubbo.max-response-bytes` | `8388608` | Maximum Dubbo response. Raise with HTTP response limits for larger provider JSON. |
-| `reactor.dubbo.native-connections-per-endpoint` | `1` | Native TCP connections per provider. First knob to raise for read-heavy p99 improvement. |
-| `reactor.dubbo.native-async-workers` | `1` | Native Dubbo async workers. Raise for high concurrency; each worker adds thread/native cost. |
-| `reactor.dubbo.native-async-queue-capacity` | `32` | Native Dubbo async queue. Raising absorbs bursts but can hide overload and increase tail latency. |
+| `reactor.dubbo.native-connections-per-endpoint` | `2` | Native TCP connections per provider in the full write sample. Keep this aligned with measured provider capacity. |
+| `reactor.dubbo.native-max-idle-connections-per-endpoint` | `2` | Completed native connections retained for reuse. Keep it at or below the connection limit. |
+| `reactor.dubbo.native-idle-connection-ttl-ms` | `30000` | Maximum idle age before a pooled socket is replaced. This prevents low-traffic services from reusing provider-closed sockets. |
+| `reactor.dubbo.native-async-workers` | `2` | Native workers in the full write sample. `1` serialized the measured Hikari `2` write path. |
+| `reactor.dubbo.native-async-queue-capacity` | `64` | Bounded native queue. It absorbs short bursts; route admission still rejects sustained overload. |
 | `reactor.dubbo.native-async-transport` | `blocking` | Native async transport. `blocking` is the memory-first default; `tokio-demux` is the high-concurrency Rust async demux path. |
 | `reactor.dubbo.native-thread-stack-bytes` | `262144` | Bounds native Dubbo worker/Tokio thread stacks. Lower values save only stack budget and require route smoke tests. |
 
@@ -2044,6 +2063,7 @@ Dubbo consumer:
 | `server.port` | `SERVER_PORT` |
 | `server.host` | `SERVER_HOST` |
 | `reactor.runtime.profile` | `REACTOR_RUNTIME_PROFILE` |
+| `sample.dubbo.capacity-profile` | `SAMPLE_DUBBO_CAPACITY_PROFILE` |
 | `reactor.dubbo.native-async-transport` | `REACTOR_DUBBO_NATIVE_ASYNC_TRANSPORT` |
 | `reactor.dubbo.native-thread-stack-bytes` | `REACTOR_DUBBO_NATIVE_THREAD_STACK_BYTES` |
 | `reactor.startup.component-index.enabled` | `REACTOR_STARTUP_COMPONENT_INDEX_ENABLED` |
@@ -2136,6 +2156,8 @@ Dubbo consumer:
 | `reactor.dubbo.max-inflight` | `REACTOR_DUBBO_MAX_INFLIGHT` |
 | `reactor.dubbo.max-response-bytes` | `REACTOR_DUBBO_MAX_RESPONSE_BYTES` |
 | `reactor.dubbo.native-connections-per-endpoint` | `REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT` |
+| `reactor.dubbo.native-max-idle-connections-per-endpoint` | `REACTOR_DUBBO_NATIVE_MAX_IDLE_CONNECTIONS_PER_ENDPOINT` |
+| `reactor.dubbo.native-idle-connection-ttl-ms` | `REACTOR_DUBBO_NATIVE_IDLE_CONNECTION_TTL_MS` |
 | `reactor.dubbo.native-async-workers` | `REACTOR_DUBBO_NATIVE_ASYNC_WORKERS` |
 | `reactor.dubbo.native-async-queue-capacity` | `REACTOR_DUBBO_NATIVE_ASYNC_QUEUE_CAPACITY` |
 

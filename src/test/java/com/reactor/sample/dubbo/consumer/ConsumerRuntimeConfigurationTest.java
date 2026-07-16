@@ -33,6 +33,7 @@ class ConsumerRuntimeConfigurationTest {
         Properties properties = loadProperties();
 
         assertEquals("static", properties.getProperty("sample.dubbo.discovery"));
+        assertEquals("micro-2x2", properties.getProperty("sample.dubbo.capacity-profile"));
         assertEquals("true", properties.getProperty("sample.dubbo.read-retry-on-io-error"));
         assertEquals("true", properties.getProperty("reactor.dubbo.enabled"));
         assertEquals("127.0.0.1:20880", properties.getProperty("reactor.dubbo.providers"));
@@ -64,12 +65,14 @@ class ConsumerRuntimeConfigurationTest {
         assertEquals("8", properties.getProperty("reactor.rust.route-admission.get.api.v1.customers.db.id.max-concurrent"));
         assertEquals("8", properties.getProperty("reactor.rust.route-admission.post.api.v1.customers.max-concurrent"));
         assertEquals("150", properties.getProperty("reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms"));
-        assertEquals("4", properties.getProperty("reactor.rust.route-admission.post.api.v1.customers.typed.max-concurrent"));
+        assertEquals("8", properties.getProperty("reactor.rust.route-admission.post.api.v1.customers.typed.max-concurrent"));
+        assertEquals("250", properties.getProperty("reactor.rust.route-admission.post.api.v1.customers.typed.queue-timeout-ms"));
         assertEquals("8", properties.getProperty("reactor.rust.route-admission.patch.api.v1.customers.id.segment.max-concurrent"));
         assertEquals("150", properties.getProperty("reactor.rust.route-admission.patch.api.v1.customers.id.segment.queue-timeout-ms"));
         assertEquals("8", properties.getProperty("reactor.rust.route-admission.patch.api.v1.customers.id.status.max-concurrent"));
         assertEquals("150", properties.getProperty("reactor.rust.route-admission.patch.api.v1.customers.id.status.queue-timeout-ms"));
-        assertEquals("4", properties.getProperty("reactor.rust.route-admission.patch.api.v1.customers.id.status.typed.max-concurrent"));
+        assertEquals("8", properties.getProperty("reactor.rust.route-admission.patch.api.v1.customers.id.status.typed.max-concurrent"));
+        assertEquals("250", properties.getProperty("reactor.rust.route-admission.patch.api.v1.customers.id.status.typed.queue-timeout-ms"));
         assertEquals("8", properties.getProperty("reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent"));
         assertEquals("150", properties.getProperty("reactor.rust.route-admission.delete.api.v1.customers.id.queue-timeout-ms"));
     }

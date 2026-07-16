@@ -169,7 +169,7 @@ curl -X DELETE http://127.0.0.1:8080/api/v1/customers/1 `
 |-------|-----------|---------|
 | `micro-dubbo` | Düşük RSS, kontrollü `503` kabul. | Küçük worker, queue ve connection. |
 | `micro-1x1` reçetesi | En küçük pod. | `native-connections-per-endpoint=1`, `native-async-workers=1`. |
-| `micro-2x2` reçetesi | Provider boşta, p99 yüksek. | Connection ve worker `2`. |
+| `micro-2x2` reçetesi | Full sample DB write yapıyor veya Hikari `2` iken `1x1` çağrıları seri hale getiriyor. | `sample.dubbo.capacity-profile=micro-2x2`, connection `2`, worker `2`, queue `64`, max-inflight `64`, idle connection TTL `30000` ms. |
 | `balanced-stable-4x4` | Daha çok başarılı read RPS. | Connection ve worker `4`, route budget kontrollü. |
 
 DB-backed endpoint için consumer ayarını client concurrency ile değil, provider Hikari kapasitesiyle başlatın.
@@ -204,6 +204,20 @@ reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms=75
 ```
 
 Queue'yu büyütmek `503` oranını azaltabilir. Fakat RSS ve p99 değerini artırır.
+
+## Idle Connection Ve Provider Restart
+
+Consumer, tamamlanmış Dubbo TCP connection'larını tekrar kullanır. Provider veya load balancer idle
+connection'ı kapatmış olabilir. Aşağıdaki ayar, uzun süre idle kalan socket'i yeni çağrıdan önce yeniler:
+
+```properties
+reactor.dubbo.native-idle-connection-ttl-ms=30000
+```
+
+Provider idle timeout değeri 20 saniye ise bu değeri örneğin `15000` yapın. Write çağrılarında
+`reactor.dubbo.retries=0` kalsın. Framework, kapalı idle socket'i request başlamadan atar; request
+byte'ları gönderildikten sonra duplicate işlem riski oluşturacak kör retry yapmaz. Restart testinde
+`nativeDubboStaleIdleConnectionsDiscarded` artmalı ve `nativeDubboErrors` sıfır kalmalıdır.
 
 ## ZooKeeper Mi Static Service DNS Mi?
 
