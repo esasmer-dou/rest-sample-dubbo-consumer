@@ -224,33 +224,6 @@
           "response": []
         },
         {
-          "name": "GET Catalog DB Customers JSON",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Accept",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/catalog/db/customers",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "catalog",
-                "db",
-                "customers"
-              ]
-            },
-            "description": "DB-backed provider read returning ready JSON bytes."
-          },
-          "response": []
-        },
-        {
           "name": "GET Native Dubbo Metrics",
           "request": {
             "method": "GET",

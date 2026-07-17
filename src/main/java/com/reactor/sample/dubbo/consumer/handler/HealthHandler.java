@@ -90,7 +90,7 @@ public final class HealthHandler {
         if (catalogClient == null) {
             return CompletableFuture.completedFuture(skipped("catalog"));
         }
-        return catalogClient.nestedCatalogJsonAsync()
+        return catalogClient.getNestedCatalogJsonAsync()
                 .thenApply(bytes -> up("catalog", bytes == null ? 0 : bytes.length))
                 .exceptionally(error -> down(
                         "catalog",
@@ -101,7 +101,7 @@ public final class HealthHandler {
         if (customerQueryClient == null) {
             return CompletableFuture.completedFuture(skipped("customers"));
         }
-        return customerQueryClient.databaseCustomersJsonAsync()
+        return customerQueryClient.getDatabaseCustomersJsonAsync()
                 .thenApply(bytes -> up("customers", bytes == null ? 0 : bytes.length))
                 .exceptionally(error -> down(
                         "customers",

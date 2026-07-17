@@ -3,7 +3,7 @@ package com.reactor.sample.dubbo.consumer.app;
 import com.reactor.rust.app.RestApplication;
 import com.reactor.rust.config.PropertiesLoader;
 import com.reactor.sample.dubbo.consumer.config.CatalogOnlyDubboClientFactory;
-import com.reactor.sample.dubbo.consumer.config.SampleDubboProfileTuning;
+import com.reactor.sample.dubbo.consumer.config.ConsumerRuntimePlans;
 import com.reactor.sample.dubbo.consumer.handler.CatalogHandler;
 import com.reactor.sample.dubbo.consumer.handler.CatalogOnlyHandler;
 import com.reactor.sample.dubbo.consumer.handler.CustomerHandler;
@@ -20,7 +20,7 @@ public final class DubboConsumerModule implements RestApplication.Module {
 
     @Override
     public void configure(RestApplication.ModuleContext context) {
-        SampleDubboProfileTuning.apply();
+        context.profile(ConsumerRuntimePlans.resolve());
         if (isCatalogOnlySurface()) {
             configureCatalogOnly(context);
             return;

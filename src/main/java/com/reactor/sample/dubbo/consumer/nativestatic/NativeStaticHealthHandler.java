@@ -19,9 +19,9 @@ public final class NativeStaticHealthHandler {
             "{\"status\":\"UP\",\"app\":\"rest-sample-dubbo-consumer\",\"image\":\"native-static\"}"
                     .getBytes(StandardCharsets.UTF_8));
 
-    private final NativeStaticDubboClient dubboClient;
+    private final NativeStaticCatalogClient dubboClient;
 
-    public NativeStaticHealthHandler(NativeStaticDubboClient dubboClient) {
+    public NativeStaticHealthHandler(NativeStaticCatalogClient dubboClient) {
         this.dubboClient = dubboClient;
     }
 
@@ -32,7 +32,7 @@ public final class NativeStaticHealthHandler {
 
     @GetMapping(value = "/app/ready", responseType = RawResponse.class)
     public CompletableFuture<ResponseEntity<RawResponse>> ready() {
-        return dubboClient.nestedCatalogNativeJsonAsync()
+        return dubboClient.getNestedCatalogJsonNativeJsonAsync()
                 .thenApply(handle -> ResponseEntity.ok(RawResponse.nativeResponse(handle.nativeId())))
                 .exceptionally(error -> ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                         .body(JsonResponses.error(

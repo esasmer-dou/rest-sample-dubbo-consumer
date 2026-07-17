@@ -8,11 +8,21 @@ It exposes Dubbo provider data as REST endpoints. Java owns the handler logic. R
 
 This sample avoids Spring Boot and the official Dubbo consumer stack in the hot REST process by default.
 
-Shared sample contracts come from `com.reactor.sample:rest-sample-utility:0.2.0`. Shared DTO records
-come transitively from `com.reactor.sample:rust-sample-model:0.2.0`. The Dubbo interface package name is
+Shared sample contracts come from `com.reactor.sample:rest-sample-utility:0.3.0`. Shared DTO records
+come transitively from `com.reactor.sample:rust-sample-model:0.3.0`. The Dubbo interface package name is
 kept as `com.reactor.rust.dubbo.sample` so the provider and consumer keep the same service identity.
 
-[Release notes for v0.3.2](docs/RELEASE_NOTES_v0.3.2.md)
+[Release notes for v0.4.0](docs/RELEASE_NOTES_v0.4.0.md)
+
+The application now keeps measured defaults in immutable `ConsumerRuntimePlans`. The selected plan
+is validated once during startup. Values supplied by `-D`, environment variables, or an external
+property file still win. Route names and budgets stay in `ConsumerRouteBudgets`, so handler
+annotations do not repeat raw strings.
+
+Native Dubbo clients and startup indexes are generated during compilation. The generated client has
+typed async methods and native JSON-handle methods. It does not use reflection or proxy dispatch on
+each request. The codegen artifacts are `provided`/processor-only and are excluded from the runtime
+JAR.
 
 ## Contents
 
@@ -107,7 +117,7 @@ java "-Dreactor.dubbo.registry-enabled=false" `
   "-Dsample.db.password=reactor" `
   "-Dsample.db.schema-init=true" `
   "-Dsample.db.warmup=true" `
-  -jar target/rest-sample-dubbo-provider-0.3.2.jar
+  -jar target/rest-sample-dubbo-provider-0.4.0.jar
 ```
 
 Keep this terminal open.
@@ -128,7 +138,7 @@ java "-Dserver.port=8080" `
   "-Dreactor.dubbo.native-connections-per-endpoint=2" `
   "-Dreactor.dubbo.native-async-workers=1" `
   "-Dreactor.dubbo.max-inflight=8" `
-  -jar target/rest-sample-dubbo-consumer-0.3.2.jar
+  -jar target/rest-sample-dubbo-consumer-0.4.0.jar
 ```
 
 ### 3. Call The Endpoints
@@ -512,7 +522,7 @@ Use this when the provider address is known and your REST API only exposes read 
 mvn -q -Pnative-static-consumer package
 java -Xms8m -Xmx48m -Xss256k -XX:ActiveProcessorCount=1 `
   -Dreactor.dubbo.providers=provider:20880 `
-  -jar target/rest-sample-dubbo-consumer-0.3.2.jar
+  -jar target/rest-sample-dubbo-consumer-0.4.0.jar
 ```
 
 Effect:
@@ -888,7 +898,7 @@ API meaning:
 |-------------------|-----------------|---------|------|
 | Get catalog/snapshot | `GET /api/v1/catalog/nested` | Very high | Can receive high budget if cheap |
 | Get customer DB info | `GET /api/v1/customers/db` | Very high | Can wait on provider DB pool |
-| Get customer+campaign large JSON | `GET /api/v1/catalog/db/customers` | High | Large responses retain memory together |
+| Get customer+campaign large JSON | `GET /api/v1/customers/db` | High | Large responses retain memory together |
 | Read metrics/health | `GET /api/v1/catalog/dubbo-metrics` | Medium | Must not steal hot route capacity |
 | Other 6 endpoints | Admin or command | Low | Keep small budgets |
 
@@ -921,8 +931,8 @@ reactor.rust.route-admission.get.api.v1.catalog.nested.queue-timeout-ms=125
 reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=12
 reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms=125
 
-reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6
-reactor.rust.route-admission.get.api.v1.catalog.db.customers.queue-timeout-ms=150
+reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=6
+reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms=150
 ```
 
 Why: large JSON needs more than one limit. Dubbo response limit, HTTP response limit, and total
@@ -937,8 +947,8 @@ Different problems in this scenario and the exact property actions:
 | Situation | Previous value | Change | Expected improvement | Cost / watch-out |
 |-----------|----------------|--------|----------------------|------------------|
 | Large JSON hits limit | <small><code>reactor.rust.http.max-response-body-bytes=8388608</code><br><code>reactor.dubbo.max-response-bytes=8388608</code></small> | <small><code>reactor.rust.http.max-response-body-bytes=16777216</code><br><code>reactor.dubbo.max-response-bytes=16777216</code><br><code>reactor.rust.http.max-inflight-response-bytes=33554432</code></small> | Response can return | Total in-flight also required |
-| Large JSON raises RSS | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=10</code> or <code>12</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6</code></small> | Fewer large bodies retained | Large endpoint RPS may drop |
-| Small reads slowed by large JSON | Same budget for all routes | <small><code>reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=32</code><br><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6</code></small> | Queues are separated | Route key must match path |
+| Large JSON raises RSS | <small><code>reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=10</code> or <code>12</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=6</code></small> | Fewer large bodies retained | Large endpoint RPS may drop |
+| Small reads slowed by large JSON | Same budget for all routes | <small><code>reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=32</code><br><code>reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=6</code></small> | Queues are separated | Route key must match path |
 | Provider CPU free, p99 high | <small><code>reactor.dubbo.native-connections-per-endpoint=1</code><br><code>reactor.dubbo.native-async-workers=1</code></small> | <small><code>reactor.dubbo.native-connections-per-endpoint=3</code><br><code>reactor.dubbo.native-async-workers=2</code></small> | More native data-plane parallelism | No help if provider saturated |
 
 ### CRM Command Service: High Create, Patch, And Delete Pressure
@@ -1079,7 +1089,7 @@ API meaning:
 |-------------------|-----------------|---------|----------|
 | Customer lookup | `GET /api/v1/customers/db` | Very high | More Dubbo capacity |
 | Order/catalog lookup | `GET /api/v1/catalog/nested` | Very high | More route budget |
-| Large customer history | `GET /api/v1/catalog/db/customers` | Medium | Separate large JSON budget |
+| Large customer history | `GET /api/v1/customers/db` | Medium | Separate large JSON budget |
 | Command endpoints | `POST/PATCH/DELETE` | Low | Keep small budgets |
 
 Starting configuration:
@@ -1118,12 +1128,12 @@ Different problems in this scenario and the exact property actions:
 |-----------|----------------|--------|----------------------|------------------|
 | Provider CPU free, p99 high | <small><code>reactor.dubbo.max-inflight=24</code><br><code>reactor.dubbo.native-connections-per-endpoint=2</code></small> | <small><code>reactor.dubbo.max-inflight=64</code><br><code>reactor.dubbo.native-connections-per-endpoint=4</code></small> | More parallel Dubbo calls | Measure RSS/DB pool |
 | Only lookup is slow | Same hot route budget | <small><code>reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=12</code><br>catalog route values stay unchanged</small> | Problem route isolated | Lower again if DB wait rises |
-| Large history hurts lookup | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=12</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6</code><br>small lookup route budget stays higher</small> | Small lookup p99 protected | Large JSON RPS drops |
+| Large history hurts lookup | <small><code>reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=12</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=6</code><br>small lookup route budget stays higher</small> | Small lookup p99 protected | Large JSON RPS drops |
 | Admission removed | No route budgets | Restore budgets<br>raise only hot reads | Slow route cannot lock service | Safer but more config |
 
-## What `rust-java-rest` 3.4.1 Changes Here
+## What `rust-java-rest` 4.0.0 Changes Here
 
-This sample now targets `rust-java-rest` `3.4.1` with `java-rust-dubbo` `0.4.1`. The application code model does not change:
+This sample now targets `rust-java-rest` `4.0.0` with `java-rust-dubbo` `0.5.0`. The application code model does not change:
 handlers, service adapters, configuration classes, and business decisions still live in Java. The
 change is mostly about the runtime path underneath those handlers.
 
@@ -1170,7 +1180,7 @@ This sample depends on the normal `rust-java-rest` Maven artifact:
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.4.1</version>
+  <version>4.0.0</version>
 </dependency>
 ```
 
@@ -1225,7 +1235,7 @@ mvn -q -Pnative-static-consumer test
 mvn -q -Pnative-static-consumer exec:java
 ```
 
-With `native-static-consumer`, call the no-argument read endpoints such as `/api/v1/catalog/nested` and `/api/v1/catalog/db/customers`. The POST/PATCH/DELETE command examples carry method arguments, so they intentionally require the full profile with Hessian request encoding.
+With `native-static-consumer`, call the no-argument `/api/v1/catalog/nested` read endpoint. Customer DB reads and the POST/PATCH/DELETE command examples belong to the full profile because they require the customer contract and, for commands, Hessian request encoding.
 
 Use the ZooKeeper profile when the consumer must discover providers from ZooKeeper. This profile is self-contained; do not combine it with `full-dubbo-consumer`.
 
@@ -1267,31 +1277,35 @@ public static void main(String[] args) {
 the full or catalog-only surface. Client ownership and handler selection remain explicit in that
 module; the process entry point does not repeat lifecycle plumbing.
 
-Each RPC adapter owns its method descriptors in one factory method:
+Each RPC adapter is declared once and generated during compilation:
 
 ```java
-DubboReferenceSpec<NestedCatalogService> spec = support.reference(NestedCatalogService.class);
-return new NestedCatalogClient(
-        client.method(spec, "getNestedCatalogJson", byte[].class),
-        client.method(spec, "getCatalogTitle", String.class),
-        client.method(spec, "countCatalogItems", Integer.class),
-        client.method(spec, "getCatalogInfo", CatalogInfo.class),
-        client.method(spec, "listFeaturedItems", List.class, int.class),
-        client.method(spec, "getCatalogAttributes", Map.class),
-        client,
-        support.booleanProperty("sample.dubbo.read-retry-on-io-error", false));
+@GenerateNativeDubboClient(
+        service = NestedCatalogService.class,
+        generatedName = "NestedCatalogClient",
+        retryReads = true,
+        retryProperty = "sample.dubbo.read-retry-on-io-error",
+        exposeMetrics = true)
+final class NestedCatalogClientDefinition {
+    private NestedCatalogClientDefinition() {}
+}
 ```
 
-This keeps protocol descriptors out of REST handlers. The handler still owns HTTP behavior and the
-adapter still lists every callable Dubbo method explicitly.
+The build-only processor reads the explicit Dubbo interface and generates exact method invokers.
+Handlers call methods such as `getNestedCatalogJsonNativeJsonAsync()` directly. Interface methods are
+resolved once when the client is created; request handling has no proxy dispatch, reflective method
+lookup, or descriptor construction. The Java handler still owns HTTP behavior and business decisions.
 
 The `native-static-consumer` Maven profile also narrows the compiled application surface. Its JAR
 contains only the native-static application, handlers, client, profile tuning, and controlled error
 helper. Full customer handlers and their startup indexes are not packaged in that artifact.
 
-The sample does not use a broad reflection scanner to decide business behavior. Active handlers and
-Dubbo clients are explicit in named modules. Repeated HTTP bootstrap stays inside the libraries. This
-keeps class loading predictable and makes memory measurements easier to trust.
+The Maven build also generates `META-INF/reactor/components.idx` and
+`META-INF/reactor/routes.idx`. The full artifact contains the selected full surface; the
+`native-static-consumer` profile generates only its seven routes. Do not edit these files manually.
+The build fails on duplicate selected routes, and startup can validate that the packaged index matches
+runtime registration. This keeps class loading predictable and makes memory measurements easier to
+trust.
 
 The provider repository is here:
 
@@ -1373,8 +1387,8 @@ code:
 ```properties
 reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=16
 reactor.rust.route-admission.get.api.v1.catalog.nested.queue-timeout-ms=100
-reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=8
-reactor.rust.route-admission.get.api.v1.catalog.db.customers.queue-timeout-ms=150
+reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=8
+reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms=150
 ```
 
 Use this feature when a route calls RPC, DB, or another dependency that can become slower than the
@@ -1465,8 +1479,9 @@ choice is a Java `record`; runtime behavior, config, handlers, and Dubbo interfa
 | `RestSampleDubboConsumerApplication` | Starts the process and HTTP server. | Java class (startup/runtime); does not produce an HTTP JSON body. |
 | `RestApplication.ModuleContext` | Owns explicitly managed clients and active handlers during REST startup. | Framework lifecycle API; does not produce an HTTP JSON body. |
 | `DubboConsumerConfiguration` | Creates and closes the full-surface Dubbo client beans. | Java class (resource/config); does not produce an HTTP JSON body. |
-| `NestedCatalogClient` | Adapter around native Dubbo method invokers. | Java class (RPC adapter); not a JSON DTO or POJO response contract. |
-| `CustomerQueryClient` | Adapter around the customer Dubbo interface. | Java class (RPC adapter); not a JSON DTO or POJO response contract. |
+| `NestedCatalogClientDefinition` | Build-time declaration for the generated catalog RPC adapter. | Java metadata class; not packaged as an HTTP JSON DTO. |
+| Generated `NestedCatalogClient` | Exact native Dubbo invokers generated at compile time. | Java RPC adapter; not a JSON DTO or POJO response contract. |
+| `CustomerQueryClientDefinition` / `CustomerCommandClientDefinition` | Build-time declarations for query and command adapters. | Java metadata classes; not HTTP JSON contracts. |
 | `CatalogHandler` | REST endpoint behavior. | Java class (HTTP handler/controller); not a body type. It can return `RawResponse` or a Java `record` DTO. |
 | `CustomerHandler` | Customer REST endpoint behavior. | Java class (HTTP handler/controller); not a body type. Request/response DTOs should be separate Java `record` types. |
 | `HealthHandler` | Health endpoint behavior. | Java class (HTTP handler/controller); not a body type. |
@@ -1673,13 +1688,13 @@ into the consumer JVM and serializing it again is an anti-pattern for this frame
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.4.1</version>
+    <version>4.0.0</version>
 </dependency>
 
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>java-rust-dubbo</artifactId>
-    <version>0.4.1</version>
+    <version>0.5.0</version>
 </dependency>
 
 <dependency>
@@ -2006,27 +2021,20 @@ Route admission:
 | Property | Default | What it does / When to change |
 |----------|---------|--------------------------------|
 | `reactor.rust.route-admission.enabled` | `true` | Enables bounded route-level overload control. Keep on for Dubbo-backed routes. |
-| `reactor.rust.route-admission.default-max-concurrent` | `0` | Global default route limit. `0` means no default cap; this sample uses explicit route keys instead. |
+| `reactor.rust.route-admission.default-max-concurrent` | `0` | Global default route limit. `0` means no blanket cap; this sample uses named workload budgets. |
 | `reactor.rust.route-admission.default-queue-timeout-ms` | `0` | Global default queue wait. `0` means do not queue by default. |
-| `reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent` | `16` | Read-heavy nested catalog cap. Raise for fast provider reads; lower if provider CPU/RSS rises. |
-| `reactor.rust.route-admission.get.api.v1.catalog.nested.queue-timeout-ms` | `100` | Catalog wait budget before controlled overload. Raise for fewer 503s, lower for tighter p99. |
-| `reactor.rust.route-admission.get.api.v1.catalog.title/count/info/items/attributes.*` | `16` / `100` | Typed catalog scalar/record/list/map route caps. Lower list/map routes if object allocation hurts p99. |
-| `reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent` | `8` | DB-backed catalog route cap. Keep aligned with provider DB pool and method bulkhead. |
-| `reactor.rust.route-admission.get.api.v1.catalog.db.customers.queue-timeout-ms` | `150` | DB-backed catalog wait budget. If p99 is high, lower this before increasing workers. |
-| `reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent` | `8` | Customer DB read route cap. Tune with provider `CustomerQueryService` concurrency. |
-| `reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms` | `150` | Customer DB read queue wait. Lower for faster fail-fast under DB saturation. |
-| `reactor.rust.route-admission.get.api.v1.customers.db.stats/by-segment/id.*` | `4-8` / `150` | Typed DB stats, list, and record lookup caps. Keep list queries lower than raw byte pass-through routes. |
-| `reactor.rust.route-admission.get.api.v1.customers.id.exists/display-name.*` | `8` / `150` | Small scalar lookup caps. Tune with provider DB pool if these call the database. |
-| `reactor.rust.route-admission.post.api.v1.customers.max-concurrent` | `4` | Raw create cap for `micro-2x2`. Raw and typed limits add up because both use the same two RPC/DB permits. |
-| `reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms` | `250` | Raw create wait budget. It absorbs short WAL/fsync variance without allowing a deep queue. |
-| `reactor.rust.route-admission.post.api.v1.customers.typed.*` | `4` / `250` | Typed create cap for `micro-2x2`. Together with the raw route, at most eight create requests enter the shared backend path. |
-| `reactor.rust.route-admission.patch.api.v1.customers.id.segment.max-concurrent` | `8` | Segment patch cap. Keep aligned with command provider capacity. |
-| `reactor.rust.route-admission.patch.api.v1.customers.id.segment.queue-timeout-ms` | `150` | Segment patch queue wait. Raise only with idempotent caller behavior and measured p99. |
-| `reactor.rust.route-admission.patch.api.v1.customers.id.status.max-concurrent` | `8` | Status patch cap. Keep bounded for write-side stability. |
-| `reactor.rust.route-admission.patch.api.v1.customers.id.status.queue-timeout-ms` | `150` | Status patch queue wait. Lower when overload should be visible quickly. |
-| `reactor.rust.route-admission.patch.api.v1.customers.id.status.typed.*` | `8` / `250` | Typed status cap. Per-customer key admission still limits same-row writes to one concurrent command. |
-| `reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent` | `8` | Delete command cap. Keep conservative; delete is usually a write/side-effect route. |
-| `reactor.rust.route-admission.delete.api.v1.customers.id.queue-timeout-ms` | `150` | Delete command wait budget. Lower for stricter fail-fast behavior. |
+| `reactor.rust.route-budget.rpc-catalog-read.route-admission.*` | `16` / `100 ms` | Shared budget for in-memory catalog reads. Raise only when the provider stays fast and CPU/RSS remain bounded. |
+| `reactor.rust.route-budget.rpc-customer-raw-read.route-admission.*` | `8` / `150 ms` | Raw JSON customer read budget. The body can stay on the native response-handle path. |
+| `reactor.rust.route-budget.rpc-customer-typed-read.route-admission.*` | `4` / `150 ms` | Typed record/list customer read budget. It is smaller because Java/Hessian decoding and object allocation cost more. |
+| `reactor.rust.route-budget.rpc-customer-raw-create.route-admission.*` | `4` / `250 ms` | Raw create budget. Keep bounded by the shared command provider and DB write capacity. |
+| `reactor.rust.route-budget.rpc-customer-typed-create.route-admission.*` | `4` / `250 ms` | Typed create budget. Raw and typed budgets add up against the same backend. |
+| `reactor.rust.route-budget.rpc-customer-raw-mutation.route-admission.*` | `8` / `150 ms` | Raw PATCH/DELETE budget. Per-customer key admission still serializes writes to the same row. |
+| `reactor.rust.route-budget.rpc-customer-typed-mutation.route-admission.*` | `4` / `150 ms` | Typed mutation budget. Keep lower when Hessian/DTO allocation affects p99. |
+
+Budget values are shared defaults. A single endpoint exception can still use
+`reactor.rust.route-admission.<route-key>.*`. Precedence is explicit: annotation metadata < workload
+defaults < named budget properties < route-specific properties. Use a route-specific property only
+when one endpoint has measured behavior different from the rest of its workload class.
 
 Command key admission:
 
@@ -2130,8 +2138,8 @@ Dubbo consumer:
 | `reactor.rust.route-admission.get.api.v1.catalog.info.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CATALOG_INFO_MAX_CONCURRENT` |
 | `reactor.rust.route-admission.get.api.v1.catalog.items.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CATALOG_ITEMS_MAX_CONCURRENT` |
 | `reactor.rust.route-admission.get.api.v1.catalog.attributes.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CATALOG_ATTRIBUTES_MAX_CONCURRENT` |
-| `reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CATALOG_DB_CUSTOMERS_MAX_CONCURRENT` |
-| `reactor.rust.route-admission.get.api.v1.catalog.db.customers.queue-timeout-ms` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CATALOG_DB_CUSTOMERS_QUEUE_TIMEOUT_MS` |
+| `reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CUSTOMERS_DB_MAX_CONCURRENT` |
+| `reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CUSTOMERS_DB_QUEUE_TIMEOUT_MS` |
 | `reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CUSTOMERS_DB_MAX_CONCURRENT` |
 | `reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CUSTOMERS_DB_QUEUE_TIMEOUT_MS` |
 | `reactor.rust.route-admission.get.api.v1.customers.db.by-segment.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CUSTOMERS_DB_BY_SEGMENT_MAX_CONCURRENT` |
@@ -2664,7 +2672,7 @@ Test:
 curl http://127.0.0.1:8080/app/health
 curl http://127.0.0.1:8080/api/v1/catalog/nested
 curl http://127.0.0.1:8080/api/v1/customers/db
-curl http://127.0.0.1:8080/api/v1/catalog/db/customers
+curl http://127.0.0.1:8080/api/v1/customers/db
 curl http://127.0.0.1:8080/api/v1/catalog/dubbo-metrics
 curl -X POST http://127.0.0.1:8080/api/v1/customers -H "Content-Type: application/json" -d "{\"requestId\":\"req-1001\",\"customerNo\":\"CUST-9001\",\"fullName\":\"Zeynep Şahin\",\"segment\":\"pilot\",\"email\":\"zeynep.sahin@example.com\"}"
 curl -X PATCH http://127.0.0.1:8080/api/v1/customers/1/segment -H "Content-Type: application/json" -d "{\"requestId\":\"req-1002\",\"segment\":\"enterprise\"}"
@@ -2719,7 +2727,6 @@ In this mode, `reactor.dubbo.providers` is ignored and provider URLs are read fr
 | `GET /api/v1/customers/db/by-segment?segment=pilot&limit=10` | Calls `List<CustomerSummary> findCustomersBySegment(...)` with a bounded result size. |
 | `GET /api/v1/customers/{id}/exists` | Calls `boolean customerExists(long id)`. |
 | `GET /api/v1/customers/{id}/display-name` | Calls `String getCustomerDisplayName(long id)`. |
-| `GET /api/v1/catalog/db/customers` | Compatibility alias that also calls `CustomerQueryService`. |
 | `POST /api/v1/customers` | Sends compact command JSON bytes to `CustomerCommandService.createCustomer(byte[])`. |
 | `POST /api/v1/customers/typed` | Parses REST body as `CreateCustomerCommand`, calls typed Dubbo command, returns `CustomerMutationResult` JSON. |
 | `PATCH /api/v1/customers/{id}/segment` | Changes customer segment through a bounded DB command method. |

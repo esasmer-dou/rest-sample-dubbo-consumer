@@ -9,7 +9,7 @@ import com.reactor.rust.annotations.PostMapping;
 import com.reactor.rust.annotations.RequestMapping;
 import com.reactor.rust.annotations.RequestBody;
 import com.reactor.rust.annotations.RequestParam;
-import com.reactor.rust.annotations.RouteAdmission;
+import com.reactor.rust.annotations.RouteWorkload;
 import com.reactor.rust.di.annotation.Autowired;
 import com.reactor.rust.di.annotation.Component;
 import com.reactor.rust.http.HttpStatus;
@@ -23,6 +23,12 @@ import com.reactor.sample.dubbo.consumer.dubbo.CustomerQueryClient;
 import java.util.concurrent.CompletableFuture;
 
 import static com.reactor.sample.dubbo.consumer.http.ConsumerErrorResponses.unavailable;
+import static com.reactor.sample.dubbo.consumer.config.ConsumerRouteBudgets.CUSTOMER_RAW_CREATE;
+import static com.reactor.sample.dubbo.consumer.config.ConsumerRouteBudgets.CUSTOMER_RAW_MUTATION;
+import static com.reactor.sample.dubbo.consumer.config.ConsumerRouteBudgets.CUSTOMER_RAW_READ;
+import static com.reactor.sample.dubbo.consumer.config.ConsumerRouteBudgets.CUSTOMER_TYPED_CREATE;
+import static com.reactor.sample.dubbo.consumer.config.ConsumerRouteBudgets.CUSTOMER_TYPED_MUTATION;
+import static com.reactor.sample.dubbo.consumer.config.ConsumerRouteBudgets.CUSTOMER_TYPED_READ;
 
 @Component
 @RequestMapping("/api/v1/customers")
@@ -38,35 +44,35 @@ public final class CustomerHandler {
     private CustomerCommandKeyAdmission customerCommandKeyAdmission;
 
     @GetMapping(value = "/db", responseType = RawResponse.class)
-    @RouteAdmission(maxConcurrent = 8, queueTimeoutMs = 150)
+    @RouteWorkload(value = RouteWorkload.Type.RPC_READ, budget = CUSTOMER_RAW_READ)
     public CompletableFuture<ResponseEntity<RawResponse>> databaseCustomers() {
-        return customerQueryClient.databaseCustomersNativeJsonAsync()
+        return customerQueryClient.getDatabaseCustomersJsonNativeJsonAsync()
                 .thenApply(handle -> ResponseEntity.ok(RawResponse.nativeResponse(handle.nativeId())))
                 .exceptionally(error -> unavailable("dubbo_customer_provider_unavailable", error));
     }
 
     @GetMapping(value = "/db/stats", responseType = RawResponse.class)
-    @RouteAdmission(maxConcurrent = 4, queueTimeoutMs = 150)
+    @RouteWorkload(value = RouteWorkload.Type.RPC_READ, budget = CUSTOMER_TYPED_READ)
     public CompletableFuture<ResponseEntity<RawResponse>> customerStats() {
-        return customerQueryClient.customerStatsAsync()
+        return customerQueryClient.getCustomerStatsAsync()
                 .thenApply(stats -> ResponseEntity.ok(JsonResponseSupport.customerStats(stats)))
                 .exceptionally(error -> unavailable("dubbo_customer_stats_unavailable", error));
     }
 
     @GetMapping(value = "/db/by-segment", responseType = RawResponse.class)
-    @RouteAdmission(maxConcurrent = 4, queueTimeoutMs = 150)
+    @RouteWorkload(value = RouteWorkload.Type.RPC_READ, budget = CUSTOMER_TYPED_READ)
     public CompletableFuture<ResponseEntity<RawResponse>> customersBySegment(
             @RequestParam(value = "segment", defaultValue = "standard") String segment,
             @RequestParam(value = "limit", defaultValue = "10") int limit) {
-        return customerQueryClient.customersBySegmentAsync(segment, limit)
+        return customerQueryClient.findCustomersBySegmentAsync(segment, limit)
                 .thenApply(customers -> ResponseEntity.ok(JsonResponseSupport.customerList(customers)))
                 .exceptionally(error -> unavailable("dubbo_customer_segment_query_unavailable", error));
     }
 
     @GetMapping(value = "/db/{id}", responseType = RawResponse.class)
-    @RouteAdmission(maxConcurrent = 8, queueTimeoutMs = 150)
+    @RouteWorkload(value = RouteWorkload.Type.RPC_READ, budget = CUSTOMER_RAW_READ)
     public CompletableFuture<ResponseEntity<RawResponse>> customerById(@PathVariable("id") long customerId) {
-        return customerQueryClient.customerAsync(customerId)
+        return customerQueryClient.getCustomerAsync(customerId)
                 .thenApply(customer -> customer == null
                         ? ResponseEntity.status(HttpStatus.NOT_FOUND)
                                 .body(JsonResponseSupport.error("customer_not_found", Long.toString(customerId)))
@@ -75,7 +81,7 @@ public final class CustomerHandler {
     }
 
     @GetMapping(value = "/{id}/exists", responseType = RawResponse.class)
-    @RouteAdmission(maxConcurrent = 8, queueTimeoutMs = 150)
+    @RouteWorkload(value = RouteWorkload.Type.RPC_READ, budget = CUSTOMER_RAW_READ)
     public CompletableFuture<ResponseEntity<RawResponse>> customerExists(@PathVariable("id") long customerId) {
         return customerQueryClient.customerExistsAsync(customerId)
                 .thenApply(exists -> ResponseEntity.ok(JsonResponseSupport.booleanField("exists", exists)))
@@ -83,9 +89,9 @@ public final class CustomerHandler {
     }
 
     @GetMapping(value = "/{id}/display-name", responseType = RawResponse.class)
-    @RouteAdmission(maxConcurrent = 8, queueTimeoutMs = 150)
+    @RouteWorkload(value = RouteWorkload.Type.RPC_READ, budget = CUSTOMER_RAW_READ)
     public CompletableFuture<ResponseEntity<RawResponse>> customerDisplayName(@PathVariable("id") long customerId) {
-        return customerQueryClient.customerDisplayNameAsync(customerId)
+        return customerQueryClient.getCustomerDisplayNameAsync(customerId)
                 .thenApply(name -> name == null || name.isBlank()
                         ? ResponseEntity.status(HttpStatus.NOT_FOUND)
                                 .body(JsonResponseSupport.error("customer_not_found", Long.toString(customerId)))
@@ -95,7 +101,7 @@ public final class CustomerHandler {
 
     @PostMapping(value = "", requestType = byte[].class, responseType = RawResponse.class)
     @MaxRequestBodySize(32768)
-    @RouteAdmission(maxConcurrent = 4, queueTimeoutMs = 250)
+    @RouteWorkload(value = RouteWorkload.Type.RPC_COMMAND, budget = CUSTOMER_RAW_CREATE)
     public CompletableFuture<ResponseEntity<RawResponse>> createCustomer(@RequestBody byte[] body) {
         return customerCommandClient.createCustomerNativeJsonAsync(body)
                 .thenApply(handle -> ResponseEntity.created(RawResponse.nativeResponse(handle.nativeId())))
@@ -104,7 +110,7 @@ public final class CustomerHandler {
 
     @PostMapping(value = "/typed", requestType = CreateCustomerCommand.class, responseType = RawResponse.class)
     @MaxRequestBodySize(32768)
-    @RouteAdmission(maxConcurrent = 4, queueTimeoutMs = 250)
+    @RouteWorkload(value = RouteWorkload.Type.RPC_COMMAND, budget = CUSTOMER_TYPED_CREATE)
     public CompletableFuture<ResponseEntity<RawResponse>> createCustomerTyped(
             @RequestBody CreateCustomerCommand command) {
         return customerCommandClient.createCustomerTypedAsync(command)
@@ -116,7 +122,7 @@ public final class CustomerHandler {
 
     @PatchMapping(value = "/{id}/segment", requestType = byte[].class, responseType = RawResponse.class)
     @MaxRequestBodySize(16384)
-    @RouteAdmission(maxConcurrent = 8, queueTimeoutMs = 150)
+    @RouteWorkload(value = RouteWorkload.Type.RPC_COMMAND, budget = CUSTOMER_RAW_MUTATION)
     public CompletableFuture<ResponseEntity<RawResponse>> patchCustomerSegment(
             @PathVariable("id") long customerId,
             @RequestBody byte[] body) {
@@ -129,7 +135,7 @@ public final class CustomerHandler {
 
     @PatchMapping(value = "/{id}/status", requestType = byte[].class, responseType = RawResponse.class)
     @MaxRequestBodySize(16384)
-    @RouteAdmission(maxConcurrent = 8, queueTimeoutMs = 150)
+    @RouteWorkload(value = RouteWorkload.Type.RPC_COMMAND, budget = CUSTOMER_RAW_MUTATION)
     public CompletableFuture<ResponseEntity<RawResponse>> patchCustomerStatus(
             @PathVariable("id") long customerId,
             @RequestBody byte[] body) {
@@ -141,7 +147,7 @@ public final class CustomerHandler {
     }
 
     @PatchMapping(value = "/{id}/status/typed", responseType = RawResponse.class)
-    @RouteAdmission(maxConcurrent = 4, queueTimeoutMs = 150)
+    @RouteWorkload(value = RouteWorkload.Type.RPC_COMMAND, budget = CUSTOMER_TYPED_MUTATION)
     public CompletableFuture<ResponseEntity<RawResponse>> patchCustomerStatusTyped(
             @PathVariable("id") long customerId,
             @RequestParam("status") String status,
@@ -157,7 +163,7 @@ public final class CustomerHandler {
 
     @DeleteMapping(value = "/{id}", requestType = byte[].class, responseType = RawResponse.class)
     @MaxRequestBodySize(8192)
-    @RouteAdmission(maxConcurrent = 8, queueTimeoutMs = 150)
+    @RouteWorkload(value = RouteWorkload.Type.RPC_COMMAND, budget = CUSTOMER_RAW_MUTATION)
     public CompletableFuture<ResponseEntity<RawResponse>> deleteCustomer(
             @PathVariable("id") long customerId,
             @RequestBody(required = false) byte[] body) {

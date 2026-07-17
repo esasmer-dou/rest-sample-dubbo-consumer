@@ -10,12 +10,21 @@ Provider verisini REST endpoint olarak dışarı açar. Java handler mantığın
 
 Bu örnek hot REST process içine varsayılan olarak Spring Boot, resmi Dubbo consumer stack veya Netty taşımaz.
 
-Ortak sample contract'ları `com.reactor.sample:rest-sample-utility:0.2.0` paketinden gelir. Ortak DTO
-record'ları transitif olarak `com.reactor.sample:rust-sample-model:0.2.0` paketinden gelir. Dubbo
+Ortak sample contract'ları `com.reactor.sample:rest-sample-utility:0.3.0` paketinden gelir. Ortak DTO
+record'ları transitif olarak `com.reactor.sample:rust-sample-model:0.3.0` paketinden gelir. Dubbo
 interface package adı `com.reactor.rust.dubbo.sample` olarak korunur. Böylece provider ve consumer
 aynı service kimliğini kullanmaya devam eder.
 
-[v0.3.2 sürüm notları](docs/RELEASE_NOTES_v0.3.2.tr.md)
+[v0.4.0 sürüm notları](docs/RELEASE_NOTES_v0.4.0.tr.md)
+
+Ölçülmüş varsayılanlar immutable `ConsumerRuntimePlans` içinde tutulur. Seçilen plan uygulama
+başlarken bir kez doğrulanır. `-D`, environment veya dış property dosyasıyla verdiğiniz değerler
+yine önceliklidir. Route adları ve bütçeleri `ConsumerRouteBudgets` içinde durur. Handler
+annotation'larında aynı string değerler tekrar edilmez.
+
+Native Dubbo client ve startup index derleme sırasında üretilir. Generated client typed async method
+ve native JSON handle method'ları sağlar. Her request sırasında reflection veya proxy dispatch
+çalıştırmaz. Codegen artifact'leri yalnız derlemede kullanılır ve runtime JAR içine girmez.
 
 ## İçindekiler
 
@@ -110,7 +119,7 @@ java "-Dreactor.dubbo.registry-enabled=false" `
   "-Dsample.db.password=reactor" `
   "-Dsample.db.schema-init=true" `
   "-Dsample.db.warmup=true" `
-  -jar target/rest-sample-dubbo-provider-0.3.2.jar
+  -jar target/rest-sample-dubbo-provider-0.4.0.jar
 ```
 
 Bu terminal açık kalmalıdır.
@@ -131,7 +140,7 @@ java "-Dserver.port=8080" `
   "-Dreactor.dubbo.native-connections-per-endpoint=2" `
   "-Dreactor.dubbo.native-async-workers=1" `
   "-Dreactor.dubbo.max-inflight=8" `
-  -jar target/rest-sample-dubbo-consumer-0.3.2.jar
+  -jar target/rest-sample-dubbo-consumer-0.4.0.jar
 ```
 
 ### 3. Endpoint'leri Deneyin
@@ -528,7 +537,7 @@ expose ediyorsa bunu kullanın.
 mvn -q -Pnative-static-consumer package
 java -Xms8m -Xmx48m -Xss256k -XX:ActiveProcessorCount=1 `
   -Dreactor.dubbo.providers=provider:20880 `
-  -jar target/rest-sample-dubbo-consumer-0.3.2.jar
+  -jar target/rest-sample-dubbo-consumer-0.4.0.jar
 ```
 
 Etkisi:
@@ -904,7 +913,7 @@ API'lerin anlamı:
 |---------------------|-----------------|--------|------|
 | Katalog/snapshot getir | `GET /api/v1/catalog/nested` | Çok yüksek | Ucuzsa yüksek budget alabilir |
 | Müşteri DB bilgisi getir | `GET /api/v1/customers/db` | Çok yüksek | Provider DB pool'u bekletebilir |
-| Müşteri+kampanya büyük JSON getir | `GET /api/v1/catalog/db/customers` | Yüksek | Büyük response aynı anda memory tutar |
+| Müşteri+kampanya büyük JSON getir | `GET /api/v1/customers/db` | Yüksek | Büyük response aynı anda memory tutar |
 | Metrik/health oku | `GET /api/v1/catalog/dubbo-metrics` | Orta | Hot route kapasitesini çalmamalı |
 | Diğer 6 endpoint | Admin veya command | Düşük | Küçük budget ile kalmalı |
 
@@ -937,8 +946,8 @@ reactor.rust.route-admission.get.api.v1.catalog.nested.queue-timeout-ms=125
 reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=12
 reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms=125
 
-reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6
-reactor.rust.route-admission.get.api.v1.catalog.db.customers.queue-timeout-ms=150
+reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=6
+reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms=150
 ```
 
 Neden böyle: büyük JSON için sadece tek response limiti yetmez. Dubbo response limiti, HTTP response
@@ -953,8 +962,8 @@ Bu senaryoda karşılaşabileceğiniz farklı durumlar ve doğrudan property kar
 | Durum | Önceki değer | Değişiklik | Beklenen düzelme | Bedel / dikkat |
 |-------|--------------|------------|------------------|----------------|
 | Büyük JSON limit'e takılıyor | <small><code>reactor.rust.http.max-response-body-bytes=8388608</code><br><code>reactor.dubbo.max-response-bytes=8388608</code></small> | <small><code>reactor.rust.http.max-response-body-bytes=16777216</code><br><code>reactor.dubbo.max-response-bytes=16777216</code><br><code>reactor.rust.http.max-inflight-response-bytes=33554432</code></small> | Response dönebilir | Toplam in-flight da şart |
-| Büyük JSON RSS artırıyor | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=10</code> veya <code>12</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6</code></small> | Aynı anda büyük body azalır | Büyük endpoint RPS düşer |
-| Küçük read büyük JSON'dan yavaş | Tüm route budget aynı | <small><code>reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=32</code><br><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6</code></small> | Kuyruklar ayrışır | Route key doğru olmalı |
+| Büyük JSON RSS artırıyor | <small><code>reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=10</code> veya <code>12</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=6</code></small> | Aynı anda büyük body azalır | Büyük endpoint RPS düşer |
+| Küçük read büyük JSON'dan yavaş | Tüm route budget aynı | <small><code>reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=32</code><br><code>reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=6</code></small> | Kuyruklar ayrışır | Route key doğru olmalı |
 | Provider CPU boş, p99 yüksek | <small><code>reactor.dubbo.native-connections-per-endpoint=1</code><br><code>reactor.dubbo.native-async-workers=1</code></small> | <small><code>reactor.dubbo.native-connections-per-endpoint=3</code><br><code>reactor.dubbo.native-async-workers=2</code></small> | Native data-plane paralelliği artar | Provider doygunsa fayda yok |
 
 ### CRM Komut Servisi: Create, Patch, Delete Trafiği Yüksek
@@ -1095,7 +1104,7 @@ API'lerin anlamı:
 |---------------------|-----------------|--------|-------|
 | Müşteri lookup | `GET /api/v1/customers/db` | Çok yüksek | Daha fazla Dubbo kapasitesi |
 | Sipariş/katalog lookup | `GET /api/v1/catalog/nested` | Çok yüksek | Daha fazla route budget |
-| Büyük müşteri geçmişi | `GET /api/v1/catalog/db/customers` | Orta | Ayrı büyük JSON budget |
+| Büyük müşteri geçmişi | `GET /api/v1/customers/db` | Orta | Ayrı büyük JSON budget |
 | Command endpoint'ler | `POST/PATCH/DELETE` | Düşük | Küçük budget korunur |
 
 Başlangıç ayarı:
@@ -1134,12 +1143,12 @@ Bu senaryoda karşılaşabileceğiniz farklı durumlar ve doğrudan property kar
 |-------|--------------|------------|------------------|----------------|
 | Provider CPU boş, p99 yüksek | <small><code>reactor.dubbo.max-inflight=24</code><br><code>reactor.dubbo.native-connections-per-endpoint=2</code></small> | <small><code>reactor.dubbo.max-inflight=64</code><br><code>reactor.dubbo.native-connections-per-endpoint=4</code></small> | Daha fazla paralel Dubbo call | RSS/DB pool ölçün |
 | Sadece lookup yavaş | Hot route budget aynı | <small><code>reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=12</code><br>catalog route değerleri aynı kalır</small> | Problemli route ayrılır | DB wait artarsa düşürün |
-| Büyük history küçük lookup'ı bozuyor | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=12</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=6</code><br>small lookup route budget yüksek kalır</small> | Küçük lookup p99 korunur | Büyük JSON RPS düşer |
+| Büyük history küçük lookup'ı bozuyor | <small><code>reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=12</code></small> | <small><code>reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=6</code><br>small lookup route budget yüksek kalır</small> | Küçük lookup p99 korunur | Büyük JSON RPS düşer |
 | Admission kapatıldı | Route budget yok | Budget'ları geri koy<br>sadece hot read artır | Yavaş route sistemi kilitlemez | Config daha detaylıdır |
 
-## `rust-java-rest` 3.4.1 Bu Örnekte Ne Değiştiriyor?
+## `rust-java-rest` 4.0.0 Bu Örnekte Ne Değiştiriyor?
 
-Bu örnek artık `rust-java-rest` `3.4.1` ve `java-rust-dubbo` `0.4.1` kullanır. Uygulama kodu modeli değişmez: handler'lar,
+Bu örnek artık `rust-java-rest` `4.0.0` ve `java-rust-dubbo` `0.5.0` kullanır. Uygulama kodu modeli değişmez: handler'lar,
 service adapter'ları, configuration class'ları ve business kararlar Java'da kalır. Değişiklik daha
 çok handler'ların altında çalışan runtime yolundadır.
 
@@ -1186,7 +1195,7 @@ Bu sample normal `rust-java-rest` Maven artifact'ine bağlıdır:
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.4.1</version>
+  <version>4.0.0</version>
 </dependency>
 ```
 
@@ -1242,7 +1251,7 @@ mvn -q -Pnative-static-consumer test
 mvn -q -Pnative-static-consumer exec:java
 ```
 
-`native-static-consumer` ile `/api/v1/catalog/nested` ve `/api/v1/catalog/db/customers` gibi no-argument read endpoint'lerini çağırın. POST/PATCH/DELETE command örnekleri method argümanı taşıdığı için bilinçli olarak Hessian request encoding kullanan full profile gerektirir.
+`native-static-consumer` ile argüman almayan `/api/v1/catalog/nested` read endpoint'ini çağırın. Müşteri DB read işlemleri ile POST/PATCH/DELETE command örnekleri full profile'a aittir. Bu profile müşteri contract'ını ve command işlemleri için Hessian request encoding desteğini taşır.
 
 Consumer provider'ları ZooKeeper'dan bulmak zorundaysa ZooKeeper profilini kullanın. Bu profil kendi başına yeterlidir; `full-dubbo-consumer` ile birlikte kullanmayın.
 
@@ -1284,31 +1293,34 @@ public static void main(String[] args) {
 veya catalog-only yüzeyini kaydeder. Client sahipliği ve handler seçimi bu modülde açık kalır. Process
 başlangıç sınıfı lifecycle ayrıntılarını tekrar etmez.
 
-Her RPC adapter'ı kendi metot tanımlarını tek bir factory metodunda toplar:
+Her RPC adapter'ı bir kez tanımlanır ve build sırasında üretilir:
 
 ```java
-DubboReferenceSpec<NestedCatalogService> spec = support.reference(NestedCatalogService.class);
-return new NestedCatalogClient(
-        client.method(spec, "getNestedCatalogJson", byte[].class),
-        client.method(spec, "getCatalogTitle", String.class),
-        client.method(spec, "countCatalogItems", Integer.class),
-        client.method(spec, "getCatalogInfo", CatalogInfo.class),
-        client.method(spec, "listFeaturedItems", List.class, int.class),
-        client.method(spec, "getCatalogAttributes", Map.class),
-        client,
-        support.booleanProperty("sample.dubbo.read-retry-on-io-error", false));
+@GenerateNativeDubboClient(
+        service = NestedCatalogService.class,
+        generatedName = "NestedCatalogClient",
+        retryReads = true,
+        retryProperty = "sample.dubbo.read-retry-on-io-error",
+        exposeMetrics = true)
+final class NestedCatalogClientDefinition {
+    private NestedCatalogClientDefinition() {}
+}
 ```
 
-Böylece protocol tanımları REST handler içine dağılmaz. Handler HTTP davranışını yönetir. Adapter ise
-çağrılabilecek Dubbo metotlarını açıkça listeler.
+Build-only processor açık Dubbo interface'ini okur ve doğrudan metot invoker'larını üretir. Handler,
+`getNestedCatalogJsonNativeJsonAsync()` gibi metotları çağırır. Interface metotları client oluşturulurken
+bir kez çözülür. Request sırasında proxy dispatch, reflection ile metot arama veya descriptor üretimi
+yoktur. HTTP davranışı ve business kararı Java handler içinde kalır.
 
 `native-static-consumer` Maven profile'ı compile edilen uygulama yüzeyini de daraltır. Bu JAR yalnızca
 native-static application, handler, client, profile tuning ve kontrollü hata helper sınıfını taşır.
 Full customer handler'ları ve onlara ait startup index dosyaları bu artifact'e girmez.
 
-Sample, business davranışı belirlemek için geniş bir reflection scanner kullanmaz. Aktif handler'lar
-ve Dubbo client'lar named module sınıflarında açıkça görünür. Tekrar eden HTTP bootstrap library içinde
-kalır. Bu yaklaşım class loading davranışını öngörülebilir tutar ve memory ölçümlerini güvenilir kılar.
+Maven build ayrıca `META-INF/reactor/components.idx` ve `META-INF/reactor/routes.idx` dosyalarını
+üretir. Full artifact seçilen full yüzeyi taşır. `native-static-consumer` profile'ı yalnızca kendi yedi
+route'unu üretir. Bu dosyaları elle değiştirmeyin. Seçilen yüzeyde aynı HTTP metodu ve path iki kez
+tanımlanmışsa build hata verir. Startup sırasında paketlenen index ile runtime registration da
+doğrulanabilir. Böylece class loading öngörülebilir kalır ve memory ölçümleri daha güvenilir olur.
 
 Provider repo:
 
@@ -1389,8 +1401,8 @@ edebilirsiniz:
 ```properties
 reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent=16
 reactor.rust.route-admission.get.api.v1.catalog.nested.queue-timeout-ms=100
-reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent=8
-reactor.rust.route-admission.get.api.v1.catalog.db.customers.queue-timeout-ms=150
+reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent=8
+reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms=150
 ```
 
 Bu özelliği RPC, DB veya HTTP server'dan daha yavaşlayabilecek başka bir dependency çağıran
@@ -1480,8 +1492,9 @@ Bu örnekteki class ve interface'ler response DTO değildir. DTO gerekiyorsa nor
 | `RestSampleDubboConsumerApplication` | Process ve HTTP server başlatır. | Java class (startup/runtime); HTTP JSON body üretmez. |
 | `RestApplication.ModuleContext` | REST başlangıcında açıkça verilen client ve handler yaşam döngüsünü yönetir. | Framework lifecycle API'sidir; HTTP JSON body üretmez. |
 | `DubboConsumerConfiguration` | Full yüzey için Dubbo client bean'lerini oluşturur ve kapatır. | Java class'tır; HTTP JSON body üretmez. |
-| `NestedCatalogClient` | Native Dubbo method invoker adapter'ıdır. | Java class (RPC adapter); JSON DTO veya POJO response contract değildir. |
-| `CustomerQueryClient` | Customer Dubbo interface adapter'ıdır. | Java class (RPC adapter); JSON DTO veya POJO response contract değildir. |
+| `NestedCatalogClientDefinition` | Üretilecek katalog RPC adapter'ını build sırasında tanımlar. | Java metadata class'ıdır; HTTP JSON DTO değildir. |
+| Üretilen `NestedCatalogClient` | Compile sırasında oluşturulan doğrudan native Dubbo invoker'larını taşır. | Java RPC adapter'ıdır; JSON DTO veya POJO response contract değildir. |
+| `CustomerQueryClientDefinition` / `CustomerCommandClientDefinition` | Query ve command adapter'larını build sırasında tanımlar. | Java metadata class'larıdır; HTTP JSON contract değildir. |
 | `CatalogHandler` | REST endpoint davranışını taşır. | Java class (HTTP handler/controller); body tipi değildir. Response `RawResponse` veya Java `record` DTO olabilir. |
 | `CustomerHandler` | Customer REST endpoint davranışını taşır. | Java class (HTTP handler/controller); body tipi değildir. Request/response DTO ayrı Java `record` olmalıdır. |
 | `HealthHandler` | Health endpoint davranışını taşır. | Java class (HTTP handler/controller); body tipi değildir. |
@@ -1687,13 +1700,13 @@ Büyük Dubbo object graph'ı consumer JVM'e çekip tekrar JSON'a çevirmek bu f
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.4.1</version>
+    <version>4.0.0</version>
 </dependency>
 
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>java-rust-dubbo</artifactId>
-    <version>0.4.1</version>
+    <version>0.5.0</version>
 </dependency>
 
 <dependency>
@@ -2020,27 +2033,20 @@ Route admission:
 | Property | Default | Ne işe yarar / Ne zaman değiştirirsin? |
 |----------|---------|----------------------------------|
 | `reactor.rust.route-admission.enabled` | `true` | Route-level bounded overload kontrolünü açar. Dubbo-backed route'larda açık kalsın. |
-| `reactor.rust.route-admission.default-max-concurrent` | `0` | Global default route limiti. `0` default cap yok demektir; sample explicit route key kullanır. |
+| `reactor.rust.route-admission.default-max-concurrent` | `0` | Genel route limiti. `0`, bütün route'lara tek bir sınır uygulanmadığını gösterir; sample named workload budget kullanır. |
 | `reactor.rust.route-admission.default-queue-timeout-ms` | `0` | Global default queue wait. `0` default olarak queue yapılmaz demektir. |
-| `reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent` | `16` | Read-heavy nested catalog cap. Provider hızlıysa artırın; provider CPU/RSS artıyorsa düşürün. |
-| `reactor.rust.route-admission.get.api.v1.catalog.nested.queue-timeout-ms` | `100` | Catalog wait budget. Daha az 503 için artırın, daha sıkı p99 için düşürün. |
-| `reactor.rust.route-admission.get.api.v1.catalog.title/count/info/items/attributes.*` | `16` / `100` | Typed catalog route cap'leri.<br>List/map allocation p99'u bozuyorsa düşürün. |
-| `reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent` | `8` | DB-backed catalog route cap. Provider DB pool ve method bulkhead ile hizalayın. |
-| `reactor.rust.route-admission.get.api.v1.catalog.db.customers.queue-timeout-ms` | `150` | DB-backed catalog wait budget. p99 yüksekse worker artırmadan önce bunu düşürün. |
-| `reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent` | `8` | Customer DB read route cap. Provider `CustomerQueryService` concurrency ile tune edilir. |
-| `reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms` | `150` | Customer DB read queue wait. DB saturation altında hızlı fail-fast için düşürün. |
-| `reactor.rust.route-admission.get.api.v1.customers.db.stats/by-segment/id.*` | `4-8` / `150` | Typed DB stats, list ve record lookup cap'leri. List query'leri raw byte pass-through route'larından düşük tutun. |
-| `reactor.rust.route-admission.get.api.v1.customers.id.exists/display-name.*` | `8` / `150` | Küçük scalar lookup cap'leri. Bu method'lar DB'ye gidiyorsa provider DB pool ile tune edin. |
-| `reactor.rust.route-admission.post.api.v1.customers.max-concurrent` | `4` | `micro-2x2` raw create sınırıdır. Raw ve typed limitleri aynı iki RPC/DB iznini kullandıkları için toplanır. |
-| `reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms` | `250` | Raw create bekleme bütçesidir. Derin queue oluşturmadan kısa WAL/fsync dalgalanmasını karşılar. |
-| `reactor.rust.route-admission.post.api.v1.customers.typed.*` | `4` / `250` | Typed create sınırıdır. Raw route ile birlikte ortak backend yoluna en fazla sekiz create isteği girer. |
-| `reactor.rust.route-admission.patch.api.v1.customers.id.segment.max-concurrent` | `8` | Segment patch cap. Command provider kapasitesiyle hizalayın. |
-| `reactor.rust.route-admission.patch.api.v1.customers.id.segment.queue-timeout-ms` | `150` | Segment patch queue wait. Sadece idempotent caller ve p99 ölçümü varsa artırın. |
-| `reactor.rust.route-admission.patch.api.v1.customers.id.status.max-concurrent` | `8` | Status patch cap. Write-side stabilite için bounded kalmalı. |
-| `reactor.rust.route-admission.patch.api.v1.customers.id.status.queue-timeout-ms` | `150` | Status patch queue wait. Overload hızlı görünmeli ise düşürün. |
-| `reactor.rust.route-admission.patch.api.v1.customers.id.status.typed.*` | `8` / `250` | Typed status sınırıdır. Customer key admission aynı satıra yazmayı yine tek concurrent command ile sınırlar. |
-| `reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent` | `8` | Delete command cap. Delete side-effect route olduğu için konservatif kalmalı. |
-| `reactor.rust.route-admission.delete.api.v1.customers.id.queue-timeout-ms` | `150` | Delete command wait budget. Daha strict fail-fast için düşürün. |
+| `reactor.rust.route-budget.rpc-catalog-read.route-admission.*` | `16` / `100 ms` | Memory içindeki katalog read route'larının ortak bütçesidir. Provider hızlı kalıyor, CPU ve RSS taşmıyorsa artırılabilir. |
+| `reactor.rust.route-budget.rpc-customer-raw-read.route-admission.*` | `8` / `150 ms` | Raw JSON customer read bütçesidir. Body native response handle yolunda kalabilir. |
+| `reactor.rust.route-budget.rpc-customer-typed-read.route-admission.*` | `4` / `150 ms` | Typed record/list customer read bütçesidir. Java/Hessian decode ve nesne üretimi daha maliyetli olduğu için daha küçüktür. |
+| `reactor.rust.route-budget.rpc-customer-raw-create.route-admission.*` | `4` / `250 ms` | Raw create bütçesidir. Ortak command provider ve DB write kapasitesiyle sınırlı tutulmalıdır. |
+| `reactor.rust.route-budget.rpc-customer-typed-create.route-admission.*` | `4` / `250 ms` | Typed create bütçesidir. Raw ve typed bütçeler aynı backend üzerinde toplanır. |
+| `reactor.rust.route-budget.rpc-customer-raw-mutation.route-admission.*` | `8` / `150 ms` | Raw PATCH/DELETE bütçesidir. Customer key admission aynı satıra yapılan write işlemlerini yine sıraya alır. |
+| `reactor.rust.route-budget.rpc-customer-typed-mutation.route-admission.*` | `4` / `150 ms` | Typed mutation bütçesidir. Hessian/DTO allocation p99'u etkiliyorsa düşük tutulur. |
+
+Named budget değerleri ortak varsayılandır. Tek bir endpoint farklı davranıyorsa
+`reactor.rust.route-admission.<route-key>.*` kullanılabilir. Öncelik sırası açıktır: annotation metadata
+< workload varsayılanı < named budget property < route-specific property. Route-specific property'yi
+yalnızca bir endpoint kendi workload grubundan farklı ölçülmüş davranış gösteriyorsa kullanın.
 
 Command key admission:
 
@@ -2144,8 +2150,8 @@ Dubbo consumer:
 | `reactor.rust.route-admission.get.api.v1.catalog.info.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CATALOG_INFO_MAX_CONCURRENT` |
 | `reactor.rust.route-admission.get.api.v1.catalog.items.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CATALOG_ITEMS_MAX_CONCURRENT` |
 | `reactor.rust.route-admission.get.api.v1.catalog.attributes.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CATALOG_ATTRIBUTES_MAX_CONCURRENT` |
-| `reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CATALOG_DB_CUSTOMERS_MAX_CONCURRENT` |
-| `reactor.rust.route-admission.get.api.v1.catalog.db.customers.queue-timeout-ms` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CATALOG_DB_CUSTOMERS_QUEUE_TIMEOUT_MS` |
+| `reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CUSTOMERS_DB_MAX_CONCURRENT` |
+| `reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CUSTOMERS_DB_QUEUE_TIMEOUT_MS` |
 | `reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CUSTOMERS_DB_MAX_CONCURRENT` |
 | `reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CUSTOMERS_DB_QUEUE_TIMEOUT_MS` |
 | `reactor.rust.route-admission.get.api.v1.customers.db.by-segment.max-concurrent` | `REACTOR_RUST_ROUTE_ADMISSION_GET_API_V1_CUSTOMERS_DB_BY_SEGMENT_MAX_CONCURRENT` |
@@ -2676,7 +2682,7 @@ Test:
 curl http://127.0.0.1:8080/app/health
 curl http://127.0.0.1:8080/api/v1/catalog/nested
 curl http://127.0.0.1:8080/api/v1/customers/db
-curl http://127.0.0.1:8080/api/v1/catalog/db/customers
+curl http://127.0.0.1:8080/api/v1/customers/db
 curl http://127.0.0.1:8080/api/v1/catalog/dubbo-metrics
 curl -X POST http://127.0.0.1:8080/api/v1/customers -H "Content-Type: application/json" -d "{\"requestId\":\"req-1001\",\"customerNo\":\"CUST-9001\",\"fullName\":\"Zeynep Şahin\",\"segment\":\"pilot\",\"email\":\"zeynep.sahin@example.com\"}"
 curl -X PATCH http://127.0.0.1:8080/api/v1/customers/1/segment -H "Content-Type: application/json" -d "{\"requestId\":\"req-1002\",\"segment\":\"enterprise\"}"
@@ -2731,7 +2737,6 @@ Bu modda `reactor.dubbo.providers` yok sayılır, provider URL'leri ZooKeeper'da
 | `GET /api/v1/customers/db/by-segment?segment=pilot&limit=10` | `List<CustomerSummary> findCustomersBySegment(...)` çağırır; result size bounded olur. |
 | `GET /api/v1/customers/{id}/exists` | `boolean customerExists(long id)` çağırır. |
 | `GET /api/v1/customers/{id}/display-name` | `String getCustomerDisplayName(long id)` çağırır. |
-| `GET /api/v1/catalog/db/customers` | Compatibility alias; yine `CustomerQueryService` çağırır. |
 | `POST /api/v1/customers` | Compact command JSON byte'larını `CustomerCommandService.createCustomer(byte[])` method'una gönderir. |
 | `POST /api/v1/customers/typed` | REST body'yi `CreateCustomerCommand` olarak parse eder, typed Dubbo command çağırır, `CustomerMutationResult` JSON döner. |
 | `PATCH /api/v1/customers/{id}/segment` | Bounded DB command method ile customer segment değiştirir. |

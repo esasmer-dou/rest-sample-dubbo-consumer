@@ -51,30 +51,13 @@ class ConsumerRuntimeConfigurationTest {
         Properties properties = loadProperties("config/advanced-tuning.properties");
 
         assertEquals("true", properties.getProperty("reactor.rust.route-admission.enabled"));
-        assertEquals("16", properties.getProperty("reactor.rust.route-admission.get.api.v1.catalog.nested.max-concurrent"));
-        assertEquals("100", properties.getProperty("reactor.rust.route-admission.get.api.v1.catalog.nested.queue-timeout-ms"));
-        assertEquals("16", properties.getProperty("reactor.rust.route-admission.get.api.v1.catalog.info.max-concurrent"));
-        assertEquals("16", properties.getProperty("reactor.rust.route-admission.get.api.v1.catalog.items.max-concurrent"));
-        assertEquals("16", properties.getProperty("reactor.rust.route-admission.get.api.v1.catalog.attributes.max-concurrent"));
-        assertEquals("8", properties.getProperty("reactor.rust.route-admission.get.api.v1.catalog.db.customers.max-concurrent"));
-        assertEquals("150", properties.getProperty("reactor.rust.route-admission.get.api.v1.catalog.db.customers.queue-timeout-ms"));
-        assertEquals("8", properties.getProperty("reactor.rust.route-admission.get.api.v1.customers.db.max-concurrent"));
-        assertEquals("150", properties.getProperty("reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms"));
-        assertEquals("4", properties.getProperty("reactor.rust.route-admission.get.api.v1.customers.db.stats.max-concurrent"));
-        assertEquals("4", properties.getProperty("reactor.rust.route-admission.get.api.v1.customers.db.by-segment.max-concurrent"));
-        assertEquals("8", properties.getProperty("reactor.rust.route-admission.get.api.v1.customers.db.id.max-concurrent"));
-        assertEquals("4", properties.getProperty("reactor.rust.route-admission.post.api.v1.customers.max-concurrent"));
-        assertEquals("250", properties.getProperty("reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms"));
-        assertEquals("4", properties.getProperty("reactor.rust.route-admission.post.api.v1.customers.typed.max-concurrent"));
-        assertEquals("250", properties.getProperty("reactor.rust.route-admission.post.api.v1.customers.typed.queue-timeout-ms"));
-        assertEquals("8", properties.getProperty("reactor.rust.route-admission.patch.api.v1.customers.id.segment.max-concurrent"));
-        assertEquals("150", properties.getProperty("reactor.rust.route-admission.patch.api.v1.customers.id.segment.queue-timeout-ms"));
-        assertEquals("8", properties.getProperty("reactor.rust.route-admission.patch.api.v1.customers.id.status.max-concurrent"));
-        assertEquals("150", properties.getProperty("reactor.rust.route-admission.patch.api.v1.customers.id.status.queue-timeout-ms"));
-        assertEquals("8", properties.getProperty("reactor.rust.route-admission.patch.api.v1.customers.id.status.typed.max-concurrent"));
-        assertEquals("250", properties.getProperty("reactor.rust.route-admission.patch.api.v1.customers.id.status.typed.queue-timeout-ms"));
-        assertEquals("8", properties.getProperty("reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent"));
-        assertEquals("150", properties.getProperty("reactor.rust.route-admission.delete.api.v1.customers.id.queue-timeout-ms"));
+        assertBudget(properties, "rpc-catalog-read", "16", "100");
+        assertBudget(properties, "rpc-customer-raw-read", "8", "150");
+        assertBudget(properties, "rpc-customer-typed-read", "4", "150");
+        assertBudget(properties, "rpc-customer-raw-create", "4", "250");
+        assertBudget(properties, "rpc-customer-typed-create", "4", "250");
+        assertBudget(properties, "rpc-customer-raw-mutation", "8", "150");
+        assertBudget(properties, "rpc-customer-typed-mutation", "4", "150");
     }
 
     @Test
@@ -123,6 +106,16 @@ class ConsumerRuntimeConfigurationTest {
             }
         }
         return properties;
+    }
+
+    private static void assertBudget(
+            Properties properties,
+            String budget,
+            String maxConcurrent,
+            String queueTimeoutMs) {
+        String prefix = "reactor.rust.route-budget." + budget + ".route-admission";
+        assertEquals(maxConcurrent, properties.getProperty(prefix + ".max-concurrent"));
+        assertEquals(queueTimeoutMs, properties.getProperty(prefix + ".queue-timeout-ms"));
     }
 
     private static String resourceText(String name) throws IOException {
