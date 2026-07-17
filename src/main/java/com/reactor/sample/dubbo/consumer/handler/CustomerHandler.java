@@ -95,7 +95,7 @@ public final class CustomerHandler {
 
     @PostMapping(value = "", requestType = byte[].class, responseType = RawResponse.class)
     @MaxRequestBodySize(32768)
-    @RouteAdmission(maxConcurrent = 8, queueTimeoutMs = 150)
+    @RouteAdmission(maxConcurrent = 4, queueTimeoutMs = 250)
     public CompletableFuture<ResponseEntity<RawResponse>> createCustomer(@RequestBody byte[] body) {
         return customerCommandClient.createCustomerNativeJsonAsync(body)
                 .thenApply(handle -> ResponseEntity.created(RawResponse.nativeResponse(handle.nativeId())))
@@ -104,7 +104,7 @@ public final class CustomerHandler {
 
     @PostMapping(value = "/typed", requestType = CreateCustomerCommand.class, responseType = RawResponse.class)
     @MaxRequestBodySize(32768)
-    @RouteAdmission(maxConcurrent = 4, queueTimeoutMs = 150)
+    @RouteAdmission(maxConcurrent = 4, queueTimeoutMs = 250)
     public CompletableFuture<ResponseEntity<RawResponse>> createCustomerTyped(
             @RequestBody CreateCustomerCommand command) {
         return customerCommandClient.createCustomerTypedAsync(command)

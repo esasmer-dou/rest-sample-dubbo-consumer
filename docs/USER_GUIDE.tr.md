@@ -73,7 +73,7 @@ Sonra consumer'ı çalıştırın:
 
 ```powershell
 mvn -q package
-java -jar target/rest-sample-dubbo-consumer-0.2.0.jar
+java -jar target/rest-sample-dubbo-consumer-0.3.2.jar
 ```
 
 Health:
@@ -169,10 +169,21 @@ curl -X DELETE http://127.0.0.1:8080/api/v1/customers/1 `
 |-------|-----------|---------|
 | `micro-dubbo` | Düşük RSS, kontrollü `503` kabul. | Küçük worker, queue ve connection. |
 | `micro-1x1` reçetesi | En küçük pod. | `native-connections-per-endpoint=1`, `native-async-workers=1`. |
-| `micro-2x2` reçetesi | Full sample DB write yapıyor veya Hikari `2` iken `1x1` çağrıları seri hale getiriyor. | `sample.dubbo.capacity-profile=micro-2x2`, connection `2`, worker `2`, queue `64`, max-inflight `64`, idle connection TTL `30000` ms. |
+| `micro-2x2` reçetesi | Full sample DB write yapıyor veya Hikari `2` iken `1x1` çağrıları seri hale getiriyor. | `sample.dubbo.capacity-profile=micro-2x2`, connection `2`, worker `2`, queue `64`, max-inflight `64`, create route'ları ayrı ayrı `4/250 ms`. |
 | `balanced-stable-4x4` | Daha çok başarılı read RPS. | Connection ve worker `4`, route budget kontrollü. |
 
 DB-backed endpoint için consumer ayarını client concurrency ile değil, provider Hikari kapasitesiyle başlatın.
+
+Raw ve typed create endpoint'leri aynı provider command service'i kullanır. Route limitleri toplanır.
+Her iki route'u da `8` yapmak ortak `2x2` backend önünde 16 istek biriktirir. Aşağıdaki değerler
+PostgreSQL WAL commit gecikmesinin p99 boyunca büyümesini sınırlar:
+
+```properties
+reactor.rust.route-admission.post.api.v1.customers.max-concurrent=4
+reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms=250
+reactor.rust.route-admission.post.api.v1.customers.typed.max-concurrent=4
+reactor.rust.route-admission.post.api.v1.customers.typed.queue-timeout-ms=250
+```
 
 ## DB Pool Ve c64/c256 Ne Demek?
 

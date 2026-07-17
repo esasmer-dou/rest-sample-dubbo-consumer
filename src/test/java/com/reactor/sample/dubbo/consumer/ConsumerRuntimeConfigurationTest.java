@@ -63,9 +63,9 @@ class ConsumerRuntimeConfigurationTest {
         assertEquals("4", properties.getProperty("reactor.rust.route-admission.get.api.v1.customers.db.stats.max-concurrent"));
         assertEquals("4", properties.getProperty("reactor.rust.route-admission.get.api.v1.customers.db.by-segment.max-concurrent"));
         assertEquals("8", properties.getProperty("reactor.rust.route-admission.get.api.v1.customers.db.id.max-concurrent"));
-        assertEquals("8", properties.getProperty("reactor.rust.route-admission.post.api.v1.customers.max-concurrent"));
-        assertEquals("150", properties.getProperty("reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms"));
-        assertEquals("8", properties.getProperty("reactor.rust.route-admission.post.api.v1.customers.typed.max-concurrent"));
+        assertEquals("4", properties.getProperty("reactor.rust.route-admission.post.api.v1.customers.max-concurrent"));
+        assertEquals("250", properties.getProperty("reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms"));
+        assertEquals("4", properties.getProperty("reactor.rust.route-admission.post.api.v1.customers.typed.max-concurrent"));
         assertEquals("250", properties.getProperty("reactor.rust.route-admission.post.api.v1.customers.typed.queue-timeout-ms"));
         assertEquals("8", properties.getProperty("reactor.rust.route-admission.patch.api.v1.customers.id.segment.max-concurrent"));
         assertEquals("150", properties.getProperty("reactor.rust.route-admission.patch.api.v1.customers.id.segment.queue-timeout-ms"));

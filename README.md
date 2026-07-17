@@ -12,7 +12,7 @@ Shared sample contracts come from `com.reactor.sample:rest-sample-utility:0.2.0`
 come transitively from `com.reactor.sample:rust-sample-model:0.2.0`. The Dubbo interface package name is
 kept as `com.reactor.rust.dubbo.sample` so the provider and consumer keep the same service identity.
 
-[Release notes for v0.3.1](docs/RELEASE_NOTES_v0.3.1.md)
+[Release notes for v0.3.2](docs/RELEASE_NOTES_v0.3.2.md)
 
 ## Contents
 
@@ -107,7 +107,7 @@ java "-Dreactor.dubbo.registry-enabled=false" `
   "-Dsample.db.password=reactor" `
   "-Dsample.db.schema-init=true" `
   "-Dsample.db.warmup=true" `
-  -jar target/rest-sample-dubbo-provider-0.1.1.jar
+  -jar target/rest-sample-dubbo-provider-0.3.2.jar
 ```
 
 Keep this terminal open.
@@ -128,7 +128,7 @@ java "-Dserver.port=8080" `
   "-Dreactor.dubbo.native-connections-per-endpoint=2" `
   "-Dreactor.dubbo.native-async-workers=1" `
   "-Dreactor.dubbo.max-inflight=8" `
-  -jar target/rest-sample-dubbo-consumer-0.1.1.jar
+  -jar target/rest-sample-dubbo-consumer-0.3.2.jar
 ```
 
 ### 3. Call The Endpoints
@@ -409,7 +409,7 @@ same behavior.
 | Recipe | Use when | Key settings | Trade-off |
 |--------|----------|--------------|-----------|
 | `micro-1x1` | Smallest Dubbo consumer pod, low or moderate traffic, DB-backed provider with a small pool. | <small><code>reactor.runtime.profile=micro-dubbo</code><br><code>reactor.dubbo.native-connections-per-endpoint=1</code><br><code>reactor.dubbo.native-async-workers=1</code><br><code>reactor.dubbo.native-async-queue-capacity=32</code><br><code>reactor.dubbo.max-inflight=16</code></small> | Lowest RSS. Spikes may get controlled `503`. |
-| `micro-2x2` | Full sample writes to DB, or Hikari is `2` and `1x1` serializes calls before the DB. | <small><code>sample.dubbo.capacity-profile=micro-2x2</code><br><code>reactor.dubbo.native-connections-per-endpoint=2</code><br><code>reactor.dubbo.native-async-workers=2</code><br><code>reactor.dubbo.native-async-queue-capacity=64</code><br><code>reactor.dubbo.max-inflight=64</code></small> | One extra native worker and connection. This is the full sample default; catalog-only stays `1x1`. |
+| `micro-2x2` | Full sample writes to DB, or Hikari is `2` and `1x1` serializes calls before the DB. | <small><code>sample.dubbo.capacity-profile=micro-2x2</code><br><code>reactor.dubbo.native-connections-per-endpoint=2</code><br><code>reactor.dubbo.native-async-workers=2</code><br><code>reactor.dubbo.native-async-queue-capacity=64</code><br><code>reactor.dubbo.max-inflight=64</code><br><code>POST /customers=4/250ms</code><br><code>POST /customers/typed=4/250ms</code></small> | Keeps the two hot create routes from building a 16-request queue in front of one shared `2x2` backend. This is the full sample default; catalog-only stays `1x1`. |
 | `balanced-stable-4x4` | Read-heavy service, provider returns ready JSON, and you want more 2xx without hiding overload. | <small><code>reactor.runtime.profile=balanced-dubbo</code><br><code>reactor.dubbo.native-connections-per-endpoint=4</code><br><code>reactor.dubbo.native-async-workers=4</code><br><code>reactor.dubbo.native-async-queue-capacity=512</code><br><code>reactor.dubbo.max-inflight=64</code></small> | Higher RPS. Needs provider CPU/DB proof. |
 | `balanced-mid-4x4` | Distributed commands need more accepted work and provider capacity is measured. | Same `4x4` native settings, with wider route budgets than `stable`. | More 2xx possible. p99/RSS must be watched. |
 | `balanced-wide-4x4` | Only for a measured high-capacity provider, not as a default. | Same `4x4` native settings, with the widest route budgets. | Can hide overload in queues. Use with caution. |
@@ -433,6 +433,11 @@ Use this rule for DB-backed endpoints: do not size the consumer for client concu
 from provider and Hikari capacity first. If the provider has only two DB connections, `c64` traffic
 must either wait briefly or get controlled `503`; deep queues only increase RSS and p99.
 
+Route limits are not isolated capacity. If raw and typed create routes both call the same command
+service, their accepted work is added together. With a two-worker/two-connection backend, `8 + 8`
+allows sixteen requests to wait behind two durable PostgreSQL commits. The `micro-2x2` recipe uses
+`4 + 4` and a `250 ms` wait budget so WAL/fsync variance does not amplify across a deep queue.
+
 Run the repeatable mixed raw/typed write gate after the consumer, provider, and PostgreSQL containers
 join the same Docker network:
 
@@ -446,6 +451,17 @@ docker run --rm --network YOUR_NETWORK `
 
 The normal gate requires zero failed writes and p99 below `250 ms`. A high-concurrency overload test
 may allow controlled `503`, but it must not report native Dubbo errors, DB rollbacks, or pool exhaustion.
+
+Use the repeat gate for the `c16` tail-latency check. It rejects a result when one run exceeds
+`200 ms` p99, the p99 spread exceeds `75 ms`, or non-2xx exceeds `0.10%`:
+
+```powershell
+.\benchmark\dubbo-write-repeat-gate.ps1 `
+  -Network YOUR_NETWORK `
+  -BaseUrl http://consumer:8080 `
+  -VirtualUsers 16 `
+  -Repeats 3
+```
 
 ## Production Recipes
 
@@ -496,7 +512,7 @@ Use this when the provider address is known and your REST API only exposes read 
 mvn -q -Pnative-static-consumer package
 java -Xms8m -Xmx48m -Xss256k -XX:ActiveProcessorCount=1 `
   -Dreactor.dubbo.providers=provider:20880 `
-  -jar target/rest-sample-dubbo-consumer-0.1.1.jar
+  -jar target/rest-sample-dubbo-consumer-0.3.2.jar
 ```
 
 Effect:
@@ -512,8 +528,10 @@ Effect:
 Use this for POST/PATCH/DELETE routes where each REST request becomes one provider command call.
 
 ```properties
-reactor.rust.route-admission.post.api.v1.customers.max-concurrent=8
-reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms=150
+reactor.rust.route-admission.post.api.v1.customers.max-concurrent=4
+reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms=250
+reactor.rust.route-admission.post.api.v1.customers.typed.max-concurrent=4
+reactor.rust.route-admission.post.api.v1.customers.typed.queue-timeout-ms=250
 reactor.rust.route-admission.patch.api.v1.customers.id.segment.max-concurrent=8
 reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent=8
 reactor.dubbo.timeout-ms=1000
@@ -1999,9 +2017,9 @@ Route admission:
 | `reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms` | `150` | Customer DB read queue wait. Lower for faster fail-fast under DB saturation. |
 | `reactor.rust.route-admission.get.api.v1.customers.db.stats/by-segment/id.*` | `4-8` / `150` | Typed DB stats, list, and record lookup caps. Keep list queries lower than raw byte pass-through routes. |
 | `reactor.rust.route-admission.get.api.v1.customers.id.exists/display-name.*` | `8` / `150` | Small scalar lookup caps. Tune with provider DB pool if these call the database. |
-| `reactor.rust.route-admission.post.api.v1.customers.max-concurrent` | `8` | Create command cap. Keep bounded to avoid duplicate-write pressure and DB queue buildup. |
-| `reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms` | `150` | Create command wait budget. Lower if write p99 matters more than absorbing bursts. |
-| `reactor.rust.route-admission.post.api.v1.customers.typed.*` | `8` / `250` | Typed create cap for `micro-2x2`. This removes false admission timeouts at the normal write gate. |
+| `reactor.rust.route-admission.post.api.v1.customers.max-concurrent` | `4` | Raw create cap for `micro-2x2`. Raw and typed limits add up because both use the same two RPC/DB permits. |
+| `reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms` | `250` | Raw create wait budget. It absorbs short WAL/fsync variance without allowing a deep queue. |
+| `reactor.rust.route-admission.post.api.v1.customers.typed.*` | `4` / `250` | Typed create cap for `micro-2x2`. Together with the raw route, at most eight create requests enter the shared backend path. |
 | `reactor.rust.route-admission.patch.api.v1.customers.id.segment.max-concurrent` | `8` | Segment patch cap. Keep aligned with command provider capacity. |
 | `reactor.rust.route-admission.patch.api.v1.customers.id.segment.queue-timeout-ms` | `150` | Segment patch queue wait. Raise only with idempotent caller behavior and measured p99. |
 | `reactor.rust.route-admission.patch.api.v1.customers.id.status.max-concurrent` | `8` | Status patch cap. Keep bounded for write-side stability. |

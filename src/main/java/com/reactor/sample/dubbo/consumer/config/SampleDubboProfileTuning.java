@@ -68,8 +68,11 @@ public final class SampleDubboProfileTuning {
         setIfNoExternalOverride("reactor.dubbo.native-async-workers", "2");
         setIfNoExternalOverride("reactor.dubbo.native-async-queue-capacity", "64");
         setIfNoExternalOverride("reactor.dubbo.native-async-transport", "blocking");
-        setRouteAdmissionIfNoExternalOverride("post.api.v1.customers.typed", "8", "250");
-        setRouteAdmissionIfNoExternalOverride("patch.api.v1.customers.id.status.typed", "8", "250");
+
+        // Both create routes share the same two native workers and two provider/DB permits.
+        // Keeping each route at four prevents a mixed workload from building a 16-request queue.
+        setRouteAdmissionIfNoExternalOverride("post.api.v1.customers", "4", "250");
+        setRouteAdmissionIfNoExternalOverride("post.api.v1.customers.typed", "4", "250");
     }
 
     private static void applyBalancedDubbo() {

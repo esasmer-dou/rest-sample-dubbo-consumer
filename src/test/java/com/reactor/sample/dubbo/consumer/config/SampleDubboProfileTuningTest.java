@@ -18,6 +18,8 @@ class SampleDubboProfileTuningTest {
             "reactor.dubbo.native-async-workers",
             "reactor.dubbo.native-async-queue-capacity",
             "reactor.dubbo.native-async-transport",
+            "reactor.rust.route-admission.post.api.v1.customers.max-concurrent",
+            "reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms",
             "reactor.rust.route-admission.post.api.v1.customers.typed.max-concurrent",
             "reactor.rust.route-admission.post.api.v1.customers.typed.queue-timeout-ms");
 
@@ -27,7 +29,7 @@ class SampleDubboProfileTuningTest {
     }
 
     @Test
-    void micro2x2AlignsNativeRpcAndTypedWriteAdmission() {
+    void micro2x2AlignsBothCreateRoutesWithSharedBackendCapacity() {
         System.setProperty("sample.dubbo.capacity-profile", "micro-2x2");
 
         SampleDubboProfileTuning.apply();
@@ -39,7 +41,11 @@ class SampleDubboProfileTuningTest {
         assertEquals("2", System.getProperty("reactor.dubbo.native-async-workers"));
         assertEquals("64", System.getProperty("reactor.dubbo.native-async-queue-capacity"));
         assertEquals("blocking", System.getProperty("reactor.dubbo.native-async-transport"));
-        assertEquals("8", System.getProperty(
+        assertEquals("4", System.getProperty(
+                "reactor.rust.route-admission.post.api.v1.customers.max-concurrent"));
+        assertEquals("250", System.getProperty(
+                "reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms"));
+        assertEquals("4", System.getProperty(
                 "reactor.rust.route-admission.post.api.v1.customers.typed.max-concurrent"));
         assertEquals("250", System.getProperty(
                 "reactor.rust.route-admission.post.api.v1.customers.typed.queue-timeout-ms"));

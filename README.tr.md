@@ -15,7 +15,7 @@ record'ları transitif olarak `com.reactor.sample:rust-sample-model:0.2.0` paket
 interface package adı `com.reactor.rust.dubbo.sample` olarak korunur. Böylece provider ve consumer
 aynı service kimliğini kullanmaya devam eder.
 
-[v0.3.1 sürüm notları](docs/RELEASE_NOTES_v0.3.1.md)
+[v0.3.2 sürüm notları](docs/RELEASE_NOTES_v0.3.2.tr.md)
 
 ## İçindekiler
 
@@ -110,7 +110,7 @@ java "-Dreactor.dubbo.registry-enabled=false" `
   "-Dsample.db.password=reactor" `
   "-Dsample.db.schema-init=true" `
   "-Dsample.db.warmup=true" `
-  -jar target/rest-sample-dubbo-provider-0.1.1.jar
+  -jar target/rest-sample-dubbo-provider-0.3.2.jar
 ```
 
 Bu terminal açık kalmalıdır.
@@ -131,7 +131,7 @@ java "-Dserver.port=8080" `
   "-Dreactor.dubbo.native-connections-per-endpoint=2" `
   "-Dreactor.dubbo.native-async-workers=1" `
   "-Dreactor.dubbo.max-inflight=8" `
-  -jar target/rest-sample-dubbo-consumer-0.1.1.jar
+  -jar target/rest-sample-dubbo-consumer-0.3.2.jar
 ```
 
 ### 3. Endpoint'leri Deneyin
@@ -424,7 +424,7 @@ Benchmark raporu sadece raw RPS vermez; bilinçli olarak şu alanları da taşı
 | Reçete | Ne zaman kullanılır? | Ana ayarlar | Bedel |
 |--------|----------------------|-------------|-------|
 | `micro-1x1` | En küçük Dubbo consumer pod, düşük/orta trafik, küçük DB pool kullanan provider. | <small><code>reactor.runtime.profile=micro-dubbo</code><br><code>reactor.dubbo.native-connections-per-endpoint=1</code><br><code>reactor.dubbo.native-async-workers=1</code><br><code>reactor.dubbo.native-async-queue-capacity=32</code><br><code>reactor.dubbo.max-inflight=16</code></small> | En düşük RSS. Spike altında kontrollü `503` dönebilir. |
-| `micro-2x2` | Full sample DB'ye yazıyor veya Hikari `2` olduğu halde `1x1` çağrıları DB'ye ulaşmadan seri hale getiriyor. | <small><code>sample.dubbo.capacity-profile=micro-2x2</code><br><code>reactor.dubbo.native-connections-per-endpoint=2</code><br><code>reactor.dubbo.native-async-workers=2</code><br><code>reactor.dubbo.native-async-queue-capacity=64</code><br><code>reactor.dubbo.max-inflight=64</code></small> | Bir ek native worker ve connection kullanır. Full sample varsayılanıdır; catalog-only `1x1` kalır. |
+| `micro-2x2` | Full sample DB'ye yazıyor veya Hikari `2` olduğu halde `1x1` çağrıları DB'ye ulaşmadan seri hale getiriyor. | <small><code>sample.dubbo.capacity-profile=micro-2x2</code><br><code>reactor.dubbo.native-connections-per-endpoint=2</code><br><code>reactor.dubbo.native-async-workers=2</code><br><code>reactor.dubbo.native-async-queue-capacity=64</code><br><code>reactor.dubbo.max-inflight=64</code><br><code>POST /customers=4/250ms</code><br><code>POST /customers/typed=4/250ms</code></small> | İki yoğun create route'unun ortak `2x2` backend önünde 16 istek biriktirmesini engeller. Full sample varsayılanıdır; catalog-only `1x1` kalır. |
 | `balanced-stable-4x4` | Read-heavy servis, provider hazır JSON dönüyor ve overload saklanmadan daha çok 2xx isteniyor. | <small><code>reactor.runtime.profile=balanced-dubbo</code><br><code>reactor.dubbo.native-connections-per-endpoint=4</code><br><code>reactor.dubbo.native-async-workers=4</code><br><code>reactor.dubbo.native-async-queue-capacity=512</code><br><code>reactor.dubbo.max-inflight=64</code></small> | RPS artar. Provider CPU/DB ölçümü gerekir. |
 | `balanced-mid-4x4` | Distributed command endpoint'leri daha çok kabul edilen iş istiyor ve provider kapasitesi ölçüldü. | Aynı `4x4` native ayarları, `stable` değerinden daha geniş route budget. | Daha çok 2xx alınabilir. p99/RSS izlenmelidir. |
 | `balanced-wide-4x4` | Sadece ölçülmüş yüksek kapasiteli provider için. Default yapılmamalıdır. | Aynı `4x4` native ayarları, en geniş route budget. | Overload queue içinde saklanabilir. Dikkatli kullanın. |
@@ -448,6 +448,12 @@ DB-backed endpoint için kural basittir: consumer'ı önce client concurrency de
 provider ve Hikari kapasitesine göre boyutlandırın. Provider'da iki DB connection varsa `c64`
 trafik ya kısa süre beklemeli ya da kontrollü `503` almalıdır. Derin queue sadece RSS ve p99 artırır.
 
+Route limitleri birbirinden bağımsız backend kapasitesi değildir. Raw ve typed create route'ları aynı
+command service'e gidiyorsa kabul ettikleri işler toplanır. İki worker ve iki DB connection önünde
+`8 + 8` kullanmak, iki güvenli PostgreSQL commit işleminin arkasında 16 istek biriktirir. `micro-2x2`
+reçetesi bu nedenle `4 + 4` ve `250 ms` bekleme bütçesi kullanır. WAL/fsync gecikmesi derin queue
+boyunca büyüyerek p99 değerini bozmaz.
+
 Consumer, provider ve PostgreSQL container'ları aynı Docker network'üne bağlandıktan sonra tekrarlanabilir
 raw/typed karma write gate'i çalıştırın:
 
@@ -461,6 +467,17 @@ docker run --rm --network YOUR_NETWORK `
 
 Normal gate sıfır hatalı write ve `250 ms` altında p99 ister. Yüksek concurrency overload testinde
 kontrollü `503` kabul edilebilir. Ancak native Dubbo hatası, DB rollback veya pool exhaustion olmamalıdır.
+
+`c16` tail-latency kontrolü için repeat gate'i kullanın. Tek bir koşuda p99 `200 ms` değerini aşarsa,
+p99 yayılımı `75 ms` değerinden büyükse veya non-2xx oranı `%0,10` üzerine çıkarsa test başarısız olur:
+
+```powershell
+.\benchmark\dubbo-write-repeat-gate.ps1 `
+  -Network YOUR_NETWORK `
+  -BaseUrl http://consumer:8080 `
+  -VirtualUsers 16 `
+  -Repeats 3
+```
 
 ## Production Reçeteleri
 
@@ -511,7 +528,7 @@ expose ediyorsa bunu kullanın.
 mvn -q -Pnative-static-consumer package
 java -Xms8m -Xmx48m -Xss256k -XX:ActiveProcessorCount=1 `
   -Dreactor.dubbo.providers=provider:20880 `
-  -jar target/rest-sample-dubbo-consumer-0.1.1.jar
+  -jar target/rest-sample-dubbo-consumer-0.3.2.jar
 ```
 
 Etkisi:
@@ -528,8 +545,10 @@ Her REST isteğinin bir provider command çağrısına dönüştüğü POST/PATC
 kullanın.
 
 ```properties
-reactor.rust.route-admission.post.api.v1.customers.max-concurrent=8
-reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms=150
+reactor.rust.route-admission.post.api.v1.customers.max-concurrent=4
+reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms=250
+reactor.rust.route-admission.post.api.v1.customers.typed.max-concurrent=4
+reactor.rust.route-admission.post.api.v1.customers.typed.queue-timeout-ms=250
 reactor.rust.route-admission.patch.api.v1.customers.id.segment.max-concurrent=8
 reactor.rust.route-admission.delete.api.v1.customers.id.max-concurrent=8
 reactor.dubbo.timeout-ms=1000
@@ -2012,9 +2031,9 @@ Route admission:
 | `reactor.rust.route-admission.get.api.v1.customers.db.queue-timeout-ms` | `150` | Customer DB read queue wait. DB saturation altında hızlı fail-fast için düşürün. |
 | `reactor.rust.route-admission.get.api.v1.customers.db.stats/by-segment/id.*` | `4-8` / `150` | Typed DB stats, list ve record lookup cap'leri. List query'leri raw byte pass-through route'larından düşük tutun. |
 | `reactor.rust.route-admission.get.api.v1.customers.id.exists/display-name.*` | `8` / `150` | Küçük scalar lookup cap'leri. Bu method'lar DB'ye gidiyorsa provider DB pool ile tune edin. |
-| `reactor.rust.route-admission.post.api.v1.customers.max-concurrent` | `8` | Create command cap. Duplicate write baskısı ve DB queue büyümesini önlemek için bounded kalmalı. |
-| `reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms` | `150` | Create command wait budget. Write p99 burst absorption'dan önemliyse düşürün. |
-| `reactor.rust.route-admission.post.api.v1.customers.typed.*` | `8` / `250` | `micro-2x2` typed create sınırıdır. Normal write gate'teki hatalı admission timeout'larını kaldırır. |
+| `reactor.rust.route-admission.post.api.v1.customers.max-concurrent` | `4` | `micro-2x2` raw create sınırıdır. Raw ve typed limitleri aynı iki RPC/DB iznini kullandıkları için toplanır. |
+| `reactor.rust.route-admission.post.api.v1.customers.queue-timeout-ms` | `250` | Raw create bekleme bütçesidir. Derin queue oluşturmadan kısa WAL/fsync dalgalanmasını karşılar. |
+| `reactor.rust.route-admission.post.api.v1.customers.typed.*` | `4` / `250` | Typed create sınırıdır. Raw route ile birlikte ortak backend yoluna en fazla sekiz create isteği girer. |
 | `reactor.rust.route-admission.patch.api.v1.customers.id.segment.max-concurrent` | `8` | Segment patch cap. Command provider kapasitesiyle hizalayın. |
 | `reactor.rust.route-admission.patch.api.v1.customers.id.segment.queue-timeout-ms` | `150` | Segment patch queue wait. Sadece idempotent caller ve p99 ölçümü varsa artırın. |
 | `reactor.rust.route-admission.patch.api.v1.customers.id.status.max-concurrent` | `8` | Status patch cap. Write-side stabilite için bounded kalmalı. |
