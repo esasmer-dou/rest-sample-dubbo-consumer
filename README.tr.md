@@ -10,7 +10,15 @@ Dubbo provider'larını çağıran bir REST uygulamasıdır.
 - Provider adresi static olarak veya ZooKeeper üzerinden bulunabilir.
 - GET, POST, PATCH ve DELETE örnekleri vardır.
 
-Kullanılan sürümler: `rust-java-rest:4.0.0`, `java-rust-dubbo:0.5.0`, `rest-sample-utility:0.3.0`, `rust-sample-model:0.3.0`.
+Kullanılan sürümler: `rust-java-rest:4.1.0`, `java-rust-dubbo:0.6.0`, `rest-sample-utility:0.3.1`, `rust-sample-model:0.3.1`.
+
+## 0.5.0 ile Neler Sadeleşti?
+
+- `RestSampleDubboConsumerApplication` deklaratif framework başlangıcını kullanır.
+- Tek `DubboClients` tanımı bütün typed client'ları üretir ve tek bounded transport paylaşır.
+- Elle yazılmış client definition ve tekrar eden runtime plan sınıfları kaldırıldı.
+- Handler'lar constructor injection ve generated route invoker kullanır.
+- REST adresleri, Dubbo interface'leri, payload'lar, profile'lar ve Java iş akışı değişmedi.
 
 ## Buradan Başlayın
 
@@ -46,7 +54,6 @@ mvn -q `
   "-Dsample.dubbo.discovery=static" `
   "-Dreactor.dubbo.providers=127.0.0.1:20880" `
   "-Dreactor.runtime.profile=micro-dubbo" `
-  "-Dsample.dubbo.capacity-profile=micro-2x2" `
   clean compile exec:java
 ```
 
@@ -141,13 +148,23 @@ ZooKeeper ek sınıf, thread ve memory kullanır. Yalnızca gerçek bir discover
 
 ## Çalışma Kapasitesini Seçin
 
-| Trafik tipi | Ayar | Anlamı |
+| Trafik tipi | Başlangıç değerleri | Anlamı |
 |---|---|---|
-| Çok küçük servis | `sample.dubbo.capacity-profile=micro-1x1` | En az bağlantı ve worker; kapasite aşılırsa hızlı hata döner |
-| Küçük production servisi | `sample.dubbo.capacity-profile=micro-2x2` | İki bağlantı ve iki native worker; sample varsayılanı |
-| Ölçülmüş yüksek trafik | `reactor.runtime.profile=balanced-dubbo` | Daha fazla worker, kuyruk ve bağlantı; daha yüksek uygulama belleği |
+| Çok küçük servis | bağlantı `1`, worker `1`, kuyruk `32`, max-inflight `16` | En düşük bellek; kapasite aşılırsa hızlı hata döner |
+| Küçük production servisi | bağlantı `2`, worker `2`, kuyruk `64`, max-inflight `64` | Sample varsayılanı; daha fazla eşzamanlı RPC işi |
+| Ölçülmüş yüksek trafik | `reactor.runtime.profile=balanced-dubbo` ve ölçülmüş pool değerleri | Daha fazla kapasite; daha yüksek uygulama belleği |
 
-`micro-2x2` ile başlayın. Provider ve database kapasitesi yük testiyle doğrulanırsa `balanced-dubbo` kullanın.
+Gizli bir preset yerine tam property değerlerini kullanın:
+
+```properties
+reactor.dubbo.native-connections-per-endpoint=2
+reactor.dubbo.native-async-workers=2
+reactor.dubbo.native-async-queue-capacity=64
+reactor.dubbo.max-inflight=64
+```
+
+Bunlar sample varsayılanlarıdır. Provider, database pool, p99, `503` ve RSS ölçümleri gerektirmeden
+değerleri artırmayın. Downstream kapasitesi doğrulanırsa `balanced-dubbo` kullanın.
 
 Gecikme sorununu bütün queue değerlerini artırarak çözmeyin. Büyük queue daha fazla memory kullanır ve en yavaş istekleri daha da geciktirebilir.
 
@@ -199,8 +216,14 @@ env:
     value: "rest-sample-dubbo-provider:20880"
   - name: REACTOR_RUNTIME_PROFILE
     value: "micro-dubbo"
-  - name: SAMPLE_DUBBO_CAPACITY_PROFILE
-    value: "micro-2x2"
+  - name: REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT
+    value: "2"
+  - name: REACTOR_DUBBO_NATIVE_ASYNC_WORKERS
+    value: "2"
+  - name: REACTOR_DUBBO_NATIVE_ASYNC_QUEUE_CAPACITY
+    value: "64"
+  - name: REACTOR_DUBBO_MAX_INFLIGHT
+    value: "64"
 ```
 
 ZooKeeper discovery:
@@ -219,13 +242,17 @@ env:
 
 | Dosya | Görevi |
 |---|---|
-| `RestSampleDubboConsumerApplication.java` | Full consumer'ı başlatır |
-| `DubboConsumerModule.java` | Client ve handler'ları kurar |
+| `RestSampleDubboConsumerApplication.java` | Generated full bağlantıları başlatır; istenirse catalog-only modu seçer |
+| `DubboClients.java` | Tüm generated client'ları ve ortak transport lifecycle'ını tanımlar |
+| `ConsumerConfiguration.java` | Ortak customer-key admission bean'ini tanımlar |
 | `CatalogHandler.java` | Catalog GET örneklerini içerir |
 | `CustomerHandler.java` | GET, POST, PATCH ve DELETE örneklerini içerir |
-| `*ClientDefinition.java` | Deklaratif Dubbo client sözleşmeleridir |
-| `ConsumerRuntimePlans.java` | İsimlendirilmiş kapasite planlarını taşır |
+| `DubboConsumerModule.java` | Yalnız küçük catalog-only yüzeyinde kullanılan ileri seviye explicit module'dür |
 | `rust-spring.properties` | Lokal ayarları taşır |
+
+Normal full yüzey `@ReactorApplication`, constructor injection, generated route invoker ve
+`@EnableNativeDubboClients` kullanır. Client veya handler nesnelerini elle oluşturmaz. Explicit module
+yalnız catalog-only artefact customer sınıflarını bilinçli olarak dışarıda bıraktığı için korunur.
 
 ## Maven Package Erişimi
 
@@ -276,4 +303,4 @@ GitHub Packages için `read:packages` yetkili token gerekir. Token'ın private o
 - [Docker image rehberi](docker/images/README.md)
 - [Production ayarları](src/main/resources/config/production.properties)
 - [Advanced tuning ayarları](src/main/resources/config/advanced-tuning.properties)
-- [v0.4.0 release notları](docs/RELEASE_NOTES_v0.4.0.md)
+- [v0.5.0 release notları](docs/RELEASE_NOTES_v0.5.0.tr.md)

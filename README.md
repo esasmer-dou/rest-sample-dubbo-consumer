@@ -10,7 +10,15 @@ A REST application that calls Dubbo providers.
 - Providers can be found by a static address or ZooKeeper.
 - The sample includes GET, POST, PATCH, and DELETE flows.
 
-Current versions: `rust-java-rest:4.0.0`, `java-rust-dubbo:0.5.0`, `rest-sample-utility:0.3.0`, `rust-sample-model:0.3.0`.
+Current versions: `rust-java-rest:4.1.0`, `java-rust-dubbo:0.6.0`, `rest-sample-utility:0.3.1`, `rust-sample-model:0.3.1`.
+
+## What 0.5.0 Simplifies
+
+- `RestSampleDubboConsumerApplication` uses declarative framework startup.
+- One `DubboClients` declaration generates all typed clients and shares one bounded transport.
+- Handwritten client definitions and duplicate runtime-plan classes are removed.
+- Handlers use constructor injection and generated route invokers.
+- Existing REST URLs, Dubbo interfaces, payloads, profiles, and Java business flow are unchanged.
 
 ## Start Here
 
@@ -47,7 +55,6 @@ mvn -q `
   "-Dsample.dubbo.discovery=static" `
   "-Dreactor.dubbo.providers=127.0.0.1:20880" `
   "-Dreactor.runtime.profile=micro-dubbo" `
-  "-Dsample.dubbo.capacity-profile=micro-2x2" `
   clean compile exec:java
 ```
 
@@ -142,13 +149,23 @@ ZooKeeper adds client classes, threads, and memory. Use it only when it solves a
 
 ## Runtime Size
 
-| Traffic shape | Setting | Meaning |
+| Traffic shape | Starting values | Meaning |
 |---|---|---|
-| Very small service | `sample.dubbo.capacity-profile=micro-1x1` | Minimum connections and workers; overload fails fast |
-| Small production service | `sample.dubbo.capacity-profile=micro-2x2` | Two connections and two native workers; default sample choice |
-| Measured high traffic | `reactor.runtime.profile=balanced-dubbo` | More workers, queues, and connections; higher process memory |
+| Very small service | connections `1`, workers `1`, queue `32`, max-inflight `16` | Lowest memory; overload fails fast |
+| Small production service | connections `2`, workers `2`, queue `64`, max-inflight `64` | Sample defaults; more concurrent RPC work |
+| Measured high traffic | `reactor.runtime.profile=balanced-dubbo` plus measured pool values | More headroom; higher process memory |
 
-Start with `micro-2x2`. Move to `balanced-dubbo` only when load tests show that provider and database capacity can use it.
+Use exact properties instead of a hidden preset:
+
+```properties
+reactor.dubbo.native-connections-per-endpoint=2
+reactor.dubbo.native-async-workers=2
+reactor.dubbo.native-async-queue-capacity=64
+reactor.dubbo.max-inflight=64
+```
+
+These are the sample defaults. Change them only after provider, database pool, p99, `503`, and RSS
+measurements show a reason. Move to `balanced-dubbo` only when the downstream capacity can use it.
 
 Do not solve latency by increasing every queue. A larger queue uses more memory and can slow the worst requests.
 
@@ -200,8 +217,14 @@ env:
     value: "rest-sample-dubbo-provider:20880"
   - name: REACTOR_RUNTIME_PROFILE
     value: "micro-dubbo"
-  - name: SAMPLE_DUBBO_CAPACITY_PROFILE
-    value: "micro-2x2"
+  - name: REACTOR_DUBBO_NATIVE_CONNECTIONS_PER_ENDPOINT
+    value: "2"
+  - name: REACTOR_DUBBO_NATIVE_ASYNC_WORKERS
+    value: "2"
+  - name: REACTOR_DUBBO_NATIVE_ASYNC_QUEUE_CAPACITY
+    value: "64"
+  - name: REACTOR_DUBBO_MAX_INFLIGHT
+    value: "64"
 ```
 
 ZooKeeper discovery:
@@ -220,13 +243,17 @@ env:
 
 | File | Why it matters |
 |---|---|
-| `RestSampleDubboConsumerApplication.java` | Starts the full consumer |
-| `DubboConsumerModule.java` | Creates clients and handlers |
+| `RestSampleDubboConsumerApplication.java` | Starts generated full wiring; selects explicit catalog-only mode when requested |
+| `DubboClients.java` | Declares all generated clients and one shared transport lifecycle |
+| `ConsumerConfiguration.java` | Declares the shared customer-key admission bean |
 | `CatalogHandler.java` | Catalog GET examples |
 | `CustomerHandler.java` | GET, POST, PATCH, and DELETE examples |
-| `*ClientDefinition.java` | Declarative Dubbo client contracts |
-| `ConsumerRuntimePlans.java` | Named capacity plans |
+| `DubboConsumerModule.java` | Explicit advanced module used only by the smaller catalog-only surface |
 | `rust-spring.properties` | Local settings |
+
+The normal full surface uses `@ReactorApplication`, constructor injection, generated route invokers,
+and `@EnableNativeDubboClients`. It does not create clients or handlers by hand. The explicit module
+is retained only because the catalog-only artifact intentionally excludes customer classes.
 
 ## Maven Package Access
 
@@ -277,4 +304,4 @@ The server IDs in `~/.m2/settings.xml` must match the POM:
 - [Docker image guide](docker/images/README.md)
 - [Production settings](src/main/resources/config/production.properties)
 - [Advanced tuning](src/main/resources/config/advanced-tuning.properties)
-- [v0.4.0 release notes](docs/RELEASE_NOTES_v0.4.0.md)
+- [v0.5.0 release notes](docs/RELEASE_NOTES_v0.5.0.md)

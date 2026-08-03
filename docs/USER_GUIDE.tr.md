@@ -84,8 +84,11 @@ Sonra consumer'ı çalıştırın:
 
 ```powershell
 mvn -q package
-java -jar target/rest-sample-dubbo-consumer-0.4.0.jar
+mvn -q exec:java
 ```
+
+Üretilen ince JAR yalnızca uygulama sınıflarını içerir. Doğrudan `java -jar` yerine Maven komutunu
+veya bu rehberdeki jlink image akışını kullanın.
 
 Health:
 
@@ -180,7 +183,7 @@ curl -X DELETE http://127.0.0.1:8080/api/v1/customers/1 `
 |-------|-----------|---------|
 | `micro-dubbo` | Düşük RSS, kontrollü `503` kabul. | Küçük worker, queue ve connection. |
 | `micro-1x1` reçetesi | En küçük pod. | `native-connections-per-endpoint=1`, `native-async-workers=1`. |
-| `micro-2x2` reçetesi | Full sample DB write yapıyor veya Hikari `2` iken `1x1` çağrıları seri hale getiriyor. | `sample.dubbo.capacity-profile=micro-2x2`, connection `2`, worker `2`, queue `64`, max-inflight `64`, create route'ları ayrı ayrı `4/250 ms`. |
+| Küçük production RPC reçetesi | Full sample DB write yapıyor veya Hikari `2` iken tek bağlantı çağrıları seri hale getiriyor. | `reactor.dubbo.native-connections-per-endpoint=2`, `reactor.dubbo.native-async-workers=2`, `reactor.dubbo.native-async-queue-capacity=64`, `reactor.dubbo.max-inflight=64`; create route'ları ayrı ayrı `4/250 ms`. |
 | `balanced-stable-4x4` | Daha çok başarılı read RPS. | Connection ve worker `4`, route budget kontrollü. |
 
 DB-backed endpoint için consumer ayarını client concurrency ile değil, provider Hikari kapasitesiyle başlatın.

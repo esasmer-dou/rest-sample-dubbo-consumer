@@ -9,14 +9,13 @@ import com.reactor.rust.annotations.PostMapping;
 import com.reactor.rust.annotations.RequestMapping;
 import com.reactor.rust.annotations.RequestBody;
 import com.reactor.rust.annotations.RequestParam;
+import com.reactor.rust.annotations.RestController;
 import com.reactor.rust.annotations.RouteWorkload;
-import com.reactor.rust.di.annotation.Autowired;
-import com.reactor.rust.di.annotation.Component;
+import com.reactor.rust.concurrent.LongKeyAdmission;
 import com.reactor.rust.http.HttpStatus;
 import com.reactor.rust.http.RawResponse;
 import com.reactor.rust.http.ResponseEntity;
 import com.reactor.rust.dubbo.sample.dto.CreateCustomerCommand;
-import com.reactor.sample.dubbo.consumer.admission.CustomerCommandKeyAdmission;
 import com.reactor.sample.dubbo.consumer.dubbo.CustomerCommandClient;
 import com.reactor.sample.dubbo.consumer.dubbo.CustomerQueryClient;
 
@@ -30,20 +29,23 @@ import static com.reactor.sample.dubbo.consumer.config.ConsumerRouteBudgets.CUST
 import static com.reactor.sample.dubbo.consumer.config.ConsumerRouteBudgets.CUSTOMER_TYPED_MUTATION;
 import static com.reactor.sample.dubbo.consumer.config.ConsumerRouteBudgets.CUSTOMER_TYPED_READ;
 
-@Component
-@RequestMapping("/api/v1/customers")
+@RestController("/api/v1/customers")
 public final class CustomerHandler {
 
-    @Autowired
-    private CustomerQueryClient customerQueryClient;
+    private final CustomerQueryClient customerQueryClient;
+    private final CustomerCommandClient customerCommandClient;
+    private final LongKeyAdmission customerCommandKeyAdmission;
 
-    @Autowired
-    private CustomerCommandClient customerCommandClient;
+    public CustomerHandler(
+            CustomerQueryClient customerQueryClient,
+            CustomerCommandClient customerCommandClient,
+            LongKeyAdmission customerCommandKeyAdmission) {
+        this.customerQueryClient = customerQueryClient;
+        this.customerCommandClient = customerCommandClient;
+        this.customerCommandKeyAdmission = customerCommandKeyAdmission;
+    }
 
-    @Autowired
-    private CustomerCommandKeyAdmission customerCommandKeyAdmission;
-
-    @GetMapping(value = "/db", responseType = RawResponse.class)
+    @GetMapping("/db")
     @RouteWorkload(value = RouteWorkload.Type.RPC_READ, budget = CUSTOMER_RAW_READ)
     public CompletableFuture<ResponseEntity<RawResponse>> databaseCustomers() {
         return customerQueryClient.getDatabaseCustomersJsonNativeJsonAsync()
@@ -51,7 +53,7 @@ public final class CustomerHandler {
                 .exceptionally(error -> unavailable("dubbo_customer_provider_unavailable", error));
     }
 
-    @GetMapping(value = "/db/stats", responseType = RawResponse.class)
+    @GetMapping("/db/stats")
     @RouteWorkload(value = RouteWorkload.Type.RPC_READ, budget = CUSTOMER_TYPED_READ)
     public CompletableFuture<ResponseEntity<RawResponse>> customerStats() {
         return customerQueryClient.getCustomerStatsAsync()
@@ -59,7 +61,7 @@ public final class CustomerHandler {
                 .exceptionally(error -> unavailable("dubbo_customer_stats_unavailable", error));
     }
 
-    @GetMapping(value = "/db/by-segment", responseType = RawResponse.class)
+    @GetMapping("/db/by-segment")
     @RouteWorkload(value = RouteWorkload.Type.RPC_READ, budget = CUSTOMER_TYPED_READ)
     public CompletableFuture<ResponseEntity<RawResponse>> customersBySegment(
             @RequestParam(value = "segment", defaultValue = "standard") String segment,
@@ -69,7 +71,7 @@ public final class CustomerHandler {
                 .exceptionally(error -> unavailable("dubbo_customer_segment_query_unavailable", error));
     }
 
-    @GetMapping(value = "/db/{id}", responseType = RawResponse.class)
+    @GetMapping("/db/{id}")
     @RouteWorkload(value = RouteWorkload.Type.RPC_READ, budget = CUSTOMER_RAW_READ)
     public CompletableFuture<ResponseEntity<RawResponse>> customerById(@PathVariable("id") long customerId) {
         return customerQueryClient.getCustomerAsync(customerId)
@@ -80,7 +82,7 @@ public final class CustomerHandler {
                 .exceptionally(error -> unavailable("dubbo_customer_get_unavailable", error));
     }
 
-    @GetMapping(value = "/{id}/exists", responseType = RawResponse.class)
+    @GetMapping("/{id}/exists")
     @RouteWorkload(value = RouteWorkload.Type.RPC_READ, budget = CUSTOMER_RAW_READ)
     public CompletableFuture<ResponseEntity<RawResponse>> customerExists(@PathVariable("id") long customerId) {
         return customerQueryClient.customerExistsAsync(customerId)
@@ -88,7 +90,7 @@ public final class CustomerHandler {
                 .exceptionally(error -> unavailable("dubbo_customer_exists_unavailable", error));
     }
 
-    @GetMapping(value = "/{id}/display-name", responseType = RawResponse.class)
+    @GetMapping("/{id}/display-name")
     @RouteWorkload(value = RouteWorkload.Type.RPC_READ, budget = CUSTOMER_RAW_READ)
     public CompletableFuture<ResponseEntity<RawResponse>> customerDisplayName(@PathVariable("id") long customerId) {
         return customerQueryClient.getCustomerDisplayNameAsync(customerId)
@@ -99,7 +101,7 @@ public final class CustomerHandler {
                 .exceptionally(error -> unavailable("dubbo_customer_display_name_unavailable", error));
     }
 
-    @PostMapping(value = "", requestType = byte[].class, responseType = RawResponse.class)
+    @PostMapping("")
     @MaxRequestBodySize(32768)
     @RouteWorkload(value = RouteWorkload.Type.RPC_COMMAND, budget = CUSTOMER_RAW_CREATE)
     public CompletableFuture<ResponseEntity<RawResponse>> createCustomer(@RequestBody byte[] body) {
@@ -108,7 +110,7 @@ public final class CustomerHandler {
                 .exceptionally(error -> unavailable("dubbo_customer_create_unavailable", error));
     }
 
-    @PostMapping(value = "/typed", requestType = CreateCustomerCommand.class, responseType = RawResponse.class)
+    @PostMapping("/typed")
     @MaxRequestBodySize(32768)
     @RouteWorkload(value = RouteWorkload.Type.RPC_COMMAND, budget = CUSTOMER_TYPED_CREATE)
     public CompletableFuture<ResponseEntity<RawResponse>> createCustomerTyped(
@@ -120,7 +122,7 @@ public final class CustomerHandler {
                 .exceptionally(error -> unavailable("dubbo_customer_create_typed_unavailable", error));
     }
 
-    @PatchMapping(value = "/{id}/segment", requestType = byte[].class, responseType = RawResponse.class)
+    @PatchMapping("/{id}/segment")
     @MaxRequestBodySize(16384)
     @RouteWorkload(value = RouteWorkload.Type.RPC_COMMAND, budget = CUSTOMER_RAW_MUTATION)
     public CompletableFuture<ResponseEntity<RawResponse>> patchCustomerSegment(
@@ -133,7 +135,7 @@ public final class CustomerHandler {
                 .exceptionally(error -> unavailable("dubbo_customer_segment_unavailable", error));
     }
 
-    @PatchMapping(value = "/{id}/status", requestType = byte[].class, responseType = RawResponse.class)
+    @PatchMapping("/{id}/status")
     @MaxRequestBodySize(16384)
     @RouteWorkload(value = RouteWorkload.Type.RPC_COMMAND, budget = CUSTOMER_RAW_MUTATION)
     public CompletableFuture<ResponseEntity<RawResponse>> patchCustomerStatus(
@@ -146,7 +148,7 @@ public final class CustomerHandler {
                 .exceptionally(error -> unavailable("dubbo_customer_status_unavailable", error));
     }
 
-    @PatchMapping(value = "/{id}/status/typed", responseType = RawResponse.class)
+    @PatchMapping("/{id}/status/typed")
     @RouteWorkload(value = RouteWorkload.Type.RPC_COMMAND, budget = CUSTOMER_TYPED_MUTATION)
     public CompletableFuture<ResponseEntity<RawResponse>> patchCustomerStatusTyped(
             @PathVariable("id") long customerId,
@@ -161,7 +163,7 @@ public final class CustomerHandler {
                 .exceptionally(error -> unavailable("dubbo_customer_status_typed_unavailable", error));
     }
 
-    @DeleteMapping(value = "/{id}", requestType = byte[].class, responseType = RawResponse.class)
+    @DeleteMapping("/{id}")
     @MaxRequestBodySize(8192)
     @RouteWorkload(value = RouteWorkload.Type.RPC_COMMAND, budget = CUSTOMER_RAW_MUTATION)
     public CompletableFuture<ResponseEntity<RawResponse>> deleteCustomer(

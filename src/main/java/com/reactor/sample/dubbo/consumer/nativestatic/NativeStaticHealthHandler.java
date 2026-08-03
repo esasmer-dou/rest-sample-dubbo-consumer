@@ -25,12 +25,12 @@ public final class NativeStaticHealthHandler {
         this.dubboClient = dubboClient;
     }
 
-    @GetMapping(value = "/app/health", responseType = RawResponse.class)
+    @GetMapping("/app/health")
     public ResponseEntity<RawResponse> health() {
         return ResponseEntity.ok(HEALTH_RESPONSE);
     }
 
-    @GetMapping(value = "/app/ready", responseType = RawResponse.class)
+    @GetMapping("/app/ready")
     public CompletableFuture<ResponseEntity<RawResponse>> ready() {
         return dubboClient.getNestedCatalogJsonNativeJsonAsync()
                 .thenApply(handle -> ResponseEntity.ok(RawResponse.nativeResponse(handle.nativeId())))
@@ -40,21 +40,21 @@ public final class NativeStaticHealthHandler {
                                 dependencyUnavailable("dubbo_catalog_readiness_unavailable", error))));
     }
 
-    @GetMapping(value = "/app/native-metrics", responseType = RawResponse.class)
+    @GetMapping("/app/native-metrics")
     public ResponseEntity<RawResponse> nativeMetrics() {
         return ResponseEntity.ok(RawResponse.text(
                 NativeBridge.nativeMetricsPrometheus(),
                 "text/plain; charset=utf-8"));
     }
 
-    @GetMapping(value = "/app/native-diagnostics", responseType = RawResponse.class)
+    @GetMapping("/app/native-diagnostics")
     public ResponseEntity<RawResponse> nativeDiagnostics() {
         return ResponseEntity.ok(RawResponse.text(
                 NativeBridge.nativeMemoryDiagnosticsJson(),
                 "application/json; charset=utf-8"));
     }
 
-    @GetMapping(value = "/app/metrics/reset", responseType = RawResponse.class)
+    @GetMapping("/app/metrics/reset")
     public ResponseEntity<RawResponse> resetMetrics() {
         NativeBridge.nativeResetMetrics();
         NativeDubboBridge.resetMetrics();

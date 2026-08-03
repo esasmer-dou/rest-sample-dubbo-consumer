@@ -21,14 +21,14 @@ public final class NativeStaticCatalogHandler {
         this.catalogClient = catalogClient;
     }
 
-    @GetMapping(value = "/nested", responseType = RawResponse.class)
+    @GetMapping("/nested")
     public CompletableFuture<ResponseEntity<RawResponse>> nestedCatalog() {
         return catalogClient.getNestedCatalogJsonNativeJsonAsync()
                 .thenApply(handle -> ResponseEntity.ok(RawResponse.nativeResponse(handle.nativeId())))
                 .exceptionally(error -> unavailable("dubbo_provider_unavailable", error));
     }
 
-    @GetMapping(value = "/dubbo-metrics", responseType = RawResponse.class)
+    @GetMapping("/dubbo-metrics")
     @RouteWorkload(RouteWorkload.Type.STANDARD)
     public ResponseEntity<RawResponse> dubboMetrics() {
         return ResponseEntity.ok(RawResponse.text(

@@ -1,9 +1,10 @@
 package com.reactor.sample.dubbo.consumer.handler;
 
 import com.reactor.rust.annotations.GetMapping;
+import com.reactor.rust.annotations.RestController;
 import com.reactor.rust.bridge.NativeBridge;
+import com.reactor.rust.concurrent.LongKeyAdmission;
 import com.reactor.rust.di.annotation.Autowired;
-import com.reactor.rust.di.annotation.Component;
 import com.reactor.rust.dubbo.NativeDubboBridge;
 import com.reactor.rust.dubbo.sample.dto.ApplicationHealthResponse;
 import com.reactor.rust.dubbo.sample.dto.ApplicationReadinessResponse;
@@ -13,7 +14,6 @@ import com.reactor.rust.http.HttpStatus;
 import com.reactor.rust.http.JsonResponses;
 import com.reactor.rust.http.RawResponse;
 import com.reactor.rust.http.ResponseEntity;
-import com.reactor.sample.dubbo.consumer.admission.CustomerCommandKeyAdmission;
 import com.reactor.sample.dubbo.consumer.dubbo.CustomerQueryClient;
 import com.reactor.sample.dubbo.consumer.dubbo.NestedCatalogClient;
 
@@ -22,53 +22,55 @@ import java.util.List;
 
 import static com.reactor.sample.dubbo.consumer.http.ConsumerErrorResponses.dependencyUnavailable;
 
-@Component
+@RestController
 public final class HealthHandler {
 
-    @Autowired
-    private NestedCatalogClient catalogClient;
-
-    @Autowired
-    private CustomerQueryClient customerQueryClient;
-
-    @Autowired
-    private CustomerCommandKeyAdmission customerCommandKeyAdmission;
-
-    public HealthHandler() {
-    }
+    private final NestedCatalogClient catalogClient;
+    private final CustomerQueryClient customerQueryClient;
+    private final LongKeyAdmission customerCommandKeyAdmission;
 
     public HealthHandler(NestedCatalogClient catalogClient) {
-        this.catalogClient = catalogClient;
+        this(catalogClient, null, null);
     }
 
-    @GetMapping(value = "/app/health", responseType = RawResponse.class)
+    @Autowired
+    public HealthHandler(
+            NestedCatalogClient catalogClient,
+            CustomerQueryClient customerQueryClient,
+            LongKeyAdmission customerCommandKeyAdmission) {
+        this.catalogClient = catalogClient;
+        this.customerQueryClient = customerQueryClient;
+        this.customerCommandKeyAdmission = customerCommandKeyAdmission;
+    }
+
+    @GetMapping("/app/health")
     public ResponseEntity<RawResponse> health() {
         return ResponseEntity.ok(JsonResponses.body(
                 new ApplicationHealthResponse("UP", "rest-sample-dubbo-consumer")));
     }
 
-    @GetMapping(value = "/app/ready", responseType = RawResponse.class)
+    @GetMapping("/app/ready")
     public CompletableFuture<ResponseEntity<RawResponse>> ready() {
         CompletableFuture<DependencyCheckResponse> catalog = checkCatalog();
         CompletableFuture<DependencyCheckResponse> customers = checkCustomers();
         return catalog.thenCombine(customers, HealthHandler::readyResponse);
     }
 
-    @GetMapping(value = "/app/native-metrics", responseType = RawResponse.class)
+    @GetMapping("/app/native-metrics")
     public ResponseEntity<RawResponse> nativeMetrics() {
         return ResponseEntity.ok(RawResponse.text(
                 NativeBridge.nativeMetricsPrometheus(),
                 "text/plain; charset=utf-8"));
     }
 
-    @GetMapping(value = "/app/native-diagnostics", responseType = RawResponse.class)
+    @GetMapping("/app/native-diagnostics")
     public ResponseEntity<RawResponse> nativeDiagnostics() {
         return ResponseEntity.ok(RawResponse.text(
                 NativeBridge.nativeMemoryDiagnosticsJson(),
                 "application/json; charset=utf-8"));
     }
 
-    @GetMapping(value = "/app/command-key-admission", responseType = RawResponse.class)
+    @GetMapping("/app/command-key-admission")
     public ResponseEntity<RawResponse> commandKeyAdmission() {
         String body = customerCommandKeyAdmission == null
                 ? "{\"enabled\":false,\"accepted\":0,\"rejected\":0}"
@@ -76,7 +78,7 @@ public final class HealthHandler {
         return ResponseEntity.ok(RawResponse.text(body, "application/json; charset=utf-8"));
     }
 
-    @GetMapping(value = "/app/metrics/reset", responseType = RawResponse.class)
+    @GetMapping("/app/metrics/reset")
     public ResponseEntity<RawResponse> resetMetrics() {
         NativeBridge.nativeResetMetrics();
         NativeDubboBridge.resetMetrics();

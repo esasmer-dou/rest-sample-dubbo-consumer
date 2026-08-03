@@ -6,7 +6,7 @@
 
     <groupId>com.reactor.sample</groupId>
     <artifactId>rest-sample-dubbo-consumer</artifactId>
-    <version>0.4.0</version>
+    <version>0.5.0</version>
     <packaging>jar</packaging>
 
     <name>rest-sample-dubbo-consumer</name>
@@ -15,9 +15,9 @@
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <rust-java-rest.version>4.0.0</rust-java-rest.version>
-        <java-rust-dubbo.version>0.5.0</java-rust-dubbo.version>
-        <rest-sample-utility.version>0.3.0</rest-sample-utility.version>
+        <rust-java-rest.version>4.1.0</rust-java-rest.version>
+        <java-rust-dubbo.version>0.6.0</java-rust-dubbo.version>
+        <rest-sample-utility.version>0.3.1</rest-sample-utility.version>
         <dsl-json.version>2.0.2</dsl-json.version>
         <hessian-lite.version>4.0.3</hessian-lite.version>
         <zookeeper.version>3.7.2</zookeeper.version>
@@ -108,11 +108,6 @@
                             <classifier>codegen</classifier>
                         </path>
                     </annotationProcessorPaths>
-                    <annotationProcessors>
-                        <annotationProcessor>com.dslplatform.json.processor.CompiledJsonAnnotationProcessor</annotationProcessor>
-                        <annotationProcessor>com.reactor.rust.dubbo.codegen.NativeDubboClientProcessor</annotationProcessor>
-                        <annotationProcessor>com.reactor.rust.codegen.ReactorStartupProcessor</annotationProcessor>
-                    </annotationProcessors>
                     <compilerArgs>
                         <arg>-Areactor.codegen.excludePackages=${startup.index.exclude-packages}</arg>
                         <arg>-Areactor.codegen.excludeClasses=${startup.index.exclude-classes}</arg>
@@ -138,7 +133,7 @@
                 <version>3.4.2</version>
                 <configuration>
                     <excludes>
-                        <exclude>**/*ClientDefinition.class</exclude>
+                        <exclude>**/DubboClients.class</exclude>
                     </excludes>
                 </configuration>
             </plugin>
@@ -187,7 +182,6 @@
                         <configuration>
                             <includes>
                                 <include>com/reactor/sample/dubbo/consumer/nativestatic/**</include>
-                                <include>com/reactor/sample/dubbo/consumer/config/ConsumerRuntimePlans.java</include>
                                 <include>com/reactor/sample/dubbo/consumer/config/ConsumerRouteBudgets.java</include>
                                 <include>com/reactor/sample/dubbo/consumer/http/**</include>
                             </includes>

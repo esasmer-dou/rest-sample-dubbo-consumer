@@ -33,7 +33,6 @@ class ConsumerRuntimeConfigurationTest {
         Properties properties = loadProperties();
 
         assertEquals("static", properties.getProperty("sample.dubbo.discovery"));
-        assertEquals("micro-2x2", properties.getProperty("sample.dubbo.capacity-profile"));
         assertEquals("true", properties.getProperty("sample.dubbo.read-retry-on-io-error"));
         assertEquals("true", properties.getProperty("reactor.dubbo.enabled"));
         assertEquals("127.0.0.1:20880", properties.getProperty("reactor.dubbo.providers"));
@@ -42,8 +41,9 @@ class ConsumerRuntimeConfigurationTest {
         assertEquals("native", config.transport());
         assertEquals("micro-dubbo", config.runtimeProfile());
         assertEquals(0, config.retries());
-        assertTrue(config.maxInflight() <= 32);
-        assertTrue(config.nativeAsyncWorkers() <= 1);
+        assertEquals(64, config.maxInflight());
+        assertEquals(2, config.nativeAsyncWorkers());
+        assertEquals(2, config.nativeConnectionsPerEndpoint());
     }
 
     @Test
