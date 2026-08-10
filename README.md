@@ -10,15 +10,34 @@ A REST application that calls Dubbo providers.
 - Providers can be found by a static address or ZooKeeper.
 - The sample includes GET, POST, PATCH, and DELETE flows.
 
-Current versions: `rust-java-rest:4.1.0`, `java-rust-dubbo:0.6.0`, `rest-sample-utility:0.3.1`, `rust-sample-model:0.3.1`.
+Current versions: `rust-java-rest:4.2.0`, `java-rust-dubbo:0.7.0`, `rest-sample-utility:0.4.0`, `rust-sample-model:0.4.0`.
 
-## What 0.5.0 Simplifies
+The POM inherits `rust-java-platform-parent`. The normal surface uses the REST starter plus the
+selected Dubbo profile. The smallest profile uses `rust-java-starter-dubbo`, which brings the
+native-static client without the official Dubbo, Netty, ZooKeeper, or Hessian runtime. Code
+generators remain build-only.
+
+## What 0.6.0 Simplifies
 
 - `RestSampleDubboConsumerApplication` uses declarative framework startup.
 - One `DubboClients` declaration generates all typed clients and shares one bounded transport.
 - Handwritten client definitions and duplicate runtime-plan classes are removed.
 - Handlers use constructor injection and generated route invokers.
 - Existing REST URLs, Dubbo interfaces, payloads, profiles, and Java business flow are unchanged.
+
+## Declarative Flow
+
+| You write | Generated or managed for you | Runtime result |
+| --- | --- | --- |
+| Shared Dubbo interface | Typed client implementation and method plan | No dynamic proxy on the generated path |
+| Client declaration | One shared bounded transport lifecycle | No client factory in each handler |
+| REST handler and Java service | Constructor wiring and route invoker | Business logic remains Java |
+| Startup condition | Conditional bean and route registration | Disabled surface adds no per-call branch |
+| Route/RPC budgets | Admission and queue timeout | Controlled `503` instead of unbounded memory growth |
+
+Start with the generated client. Use manual invoker wiring only for a deliberately unsupported
+contract or framework development. For ready JSON passthrough, prefer the native response handle so
+the provider body is not materialized as another Java `byte[]`.
 
 ## Start Here
 
@@ -243,17 +262,19 @@ env:
 
 | File | Why it matters |
 |---|---|
-| `RestSampleDubboConsumerApplication.java` | Starts generated full wiring; selects explicit catalog-only mode when requested |
-| `DubboClients.java` | Declares all generated clients and one shared transport lifecycle |
-| `ConsumerConfiguration.java` | Declares the shared customer-key admission bean |
+| `RestSampleDubboConsumerApplication.java` | Starts the application with one declarative `RestApplication.run(...)` call |
+| `DubboClients.java` | Declares generated clients, startup conditions, and one shared transport lifecycle |
+| `ConsumerConfiguration.java` | Creates customer-key admission only when the full surface is enabled |
 | `CatalogHandler.java` | Catalog GET examples |
-| `CustomerHandler.java` | GET, POST, PATCH, and DELETE examples |
-| `DubboConsumerModule.java` | Explicit advanced module used only by the smaller catalog-only surface |
+| `CustomerHandler.java` | Conditional GET, POST, PATCH, and DELETE examples for the full surface |
+| `NativeStaticConsumerApplication.java` | Entry point for the physically smaller native-static Maven profile |
 | `rust-spring.properties` | Local settings |
 
 The normal full surface uses `@ReactorApplication`, constructor injection, generated route invokers,
-and `@EnableNativeDubboClients`. It does not create clients or handlers by hand. The explicit module
-is retained only because the catalog-only artifact intentionally excludes customer classes.
+and `@EnableNativeDubboClients`. It does not create clients, handlers, factories, or modules by hand.
+`sample.consumer.surface=catalog-only` disables customer components once at startup. Their routes are
+not registered and strict AOT route validation remains valid. The `native-static-consumer` Maven
+profile goes further: customer source files and the full runtime are not packaged at all.
 
 ## Maven Package Access
 
@@ -304,4 +325,4 @@ The server IDs in `~/.m2/settings.xml` must match the POM:
 - [Docker image guide](docker/images/README.md)
 - [Production settings](src/main/resources/config/production.properties)
 - [Advanced tuning](src/main/resources/config/advanced-tuning.properties)
-- [v0.5.0 release notes](docs/RELEASE_NOTES_v0.5.0.md)
+- [v0.6.0 release notes](docs/RELEASE_NOTES_v0.6.0.md)

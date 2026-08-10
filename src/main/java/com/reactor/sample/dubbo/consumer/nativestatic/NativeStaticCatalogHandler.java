@@ -1,7 +1,7 @@
 package com.reactor.sample.dubbo.consumer.nativestatic;
 
 import com.reactor.rust.annotations.GetMapping;
-import com.reactor.rust.annotations.RequestMapping;
+import com.reactor.rust.annotations.RestController;
 import com.reactor.rust.annotations.RouteWorkload;
 import com.reactor.rust.http.RawResponse;
 import com.reactor.rust.http.ResponseEntity;
@@ -11,7 +11,7 @@ import java.util.concurrent.CompletableFuture;
 import static com.reactor.sample.dubbo.consumer.http.ConsumerErrorResponses.unavailable;
 import static com.reactor.sample.dubbo.consumer.config.ConsumerRouteBudgets.CATALOG_READ;
 
-@RequestMapping("/api/v1/catalog")
+@RestController("/api/v1/catalog")
 @RouteWorkload(value = RouteWorkload.Type.RPC_READ, budget = CATALOG_READ)
 public final class NativeStaticCatalogHandler {
 

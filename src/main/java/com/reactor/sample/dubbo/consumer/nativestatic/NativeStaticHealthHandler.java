@@ -1,6 +1,7 @@
 package com.reactor.sample.dubbo.consumer.nativestatic;
 
 import com.reactor.rust.annotations.GetMapping;
+import com.reactor.rust.annotations.RestController;
 import com.reactor.rust.bridge.NativeBridge;
 import com.reactor.rust.dubbo.NativeDubboBridge;
 import com.reactor.rust.http.HttpStatus;
@@ -13,6 +14,7 @@ import java.util.concurrent.CompletableFuture;
 
 import static com.reactor.sample.dubbo.consumer.http.ConsumerErrorResponses.dependencyUnavailable;
 
+@RestController
 public final class NativeStaticHealthHandler {
 
     private static final RawResponse HEALTH_RESPONSE = RawResponse.json(

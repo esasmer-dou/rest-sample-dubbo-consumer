@@ -1,23 +1,18 @@
-# Artifacts
+# Consumer Helper Artifacts
 
-This directory keeps importable or shareable helper artifacts for the sample project.
+[English](README.md) | [Türkçe](README.tr.md)
 
-## Postman
+This directory contains files that can be imported into development tools. It does not contain
+runtime dependencies.
 
-- `postman/rest-sample-dubbo-consumer.postman_collection.json`
-- Import this file into Postman.
-- Default collection variable: `baseUrl=http://localhost:8080`.
-- Start `rest-sample-dubbo-provider` first, then start this consumer.
+## Postman Collection
 
----
+File: `postman/rest-sample-dubbo-consumer.postman_collection.json`
 
-# Yardımcı Dosyalar
+1. Start `rest-sample-dubbo-provider`.
+2. Start this consumer on port `8080`.
+3. Import the collection into Postman.
+4. Keep `baseUrl=http://localhost:8080`, or change it to your consumer address.
+5. Run health and readiness requests before the business requests.
 
-Bu dizin, sample proje ile birlikte paylaşılacak import edilebilir yardımcı dosyalar içindir.
-
-## Postman
-
-- `postman/rest-sample-dubbo-consumer.postman_collection.json`
-- Bu dosyayı Postman içine import edin.
-- Varsayılan collection değişkeni: `baseUrl=http://localhost:8080`.
-- Önce `rest-sample-dubbo-provider`, sonra bu consumer uygulamasını başlatın.
+The collection calls the consumer REST API. It does not call the Dubbo provider port directly.

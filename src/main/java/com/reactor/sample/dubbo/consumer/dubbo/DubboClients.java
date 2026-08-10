@@ -17,10 +17,16 @@ import com.reactor.rust.dubbo.sample.NestedCatalogService;
         service = CustomerQueryService.class,
         generatedName = "CustomerQueryClient",
         retryReads = true,
-        retryProperty = "sample.dubbo.read-retry-on-io-error")
+        retryProperty = "sample.dubbo.read-retry-on-io-error",
+        enabledProperty = "sample.consumer.surface",
+        havingValue = "full",
+        matchIfMissing = true)
 @GenerateNativeDubboClient(
         service = CustomerCommandService.class,
-        generatedName = "CustomerCommandClient")
+        generatedName = "CustomerCommandClient",
+        enabledProperty = "sample.consumer.surface",
+        havingValue = "full",
+        matchIfMissing = true)
 public final class DubboClients {
 
     private DubboClients() {}

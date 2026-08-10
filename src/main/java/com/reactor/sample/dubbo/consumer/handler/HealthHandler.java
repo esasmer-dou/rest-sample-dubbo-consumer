@@ -19,6 +19,7 @@ import com.reactor.sample.dubbo.consumer.dubbo.NestedCatalogClient;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.List;
+import java.util.Optional;
 
 import static com.reactor.sample.dubbo.consumer.http.ConsumerErrorResponses.dependencyUnavailable;
 
@@ -29,18 +30,14 @@ public final class HealthHandler {
     private final CustomerQueryClient customerQueryClient;
     private final LongKeyAdmission customerCommandKeyAdmission;
 
-    public HealthHandler(NestedCatalogClient catalogClient) {
-        this(catalogClient, null, null);
-    }
-
     @Autowired
     public HealthHandler(
             NestedCatalogClient catalogClient,
-            CustomerQueryClient customerQueryClient,
-            LongKeyAdmission customerCommandKeyAdmission) {
+            Optional<CustomerQueryClient> customerQueryClient,
+            Optional<LongKeyAdmission> customerCommandKeyAdmission) {
         this.catalogClient = catalogClient;
-        this.customerQueryClient = customerQueryClient;
-        this.customerCommandKeyAdmission = customerCommandKeyAdmission;
+        this.customerQueryClient = customerQueryClient.orElse(null);
+        this.customerCommandKeyAdmission = customerCommandKeyAdmission.orElse(null);
     }
 
     @GetMapping("/app/health")

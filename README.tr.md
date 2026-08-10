@@ -10,15 +10,34 @@ Dubbo provider'larını çağıran bir REST uygulamasıdır.
 - Provider adresi static olarak veya ZooKeeper üzerinden bulunabilir.
 - GET, POST, PATCH ve DELETE örnekleri vardır.
 
-Kullanılan sürümler: `rust-java-rest:4.1.0`, `java-rust-dubbo:0.6.0`, `rest-sample-utility:0.3.1`, `rust-sample-model:0.3.1`.
+Kullanılan sürümler: `rust-java-rest:4.2.0`, `java-rust-dubbo:0.7.0`, `rest-sample-utility:0.4.0`, `rust-sample-model:0.4.0`.
 
-## 0.5.0 ile Neler Sadeleşti?
+POM, `rust-java-platform-parent` kullanır. Normal yüzey REST starter ile seçilen Dubbo profile'ını
+birleştirir. En küçük profile `rust-java-starter-dubbo` kullanır. Bu starter native-static client'ı
+getirir; resmi Dubbo, Netty, ZooKeeper veya Hessian runtime'ını getirmez. Kod üreteçleri yalnız build
+sırasında kullanılır.
+
+## 0.6.0 ile Neler Sadeleşti?
 
 - `RestSampleDubboConsumerApplication` deklaratif framework başlangıcını kullanır.
 - Tek `DubboClients` tanımı bütün typed client'ları üretir ve tek bounded transport paylaşır.
 - Elle yazılmış client definition ve tekrar eden runtime plan sınıfları kaldırıldı.
 - Handler'lar constructor injection ve generated route invoker kullanır.
 - REST adresleri, Dubbo interface'leri, payload'lar, profile'lar ve Java iş akışı değişmedi.
+
+## Deklaratif Akış
+
+| Sizin yazdığınız kod | Framework'ün ürettiği veya yönettiği alan | Runtime sonucu |
+| --- | --- | --- |
+| Ortak Dubbo interface | Typed client implementasyonu ve method planı | Generated yolda dynamic proxy yok |
+| Client tanımı | Tek shared bounded transport lifecycle | Her handler içinde client factory yok |
+| REST handler ve Java service | Constructor bağlantısı ve route invoker | Business logic Java'da kalır |
+| Startup koşulu | Koşullu bean ve route kaydı | Kapalı yüzey her çağrıya branch eklemez |
+| Route ve RPC bütçesi | Admission ve queue timeout | Sınırsız memory artışı yerine kontrollü `503` |
+
+Generated client ile başlayın. Manual invoker bağlantısını yalnız bilinçli olarak desteklenmeyen bir
+kontrat veya framework geliştirme işi için kullanın. Hazır JSON yalnız iletilecekse native response
+handle seçin. Böylece provider body ikinci bir Java `byte[]` olarak oluşmaz.
 
 ## Buradan Başlayın
 
@@ -242,17 +261,20 @@ env:
 
 | Dosya | Görevi |
 |---|---|
-| `RestSampleDubboConsumerApplication.java` | Generated full bağlantıları başlatır; istenirse catalog-only modu seçer |
-| `DubboClients.java` | Tüm generated client'ları ve ortak transport lifecycle'ını tanımlar |
-| `ConsumerConfiguration.java` | Ortak customer-key admission bean'ini tanımlar |
+| `RestSampleDubboConsumerApplication.java` | Tek bir deklaratif `RestApplication.run(...)` çağrısıyla uygulamayı başlatır |
+| `DubboClients.java` | Generated client'ları, başlangıç koşullarını ve ortak transport lifecycle'ını tanımlar |
+| `ConsumerConfiguration.java` | Customer-key admission bean'ini yalnız full yüzey açıkken oluşturur |
 | `CatalogHandler.java` | Catalog GET örneklerini içerir |
-| `CustomerHandler.java` | GET, POST, PATCH ve DELETE örneklerini içerir |
-| `DubboConsumerModule.java` | Yalnız küçük catalog-only yüzeyinde kullanılan ileri seviye explicit module'dür |
+| `CustomerHandler.java` | Full yüzey için koşullu GET, POST, PATCH ve DELETE örneklerini içerir |
+| `NativeStaticConsumerApplication.java` | Fiziksel olarak daha küçük native-static Maven profile'ını başlatır |
 | `rust-spring.properties` | Lokal ayarları taşır |
 
 Normal full yüzey `@ReactorApplication`, constructor injection, generated route invoker ve
-`@EnableNativeDubboClients` kullanır. Client veya handler nesnelerini elle oluşturmaz. Explicit module
-yalnız catalog-only artefact customer sınıflarını bilinçli olarak dışarıda bıraktığı için korunur.
+`@EnableNativeDubboClients` kullanır. Client, handler, factory veya module nesnelerini elle oluşturmaz.
+`sample.consumer.surface=catalog-only`, customer component'lerini yalnız başlangıçta devre dışı bırakır.
+Bu component'lerin route'ları kaydedilmez ve strict AOT route kontrolü doğru çalışır.
+`native-static-consumer` Maven profile'ı daha ileri gider: customer kaynaklarını ve full runtime'ı
+pakete hiç almaz.
 
 ## Maven Package Erişimi
 
@@ -300,7 +322,7 @@ GitHub Packages için `read:packages` yetkili token gerekir. Token'ın private o
 
 - [Türkçe kullanıcı rehberi](docs/USER_GUIDE.tr.md)
 - [Türkçe PDF rehberi](docs/rest-sample-dubbo-consumer-user-guide.tr.pdf)
-- [Docker image rehberi](docker/images/README.md)
+- [Docker image rehberi](docker/images/README.tr.md)
 - [Production ayarları](src/main/resources/config/production.properties)
 - [Advanced tuning ayarları](src/main/resources/config/advanced-tuning.properties)
-- [v0.5.0 release notları](docs/RELEASE_NOTES_v0.5.0.tr.md)
+- [v0.6.0 release notları](docs/RELEASE_NOTES_v0.6.0.tr.md)

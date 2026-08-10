@@ -9,6 +9,7 @@ import com.reactor.rust.annotations.PostMapping;
 import com.reactor.rust.annotations.RequestMapping;
 import com.reactor.rust.annotations.RequestBody;
 import com.reactor.rust.annotations.RequestParam;
+import com.reactor.rust.annotations.RequiresProperty;
 import com.reactor.rust.annotations.RestController;
 import com.reactor.rust.annotations.RouteWorkload;
 import com.reactor.rust.concurrent.LongKeyAdmission;
@@ -30,6 +31,7 @@ import static com.reactor.sample.dubbo.consumer.config.ConsumerRouteBudgets.CUST
 import static com.reactor.sample.dubbo.consumer.config.ConsumerRouteBudgets.CUSTOMER_TYPED_READ;
 
 @RestController("/api/v1/customers")
+@RequiresProperty(name = "sample.consumer.surface", value = "full", matchIfMissing = true)
 public final class CustomerHandler {
 
     private final CustomerQueryClient customerQueryClient;

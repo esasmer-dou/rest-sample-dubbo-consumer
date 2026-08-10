@@ -4,27 +4,27 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
+    <parent>
+        <groupId>com.reactor</groupId>
+        <artifactId>rust-java-platform-parent</artifactId>
+        <version>4.2.0</version>
+        <relativePath/>
+    </parent>
+
     <groupId>com.reactor.sample</groupId>
     <artifactId>rest-sample-dubbo-consumer</artifactId>
-    <version>0.5.0</version>
+    <version>0.6.0</version>
     <packaging>jar</packaging>
 
     <name>rest-sample-dubbo-consumer</name>
     <description>Minimal Rust-Java REST application that consumes a Dubbo provider.</description>
 
     <properties>
-        <maven.compiler.release>21</maven.compiler.release>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <rust-java-rest.version>4.1.0</rust-java-rest.version>
-        <java-rust-dubbo.version>0.6.0</java-rust-dubbo.version>
-        <rest-sample-utility.version>0.3.1</rest-sample-utility.version>
-        <dsl-json.version>2.0.2</dsl-json.version>
         <hessian-lite.version>4.0.3</hessian-lite.version>
         <zookeeper.version>3.7.2</zookeeper.version>
         <junit.version>5.10.2</junit.version>
         <exec.mainClass>com.reactor.sample.dubbo.consumer.app.RestSampleDubboConsumerApplication</exec.mainClass>
         <startup.index.exclude-packages>com.reactor.sample.dubbo.consumer.nativestatic</startup.index.exclude-packages>
-        <startup.index.exclude-classes>com.reactor.sample.dubbo.consumer.handler.CatalogOnlyHandler</startup.index.exclude-classes>
     </properties>
 
     <repositories>
@@ -54,24 +54,10 @@
         <dependency>
             <groupId>com.reactor.sample</groupId>
             <artifactId>rest-sample-utility</artifactId>
-            <version>${rest-sample-utility.version}</version>
         </dependency>
         <dependency>
             <groupId>com.reactor</groupId>
-            <artifactId>rust-java-rest</artifactId>
-            <version>${rust-java-rest.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>com.reactor</groupId>
-            <artifactId>java-rust-dubbo</artifactId>
-            <version>${java-rust-dubbo.version}</version>
-            <classifier>codegen</classifier>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.dslplatform</groupId>
-            <artifactId>dsl-json</artifactId>
-            <version>${dsl-json.version}</version>
+            <artifactId>rust-java-starter-rest</artifactId>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
@@ -86,31 +72,9 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.13.0</version>
                 <configuration>
-                    <release>${maven.compiler.release}</release>
-                    <annotationProcessorPaths>
-                        <path>
-                            <groupId>com.dslplatform</groupId>
-                            <artifactId>dsl-json</artifactId>
-                            <version>${dsl-json.version}</version>
-                        </path>
-                        <path>
-                            <groupId>com.reactor</groupId>
-                            <artifactId>java-rust-dubbo</artifactId>
-                            <version>${java-rust-dubbo.version}</version>
-                            <classifier>codegen</classifier>
-                        </path>
-                        <path>
-                            <groupId>com.reactor</groupId>
-                            <artifactId>rust-java-rest</artifactId>
-                            <version>${rust-java-rest.version}</version>
-                            <classifier>codegen</classifier>
-                        </path>
-                    </annotationProcessorPaths>
                     <compilerArgs>
                         <arg>-Areactor.codegen.excludePackages=${startup.index.exclude-packages}</arg>
-                        <arg>-Areactor.codegen.excludeClasses=${startup.index.exclude-classes}</arg>
                     </compilerArgs>
                 </configuration>
             </plugin>
@@ -125,7 +89,6 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.2.5</version>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -150,7 +113,6 @@
                 <dependency>
                     <groupId>com.reactor</groupId>
                     <artifactId>java-rust-dubbo</artifactId>
-                    <version>${java-rust-dubbo.version}</version>
                 </dependency>
                 <dependency>
                     <groupId>org.apache.dubbo</groupId>
@@ -158,20 +120,33 @@
                     <version>${hessian-lite.version}</version>
                 </dependency>
             </dependencies>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-compiler-plugin</artifactId>
+                        <configuration>
+                            <excludes>
+                                <exclude>com/reactor/sample/dubbo/consumer/nativestatic/**</exclude>
+                            </excludes>
+                            <testExcludes>
+                                <testExclude>com/reactor/sample/dubbo/consumer/nativestatic/**</testExclude>
+                            </testExcludes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
         </profile>
         <profile>
             <id>native-static-consumer</id>
             <properties>
                 <exec.mainClass>com.reactor.sample.dubbo.consumer.nativestatic.NativeStaticConsumerApplication</exec.mainClass>
                 <startup.index.exclude-packages>__none__</startup.index.exclude-packages>
-                <startup.index.exclude-classes>__none__</startup.index.exclude-classes>
             </properties>
             <dependencies>
                 <dependency>
                     <groupId>com.reactor</groupId>
-                    <artifactId>java-rust-dubbo</artifactId>
-                    <version>${java-rust-dubbo.version}</version>
-                    <classifier>native-static</classifier>
+                    <artifactId>rust-java-starter-dubbo</artifactId>
                 </dependency>
             </dependencies>
             <build>
@@ -200,7 +175,6 @@
                 <dependency>
                     <groupId>com.reactor</groupId>
                     <artifactId>java-rust-dubbo</artifactId>
-                    <version>${java-rust-dubbo.version}</version>
                 </dependency>
                 <dependency>
                     <groupId>org.apache.dubbo</groupId>
@@ -223,6 +197,22 @@
                     </exclusions>
                 </dependency>
             </dependencies>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-compiler-plugin</artifactId>
+                        <configuration>
+                            <excludes>
+                                <exclude>com/reactor/sample/dubbo/consumer/nativestatic/**</exclude>
+                            </excludes>
+                            <testExcludes>
+                                <testExclude>com/reactor/sample/dubbo/consumer/nativestatic/**</testExclude>
+                            </testExcludes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
         </profile>
     </profiles>
 </project>
