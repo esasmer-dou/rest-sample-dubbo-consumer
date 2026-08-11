@@ -12,6 +12,20 @@ Dubbo provider'larını çağıran bir REST uygulamasıdır.
 
 Kullanılan sürümler: `rust-java-rest:4.3.0`, `java-rust-dubbo:0.7.1`, `rest-sample-utility:0.4.1`, `rust-sample-model:0.4.1`.
 
+## Önce Bu Bölümü Okuyun
+
+Kod kopyalamadan önce tek bir runtime yüzeyi seçin. Kubernetes uygulamalarının çoğu static Service
+DNS ve native client ile başlamalıdır. Registry davranışı gerçek ihtiyaç değilse ZooKeeper eklemeyin.
+Uygulama ilgili kontratları kullanmıyorsa full consumer yüzeyini paketlemeyin.
+
+| Kopyalayın | Kendi servisinizde değiştirin |
+| --- | --- |
+| `@ReactorApplication` ve constructor injection | Package adı ve application sınıfı |
+| Generated `DubboClients` tanımı | Ortak Dubbo interface ve metotlarınız |
+| Route workload ve admission annotation'ları | Provider ve DB kapasitenizle ölçülen limitler |
+| Readiness dependency kontrolü | Zorunlu provider kontratlarınız |
+| Static/ZooKeeper profile yapısı | Adres, registry path, credential ve Kubernetes limitleri |
+
 POM, `rust-java-platform-parent` kullanır. Normal yüzey REST starter ile seçilen Dubbo profile'ını
 birleştirir. En küçük profile `rust-java-starter-dubbo` kullanır. Bu starter native-static client'ı
 getirir; resmi Dubbo, Netty, ZooKeeper veya Hessian runtime'ını getirmez. Kod üreteçleri yalnız build
@@ -34,6 +48,15 @@ sırasında kullanılır.
 | REST handler ve Java service | Constructor bağlantısı ve route invoker | Business logic Java'da kalır |
 | Startup koşulu | Koşullu bean ve route kaydı | Kapalı yüzey her çağrıya branch eklemez |
 | Route ve RPC bütçesi | Admission ve queue timeout | Sınırsız memory artışı yerine kontrollü `503` |
+
+```mermaid
+flowchart LR
+    C["HTTP client"] --> H["Rust Hyper"]
+    H --> J["Java handler ve service"]
+    J --> D["Generated Dubbo client"]
+    D --> T["Sınırlı Rust transport"]
+    T --> P["Dubbo provider"]
+```
 
 Generated client ile başlayın. Manual invoker bağlantısını yalnız bilinçli olarak desteklenmeyen bir
 kontrat veya framework geliştirme işi için kullanın. Hazır JSON yalnız iletilecekse native response
@@ -317,6 +340,28 @@ GitHub Packages için `read:packages` yetkili token gerekir. Token'ın private o
 | Typed DTO class bilinmiyor | Ortak model sürümü ve Hessian allowlist |
 | İstekler kontrollü `503` dönüyor | Route veya RPC limiti pod'u koruyor; artırmadan önce provider ve DB kapasitesine bakın |
 | Türkçe karakter bozuk | UTF-8 ve `application/json; charset=utf-8` kullanın |
+
+## Production Kontrol Listesi
+
+- Gerekli route'ları sunan en küçük Maven profile ve component yüzeyini kullanın.
+- Kubernetes Service DNS'i tercih edin. Yalnız açık bir discovery ihtiyacında ZooKeeper açın.
+- İdempotent olmayan command çağrılarında retry değerini `0` tutun.
+- HTTP route admission, RPC max-in-flight, timeout, queue ve connection değerlerini birlikte sınırlayın.
+- Java provider JSON'unu okumayacak veya değiştirmeyecekse native response handle kullanın.
+- Liveness kontrolünü lokal tutun. Zorunlu provider kontratlarını kısa timeout ile readiness'e ekleyin.
+- Provider restart, DNS endpoint değişimi, c64/c256 karışık yük, p99, `503`, RSS ve final idle testi yapın.
+- Provider exception metnini HTTP istemcisine olduğu gibi göstermeyin.
+
+## Kısa Sözlük
+
+| Terim | Basit anlamı |
+| --- | --- |
+| Consumer | Dubbo provider çağıran uygulama |
+| Static discovery | Provider adresinin config veya Service DNS'ten gelmesi |
+| Registry discovery | Provider adreslerinin ZooKeeper üzerinden izlenmesi |
+| Native handle | Provider body Rust belleğinde kalırken Java'nın yalnız response kimliği taşıması |
+| Route admission | HTTP endpoint eşzamanlılık ve kısa queue sınırı |
+| RPC bulkhead | Process'i koruyan Dubbo çağrı eşzamanlılık sınırı |
 
 ## Ayrıntılı Bilgi
 

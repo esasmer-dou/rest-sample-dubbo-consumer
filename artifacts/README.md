@@ -16,3 +16,14 @@ File: `postman/rest-sample-dubbo-consumer.postman_collection.json`
 5. Run health and readiness requests before the business requests.
 
 The collection calls the consumer REST API. It does not call the Dubbo provider port directly.
+
+Expected result:
+
+- `/app/health` proves that the HTTP process is running.
+- `/app/ready` proves that the required Dubbo provider calls are available.
+- Run business requests only after readiness returns `200`.
+
+Do not store credentials, access tokens, or production host names in the collection. Use a local
+Postman environment instead.
+
+Return to the [consumer guide](../README.md) for discovery and runtime profile settings.

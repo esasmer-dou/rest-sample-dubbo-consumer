@@ -21,6 +21,16 @@ docker build -f rest-sample-dubbo-consumer/docker/images/Dockerfile.jlink.native
 docker build --secret id=maven_settings,src=$env:USERPROFILE\.m2\settings.xml -f docker/images/Dockerfile.jlink -t rest-sample-dubbo-consumer:jlink .
 ```
 
+Verify that the image exists and record its compressed-independent local size:
+
+```powershell
+docker image inspect rest-sample-dubbo-consumer:native-static-jlink `
+  --format '{{.Id}} size={{.Size}} bytes'
+```
+
 Choose one image shape. Do not use the full or ZooKeeper image when static native discovery is the
 only required capability. Always run the final image with its real Kubernetes CPU/memory limits
 before promotion.
+
+Build secrets must remain BuildKit secrets. Do not copy Maven tokens into an image layer. Return to
+the [consumer guide](../../README.md) for startup and readiness checks.

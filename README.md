@@ -12,6 +12,20 @@ A REST application that calls Dubbo providers.
 
 Current versions: `rust-java-rest:4.3.0`, `java-rust-dubbo:0.7.1`, `rest-sample-utility:0.4.1`, `rust-sample-model:0.4.1`.
 
+## Read This First
+
+Choose one runtime surface before copying code. Most Kubernetes applications should start with a
+static Service DNS address and the native client. Add ZooKeeper only when registry semantics are a
+real requirement. Add the full consumer surface only when the application uses those contracts.
+
+| Copy | Replace in your service |
+| --- | --- |
+| `@ReactorApplication` and constructor injection | Package name and application class |
+| Generated `DubboClients` declaration | Your shared Dubbo interfaces and methods |
+| Route workload and admission annotations | Limits measured for your provider and DB capacity |
+| Readiness dependency check | Your required provider contracts |
+| Static/ZooKeeper profile layout | Addresses, registry path, credentials, and Kubernetes limits |
+
 The POM inherits `rust-java-platform-parent`. The normal surface uses the REST starter plus the
 selected Dubbo profile. The smallest profile uses `rust-java-starter-dubbo`, which brings the
 native-static client without the official Dubbo, Netty, ZooKeeper, or Hessian runtime. Code
@@ -34,6 +48,15 @@ generators remain build-only.
 | REST handler and Java service | Constructor wiring and route invoker | Business logic remains Java |
 | Startup condition | Conditional bean and route registration | Disabled surface adds no per-call branch |
 | Route/RPC budgets | Admission and queue timeout | Controlled `503` instead of unbounded memory growth |
+
+```mermaid
+flowchart LR
+    C["HTTP client"] --> H["Rust Hyper"]
+    H --> J["Java handler and service"]
+    J --> D["Generated Dubbo client"]
+    D --> T["Bounded Rust transport"]
+    T --> P["Dubbo provider"]
+```
 
 Start with the generated client. Use manual invoker wiring only for a deliberately unsupported
 contract or framework development. For ready JSON passthrough, prefer the native response handle so
@@ -317,6 +340,28 @@ The server IDs in `~/.m2/settings.xml` must match the POM:
 | Typed DTO class is unknown | Shared model version and Hessian allowlist |
 | Requests return controlled `503` | Route or RPC limit is protecting the pod; inspect provider and DB capacity before increasing it |
 | Turkish characters are broken | Send and return UTF-8 with `application/json; charset=utf-8` |
+
+## Production Checklist
+
+- Use the smallest Maven profile and component surface that exports the required routes.
+- Prefer Kubernetes Service DNS; enable ZooKeeper only for an explicit discovery requirement.
+- Keep retries at `0` for non-idempotent commands.
+- Bound HTTP route admission, RPC max in-flight, timeout, queue, and connections together.
+- Use native response handles only when Java does not need to inspect or transform provider JSON.
+- Keep liveness local; include required provider contracts in readiness with a short timeout.
+- Test provider restart, DNS endpoint change, c64/c256 mixed load, p99, `503`, RSS, and final idle.
+- Never expose raw provider exception text to the HTTP client.
+
+## Glossary
+
+| Term | Meaning |
+| --- | --- |
+| Consumer | Application that calls a Dubbo provider |
+| Static discovery | Provider address comes from configuration or Service DNS |
+| Registry discovery | Provider addresses are watched through ZooKeeper |
+| Native handle | Provider body remains in Rust; Java carries only a response id |
+| Route admission | HTTP endpoint concurrency and short queue boundary |
+| RPC bulkhead | Dubbo call concurrency boundary that protects the process |
 
 ## More Detail
 

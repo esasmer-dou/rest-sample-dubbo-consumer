@@ -25,5 +25,15 @@ docker build `
   -t rest-sample-dubbo-consumer:jlink .
 ```
 
+Image'ın oluştuğunu doğrulayın ve yerel boyutunu kaydedin:
+
+```powershell
+docker image inspect rest-sample-dubbo-consumer:native-static-jlink `
+  --format '{{.Id}} size={{.Size}} bytes'
+```
+
 Tek image biçimi seçin. Yalnız static native discovery gerekiyorsa full veya ZooKeeper image
 kullanmayın. Production öncesinde son image'ı gerçek Kubernetes CPU ve memory limitleriyle test edin.
+
+Build anahtarlarını yalnız BuildKit secret olarak verin. Maven token'ını image katmanına kopyalamayın.
+Başlatma ve readiness kontrolleri için [consumer rehberine](../../README.tr.md) dönün.

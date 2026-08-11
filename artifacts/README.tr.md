@@ -15,3 +15,14 @@ Dosya: `postman/rest-sample-dubbo-consumer.postman_collection.json`
 5. Business request'lerden önce health ve readiness request'lerini çalıştırın.
 
 Collection consumer REST API'yi çağırır. Dubbo provider portunu doğrudan çağırmaz.
+
+Beklenen sonuç:
+
+- `/app/health`, HTTP sürecinin çalıştığını gösterir.
+- `/app/ready`, gerekli Dubbo provider çağrılarının kullanılabilir olduğunu gösterir.
+- Business request'leri yalnız readiness çağrısı `200` döndükten sonra çalıştırın.
+
+Collection içine parola, erişim anahtarı veya production sunucu adresi yazmayın. Bunları yerel bir
+Postman environment dosyasında tutun.
+
+Discovery ve runtime profile ayarları için [consumer rehberine](../README.tr.md) dönün.
