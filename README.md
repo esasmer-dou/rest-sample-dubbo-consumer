@@ -10,14 +10,14 @@ A REST application that calls Dubbo providers.
 - Providers can be found by a static address or ZooKeeper.
 - The sample includes GET, POST, PATCH, and DELETE flows.
 
-Current versions: `rust-java-rest:4.2.0`, `java-rust-dubbo:0.7.0`, `rest-sample-utility:0.4.0`, `rust-sample-model:0.4.0`.
+Current versions: `rust-java-rest:4.3.0`, `java-rust-dubbo:0.7.1`, `rest-sample-utility:0.4.1`, `rust-sample-model:0.4.1`.
 
 The POM inherits `rust-java-platform-parent`. The normal surface uses the REST starter plus the
 selected Dubbo profile. The smallest profile uses `rust-java-starter-dubbo`, which brings the
 native-static client without the official Dubbo, Netty, ZooKeeper, or Hessian runtime. Code
 generators remain build-only.
 
-## What 0.6.0 Simplifies
+## What 0.6.1 Aligns
 
 - `RestSampleDubboConsumerApplication` uses declarative framework startup.
 - One `DubboClients` declaration generates all typed clients and shares one bounded transport.
@@ -325,4 +325,4 @@ The server IDs in `~/.m2/settings.xml` must match the POM:
 - [Docker image guide](docker/images/README.md)
 - [Production settings](src/main/resources/config/production.properties)
 - [Advanced tuning](src/main/resources/config/advanced-tuning.properties)
-- [v0.6.0 release notes](docs/RELEASE_NOTES_v0.6.0.md)
+- [v0.6.1 release notes](docs/RELEASE_NOTES_v0.6.1.md)

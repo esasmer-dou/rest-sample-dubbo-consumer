@@ -5,7 +5,7 @@ import com.reactor.rust.app.RestApplication;
 
 @ReactorApplication(
         name = "Dubbo Consumer Sample",
-        version = "0.6.0",
+        version = "0.6.1",
         description = "Exposes REST endpoints backed by generated native Dubbo clients",
         scanBasePackages = "com.reactor.sample.dubbo.consumer")
 public final class RestSampleDubboConsumerApplication {
