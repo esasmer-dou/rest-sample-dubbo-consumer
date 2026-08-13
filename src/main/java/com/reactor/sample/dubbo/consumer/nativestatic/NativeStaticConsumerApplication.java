@@ -5,7 +5,7 @@ import com.reactor.rust.app.RestApplication;
 
 @ReactorApplication(
         name = "Native Static Dubbo Consumer Sample",
-        version = "0.6.1",
+        version = "0.6.2",
         description = "Minimal static-provider Dubbo consumer image",
         scanBasePackages = "com.reactor.sample.dubbo.consumer.nativestatic")
 public final class NativeStaticConsumerApplication {
