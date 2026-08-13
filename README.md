@@ -10,7 +10,7 @@ A REST application that calls Dubbo providers.
 - Providers can be found by a static address or ZooKeeper.
 - The sample includes GET, POST, PATCH, and DELETE flows.
 
-Current versions: `rust-java-rest:4.4.0`, `java-rust-dubbo:0.7.2`, `rest-sample-utility:0.4.1`, `rust-sample-model:0.4.1`.
+Current versions: `rust-java-rest:4.4.1`, `java-rust-dubbo:0.7.2`, `rest-sample-utility:0.4.1`, `rust-sample-model:0.4.1`.
 
 ## Read This First
 
@@ -31,7 +31,7 @@ selected Dubbo profile. The smallest profile uses `rust-java-starter-dubbo`, whi
 native-static client without the official Dubbo, Netty, ZooKeeper, or Hessian runtime. Code
 generators remain build-only.
 
-## What 0.6.2 Aligns
+## What 0.6.3 Aligns
 
 - `RestSampleDubboConsumerApplication` uses declarative framework startup.
 - One `DubboClients` declaration generates all typed clients and shares one bounded transport.
@@ -39,7 +39,7 @@ generators remain build-only.
 - Handlers use constructor injection and generated route invokers.
 - Existing REST URLs, Dubbo interfaces, payloads, profiles, and Java business flow are unchanged.
 
-The optional Glowroot micro telemetry plane is available through REST `4.4.0`. It is disabled by
+The optional Glowroot micro telemetry plane is available through REST `4.4.1`. It is disabled by
 default. When enabled, HTTP route and native Dubbo timings are exported to the existing Glowroot
 Central deployment without changing handlers, services, or Dubbo interfaces.
 
@@ -374,4 +374,4 @@ The server IDs in `~/.m2/settings.xml` must match the POM:
 - [Docker image guide](docker/images/README.md)
 - [Production settings](src/main/resources/config/production.properties)
 - [Advanced tuning](src/main/resources/config/advanced-tuning.properties)
-- [v0.6.2 release notes](docs/RELEASE_NOTES_v0.6.2.md)
+- [v0.6.3 release notes](docs/RELEASE_NOTES_v0.6.3.md)
