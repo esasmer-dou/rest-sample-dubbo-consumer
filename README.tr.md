@@ -10,7 +10,7 @@ Dubbo provider'larını çağıran bir REST uygulamasıdır.
 - Provider adresi static olarak veya ZooKeeper üzerinden bulunabilir.
 - GET, POST, PATCH ve DELETE örnekleri vardır.
 
-Kullanılan sürümler: `rust-java-rest:4.4.1`, `java-rust-dubbo:0.7.2`, `rest-sample-utility:0.4.1`, `rust-sample-model:0.4.1`.
+Kullanılan sürümler: `rust-java-rest:4.5.0`, `java-rust-dubbo:0.7.2`, `rest-sample-utility:0.4.1`, `rust-sample-model:0.4.1`.
 
 ## Önce Bu Bölümü Okuyun
 
@@ -31,15 +31,16 @@ birleştirir. En küçük profile `rust-java-starter-dubbo` kullanır. Bu starte
 getirir; resmi Dubbo, Netty, ZooKeeper veya Hessian runtime'ını getirmez. Kod üreteçleri yalnız build
 sırasında kullanılır.
 
-## 0.6.3 ile Neler Hizalandı?
+## 0.6.4 ile Neler Hizalandı?
 
 - `RestSampleDubboConsumerApplication` deklaratif framework başlangıcını kullanır.
 - Tek `DubboClients` tanımı bütün typed client'ları üretir ve tek bounded transport paylaşır.
 - Elle yazılmış client definition ve tekrar eden runtime plan sınıfları kaldırıldı.
 - Handler'lar constructor injection ve generated route invoker kullanır.
 - REST adresleri, Dubbo interface'leri, payload'lar, profile'lar ve Java iş akışı değişmedi.
+- HTTP runtime temiz `4.5.0` provenance hattındaki REST ABI `29` ve Glowroot ABI `3` değerlerini kullanır.
 
-İsteğe bağlı Glowroot mikro telemetry katmanı REST `4.4.1` ile kullanılabilir. Varsayılan olarak
+İsteğe bağlı Glowroot mikro telemetry katmanı REST `4.5.0` ile kullanılabilir. Varsayılan olarak
 kapalıdır. Açıldığında HTTP route ve native Dubbo süreleri mevcut Glowroot Central deployment'ına
 gönderilir. Handler, service ve Dubbo interface kodu değişmez.
 
@@ -374,4 +375,4 @@ GitHub Packages için `read:packages` yetkili token gerekir. Token'ın private o
 - [Docker image rehberi](docker/images/README.tr.md)
 - [Production ayarları](src/main/resources/config/production.properties)
 - [Advanced tuning ayarları](src/main/resources/config/advanced-tuning.properties)
-- [v0.6.3 release notları](docs/RELEASE_NOTES_v0.6.3.tr.md)
+- [v0.6.4 sürüm notları](docs/RELEASE_NOTES_v0.6.4.tr.md)
