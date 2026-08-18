@@ -10,7 +10,7 @@ A REST application that calls Dubbo providers.
 - Providers can be found by a static address or ZooKeeper.
 - The sample includes GET, POST, PATCH, and DELETE flows.
 
-Current versions: `rust-java-rest:4.5.0`, `java-rust-dubbo:0.7.2`, `rest-sample-utility:0.4.1`, `rust-sample-model:0.4.1`.
+Current versions: `rust-java-rest:4.5.6`, `java-rust-dubbo:0.7.3`, `rest-sample-utility:0.4.2`, `rust-sample-model:0.4.2`.
 
 ## Read This First
 
@@ -31,16 +31,16 @@ selected Dubbo profile. The smallest profile uses `rust-java-starter-dubbo`, whi
 native-static client without the official Dubbo, Netty, ZooKeeper, or Hessian runtime. Code
 generators remain build-only.
 
-## What 0.6.4 Aligns
+## What 0.6.5 Aligns
 
 - `RestSampleDubboConsumerApplication` uses declarative framework startup.
 - One `DubboClients` declaration generates all typed clients and shares one bounded transport.
 - Handwritten client definitions and duplicate runtime-plan classes are removed.
 - Handlers use constructor injection and generated route invokers.
 - Existing REST URLs, Dubbo interfaces, payloads, profiles, and Java business flow are unchanged.
-- The HTTP runtime now uses REST ABI `29` and Glowroot ABI `3` from the clean `4.5.0` provenance line.
+- The HTTP runtime uses REST ABI `29` and Glowroot ABI `3` from the coordinated `4.5.6` platform line.
 
-The optional Glowroot micro telemetry plane is available through REST `4.5.0`. It is disabled by
+The optional Glowroot micro telemetry plane is available through REST `4.5.6`. It is disabled by
 default. When enabled, HTTP route and native Dubbo timings are exported to the existing Glowroot
 Central deployment without changing handlers, services, or Dubbo interfaces.
 
@@ -76,6 +76,7 @@ Choose one consumer shape before reading any property.
 | One ready-JSON catalog call and the fewest dependencies | Maven profile `native-static-consumer` |
 | Catalog, customer reads, and customer commands | Default profile `full-dubbo-consumer` |
 | Provider addresses come from ZooKeeper | Maven profile `zookeeper-discovery` |
+| Export HTTP and Dubbo calls to Glowroot | [Glowroot Telemetry](#glowroot-telemetry) |
 
 Most Kubernetes services can start with static Service DNS. ZooKeeper is not required when one stable Kubernetes Service exposes the provider replicas.
 
@@ -286,6 +287,90 @@ env:
     value: "micro-dubbo"
 ```
 
+## Glowroot Telemetry
+
+This consumer runs on Rust-Java REST. It does not need a separate Spring starter. The agent is
+disabled by default. When enabled, HTTP route timings and native Dubbo count, duration, and error
+aggregates stay in the same Rust runtime. Handlers, services, and Dubbo interfaces do not change.
+
+This sample already uses production platform `4.5.6` with Glowroot ABI `3`. The optional
+`java-rust-glowroot-agent:0.4.0` JAR is needed only when you want `-javaagent` syntax; the embedded
+REST telemetry runtime does not require a separate agent dependency:
+
+```xml
+<parent>
+  <groupId>com.reactor</groupId>
+  <artifactId>rust-java-platform-parent</artifactId>
+  <version>4.5.6</version>
+  <relativePath/>
+</parent>
+```
+
+Add these values to `rust-spring.properties` for local use:
+
+```properties
+reactor.glowroot.enabled=true
+reactor.glowroot.profile=micro
+reactor.glowroot.collector.address=http://127.0.0.1:8181
+reactor.glowroot.agent.id=dubbo-consumer-local
+reactor.glowroot.application.name=rest-sample-dubbo-consumer
+reactor.glowroot.http.sample-rate=256
+reactor.glowroot.trace.capacity=0
+```
+
+If you explicitly set `reactor.native.capabilities`, include every required surface:
+
+```properties
+reactor.native.capabilities=http,dubbo,glowroot
+```
+
+Add these environment variables to a Kubernetes deployment:
+
+```yaml
+env:
+  - name: REACTOR_GLOWROOT_ENABLED
+    value: "true"
+  - name: REACTOR_GLOWROOT_PROFILE
+    value: "micro"
+  - name: REACTOR_GLOWROOT_COLLECTOR_ADDRESS
+    value: "http://glowroot-collector.observability.svc.cluster.local:8181"
+  - name: REACTOR_GLOWROOT_AGENT_ID
+    valueFrom:
+      fieldRef:
+        fieldPath: metadata.name
+  - name: REACTOR_GLOWROOT_APPLICATION_NAME
+    value: "rest-sample-dubbo-consumer"
+```
+
+Check the local agent state:
+
+```powershell
+curl.exe http://127.0.0.1:8080/diagnostics/glowroot
+```
+
+| Need | Profile | Use |
+|---|---|---|
+| Normal production traffic | `micro` | HTTP, Dubbo, RSS, thread, and exporter health |
+| Heap or GC investigation | `jvm` | Enable temporarily on one pod |
+| Explicit SQL in the consumer | `sql` | Use only when this consumer really uses JDBC |
+| JVM, SQL, and error investigation | `full` | Use for a short incident window |
+| Thread or heap output | `diagnostic` | Use only for an authorized operation |
+
+The `micro` production gate allows at most one exporter thread and a `3 MiB` resident-memory
+boundary. A collector outage does not stop HTTP or Dubbo calls. The Dubbo timing is the native call
+as observed by the consumer; it does not separately measure database time inside the provider. Do
+not expose `/diagnostics/glowroot` through a public ingress.
+
+Keep the default when the agent is not required:
+
+```properties
+reactor.glowroot.enabled=false
+```
+
+See the
+[`java-rust-glowroot-agent`](https://github.com/esasmer-dou/java-rust-glowroot-agent/blob/master/README.md)
+guide for profile switching, the SQL API, and the full property reference.
+
 ## Code Map
 
 | File | Why it matters |
@@ -345,6 +430,7 @@ The server IDs in `~/.m2/settings.xml` must match the POM:
 | Typed DTO class is unknown | Shared model version and Hessian allowlist |
 | Requests return controlled `503` | Route or RPC limit is protecting the pod; inspect provider and DB capacity before increasing it |
 | Turkish characters are broken | Send and return UTF-8 with `application/json; charset=utf-8` |
+| Glowroot data is missing | Check `enabled`, collector address, agent id, and `/diagnostics/glowroot` |
 
 ## Production Checklist
 
@@ -356,6 +442,7 @@ The server IDs in `~/.m2/settings.xml` must match the POM:
 - Keep liveness local; include required provider contracts in readiness with a short timeout.
 - Test provider restart, DNS endpoint change, c64/c256 mixed load, p99, `503`, RSS, and final idle.
 - Never expose raw provider exception text to the HTTP client.
+- Start agent use with `micro`; do not leave `full` or `diagnostic` enabled continuously.
 
 ## Glossary
 
@@ -367,6 +454,7 @@ The server IDs in `~/.m2/settings.xml` must match the POM:
 | Native handle | Provider body remains in Rust; Java carries only a response id |
 | Route admission | HTTP endpoint concurrency and short queue boundary |
 | RPC bulkhead | Dubbo call concurrency boundary that protects the process |
+| Telemetry profile | The bounded data and resource surface currently enabled in the agent |
 
 ## More Detail
 
@@ -375,4 +463,4 @@ The server IDs in `~/.m2/settings.xml` must match the POM:
 - [Docker image guide](docker/images/README.md)
 - [Production settings](src/main/resources/config/production.properties)
 - [Advanced tuning](src/main/resources/config/advanced-tuning.properties)
-- [v0.6.4 release notes](docs/RELEASE_NOTES_v0.6.4.md)
+- [v0.6.5 release notes](docs/RELEASE_NOTES_v0.6.5.md)

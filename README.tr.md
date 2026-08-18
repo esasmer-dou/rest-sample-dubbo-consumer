@@ -10,7 +10,7 @@ Dubbo provider'larını çağıran bir REST uygulamasıdır.
 - Provider adresi static olarak veya ZooKeeper üzerinden bulunabilir.
 - GET, POST, PATCH ve DELETE örnekleri vardır.
 
-Kullanılan sürümler: `rust-java-rest:4.5.0`, `java-rust-dubbo:0.7.2`, `rest-sample-utility:0.4.1`, `rust-sample-model:0.4.1`.
+Kullanılan sürümler: `rust-java-rest:4.5.6`, `java-rust-dubbo:0.7.3`, `rest-sample-utility:0.4.2`, `rust-sample-model:0.4.2`.
 
 ## Önce Bu Bölümü Okuyun
 
@@ -31,16 +31,16 @@ birleştirir. En küçük profile `rust-java-starter-dubbo` kullanır. Bu starte
 getirir; resmi Dubbo, Netty, ZooKeeper veya Hessian runtime'ını getirmez. Kod üreteçleri yalnız build
 sırasında kullanılır.
 
-## 0.6.4 ile Neler Hizalandı?
+## 0.6.5 ile Neler Hizalandı?
 
 - `RestSampleDubboConsumerApplication` deklaratif framework başlangıcını kullanır.
 - Tek `DubboClients` tanımı bütün typed client'ları üretir ve tek bounded transport paylaşır.
 - Elle yazılmış client definition ve tekrar eden runtime plan sınıfları kaldırıldı.
 - Handler'lar constructor injection ve generated route invoker kullanır.
 - REST adresleri, Dubbo interface'leri, payload'lar, profile'lar ve Java iş akışı değişmedi.
-- HTTP runtime temiz `4.5.0` provenance hattındaki REST ABI `29` ve Glowroot ABI `3` değerlerini kullanır.
+- HTTP runtime, koordineli `4.5.6` platform hattındaki REST ABI `29` ve Glowroot ABI `3` değerlerini kullanır.
 
-İsteğe bağlı Glowroot mikro telemetry katmanı REST `4.5.0` ile kullanılabilir. Varsayılan olarak
+İsteğe bağlı Glowroot mikro telemetri katmanı REST `4.5.6` ile kullanılabilir. Varsayılan olarak
 kapalıdır. Açıldığında HTTP route ve native Dubbo süreleri mevcut Glowroot Central deployment'ına
 gönderilir. Handler, service ve Dubbo interface kodu değişmez.
 
@@ -76,6 +76,7 @@ Herhangi bir property okumadan önce consumer tipini seçin.
 | Tek hazır JSON catalog çağrısı ve en az bağımlılık | Maven profile `native-static-consumer` |
 | Catalog, müşteri okuma ve müşteri yazma işlemleri | Varsayılan profile `full-dubbo-consumer` |
 | Provider adresleri ZooKeeper'dan gelecek | Maven profile `zookeeper-discovery` |
+| HTTP ve Dubbo çağrılarını Glowroot'ta görmek | [Glowroot Agent ile Telemetri](#glowroot-agent-ile-telemetri) |
 
 Birçok Kubernetes servisi static Service DNS ile başlayabilir. Tek bir Kubernetes Service provider replica'larını sunuyorsa ZooKeeper zorunlu değildir.
 
@@ -285,6 +286,90 @@ env:
     value: "micro-dubbo"
 ```
 
+## Glowroot Agent ile Telemetri
+
+Bu consumer Rust-Java REST üzerinde çalışır. Ayrı bir Spring starter gerekmez. Agent varsayılan
+olarak kapalıdır. Açıldığında HTTP route süreleri ile native Dubbo çağrı sayısı, süre ve hata
+toplamları aynı Rust çalışma katmanında tutulur. Handler, service ve Dubbo interface kodu değişmez.
+
+Bu sample, Glowroot ABI `3` taşıyan production platform `4.5.6` sürümünü kullanır. İsteğe bağlı
+`java-rust-glowroot-agent:0.4.0` JAR'ı yalnız `-javaagent` biçimi gerekiyorsa eklenir. REST içine
+gömülü telemetri runtime'ı için ayrı agent dependency gerekmez:
+
+```xml
+<parent>
+  <groupId>com.reactor</groupId>
+  <artifactId>rust-java-platform-parent</artifactId>
+  <version>4.5.6</version>
+  <relativePath/>
+</parent>
+```
+
+Lokal kullanım için `rust-spring.properties` dosyasına şu değerleri ekleyin:
+
+```properties
+reactor.glowroot.enabled=true
+reactor.glowroot.profile=micro
+reactor.glowroot.collector.address=http://127.0.0.1:8181
+reactor.glowroot.agent.id=dubbo-consumer-local
+reactor.glowroot.application.name=rest-sample-dubbo-consumer
+reactor.glowroot.http.sample-rate=256
+reactor.glowroot.trace.capacity=0
+```
+
+`reactor.native.capabilities` değerini ayrıca tanımlıyorsanız bütün gerekli yüzeyleri ekleyin:
+
+```properties
+reactor.native.capabilities=http,dubbo,glowroot
+```
+
+Kubernetes deployment'ına şu environment variable'ları ekleyin:
+
+```yaml
+env:
+  - name: REACTOR_GLOWROOT_ENABLED
+    value: "true"
+  - name: REACTOR_GLOWROOT_PROFILE
+    value: "micro"
+  - name: REACTOR_GLOWROOT_COLLECTOR_ADDRESS
+    value: "http://glowroot-collector.observability.svc.cluster.local:8181"
+  - name: REACTOR_GLOWROOT_AGENT_ID
+    valueFrom:
+      fieldRef:
+        fieldPath: metadata.name
+  - name: REACTOR_GLOWROOT_APPLICATION_NAME
+    value: "rest-sample-dubbo-consumer"
+```
+
+Agent durumunu lokal diagnostics endpoint'inden kontrol edin:
+
+```powershell
+curl.exe http://127.0.0.1:8080/diagnostics/glowroot
+```
+
+| İhtiyaç | Profil | Kullanım |
+|---|---|---|
+| Normal production trafiği | `micro` | HTTP, Dubbo, RSS, thread ve exporter sağlığı |
+| Heap veya GC araştırması | `jvm` | Tek podda geçici olarak açın |
+| Consumer içinde açık SQL ölçümü | `sql` | Consumer gerçekten JDBC kullanıyorsa seçin |
+| JVM, SQL ve hata incelemesi | `full` | Kısa inceleme süresi için kullanın |
+| Thread veya heap çıktısı | `diagnostic` | Yalnız yetkili operasyon sırasında açın |
+
+`micro` production gate'i en fazla bir exporter thread'i ve `3 MiB` yerleşik bellek sınırıyla
+doğrulanmıştır. Collector kesintisi HTTP veya Dubbo çağrısını durdurmaz. Agent'in gördüğü Dubbo
+ölçümü consumer tarafındaki native çağrı süresidir; provider içindeki DB süresini ayrıca ölçmez.
+`/diagnostics/glowroot` endpoint'ini public ingress'e açmayın.
+
+Agent kullanılmayacaksa varsayılanı koruyun:
+
+```properties
+reactor.glowroot.enabled=false
+```
+
+Profil geçişi, SQL API'si ve bütün property'ler için
+[`java-rust-glowroot-agent`](https://github.com/esasmer-dou/java-rust-glowroot-agent/blob/master/README.tr.md)
+dokümanına bakın.
+
 ## Kod Haritası
 
 | Dosya | Görevi |
@@ -345,6 +430,7 @@ GitHub Packages için `read:packages` yetkili token gerekir. Token'ın private o
 | Typed DTO class bilinmiyor | Ortak model sürümü ve Hessian allowlist |
 | İstekler kontrollü `503` dönüyor | Route veya RPC limiti pod'u koruyor; artırmadan önce provider ve DB kapasitesine bakın |
 | Türkçe karakter bozuk | UTF-8 ve `application/json; charset=utf-8` kullanın |
+| Glowroot verisi görünmüyor | `enabled`, collector adresi, agent id ve `/diagnostics/glowroot` çıktısı |
 
 ## Production Kontrol Listesi
 
@@ -356,6 +442,7 @@ GitHub Packages için `read:packages` yetkili token gerekir. Token'ın private o
 - Liveness kontrolünü lokal tutun. Zorunlu provider kontratlarını kısa timeout ile readiness'e ekleyin.
 - Provider restart, DNS endpoint değişimi, c64/c256 karışık yük, p99, `503`, RSS ve final idle testi yapın.
 - Provider exception metnini HTTP istemcisine olduğu gibi göstermeyin.
+- Agent açıksa `micro` ile başlayın; `full` ve `diagnostic` profillerini sürekli açık bırakmayın.
 
 ## Kısa Sözlük
 
@@ -367,6 +454,7 @@ GitHub Packages için `read:packages` yetkili token gerekir. Token'ın private o
 | Native handle | Provider body Rust belleğinde kalırken Java'nın yalnız response kimliği taşıması |
 | Route admission | HTTP endpoint eşzamanlılık ve kısa queue sınırı |
 | RPC bulkhead | Process'i koruyan Dubbo çağrı eşzamanlılık sınırı |
+| Telemetri profili | Agent'in o anda topladığı veri ve ayırdığı sınırlı kaynak yüzeyi |
 
 ## Ayrıntılı Bilgi
 
@@ -375,4 +463,4 @@ GitHub Packages için `read:packages` yetkili token gerekir. Token'ın private o
 - [Docker image rehberi](docker/images/README.tr.md)
 - [Production ayarları](src/main/resources/config/production.properties)
 - [Advanced tuning ayarları](src/main/resources/config/advanced-tuning.properties)
-- [v0.6.4 sürüm notları](docs/RELEASE_NOTES_v0.6.4.tr.md)
+- [v0.6.5 sürüm notları](docs/RELEASE_NOTES_v0.6.5.tr.md)
