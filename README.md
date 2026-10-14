@@ -10,7 +10,7 @@ A REST application that calls Dubbo providers.
 - Providers can be found by a static address or ZooKeeper.
 - The sample includes GET, POST, PATCH, and DELETE flows.
 
-Current versions: `rust-java-rest:4.5.6`, `java-rust-dubbo:0.7.3`, `rest-sample-utility:0.4.2`, `rust-sample-model:0.4.2`.
+Current versions: `rust-java-rest:4.6.2`, `java-rust-dubbo:0.7.3`, `rest-sample-utility:0.4.2`, `rust-sample-model:0.4.2`.
 
 ## Read This First
 
@@ -31,16 +31,19 @@ selected Dubbo profile. The smallest profile uses `rust-java-starter-dubbo`, whi
 native-static client without the official Dubbo, Netty, ZooKeeper, or Hessian runtime. Code
 generators remain build-only.
 
-## What 0.6.5 Aligns
+## Current Checkout
+
+This checkout uses platform parent `4.6.2`. The sample version remains `0.6.5`.
+Rebuild the source to use this alignment. The published sample package has not been replaced.
 
 - `RestSampleDubboConsumerApplication` uses declarative framework startup.
 - One `DubboClients` declaration generates all typed clients and shares one bounded transport.
 - Handwritten client definitions and duplicate runtime-plan classes are removed.
 - Handlers use constructor injection and generated route invokers.
 - Existing REST URLs, Dubbo interfaces, payloads, profiles, and Java business flow are unchanged.
-- The HTTP runtime uses REST ABI `29` and Glowroot ABI `3` from the coordinated `4.5.6` platform line.
+- The HTTP runtime uses REST ABI `29` and Glowroot ABI `6` from the coordinated `4.6.2` platform line.
 
-The optional Glowroot micro telemetry plane is available through REST `4.5.6`. It is disabled by
+The optional Glowroot micro telemetry plane is available through REST `4.6.2`. It is disabled by
 default. When enabled, HTTP route and native Dubbo timings are exported to the existing Glowroot
 Central deployment without changing handlers, services, or Dubbo interfaces.
 
@@ -293,15 +296,15 @@ This consumer runs on Rust-Java REST. It does not need a separate Spring starter
 disabled by default. When enabled, HTTP route timings and native Dubbo count, duration, and error
 aggregates stay in the same Rust runtime. Handlers, services, and Dubbo interfaces do not change.
 
-This sample already uses production platform `4.5.6` with Glowroot ABI `3`. The optional
-`java-rust-glowroot-agent:0.4.0` JAR is needed only when you want `-javaagent` syntax; the embedded
+This sample already uses production platform `4.6.2` with Glowroot ABI `6`. The optional
+`java-rust-glowroot-agent:0.5.4` JAR is needed only when you want `-javaagent` syntax; the embedded
 REST telemetry runtime does not require a separate agent dependency:
 
 ```xml
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.5.6</version>
+  <version>4.6.2</version>
   <relativePath/>
 </parent>
 ```
