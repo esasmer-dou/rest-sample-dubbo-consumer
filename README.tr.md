@@ -10,7 +10,7 @@ Dubbo provider'larını çağıran bir REST uygulamasıdır.
 - Provider adresi static olarak veya ZooKeeper üzerinden bulunabilir.
 - GET, POST, PATCH ve DELETE örnekleri vardır.
 
-Kullanılan sürümler: `rust-java-rest:4.6.2`, `java-rust-dubbo:0.7.3`, `rest-sample-utility:0.4.2`, `rust-sample-model:0.4.2`.
+Kullanılan sürümler: `rust-java-rest:4.6.3`, `java-rust-dubbo:0.7.4`, `rest-sample-utility:0.4.3`, `rust-sample-model:0.4.3`.
 
 ## Önce Bu Bölümü Okuyun
 
@@ -33,17 +33,17 @@ sırasında kullanılır.
 
 ## Güncel Kaynak Ayarları
 
-Bu kaynak ağacı platform parent `4.6.2` kullanır. Sample sürümü `0.6.5` olarak kalır.
-Bu hizalamayı kullanmak için kaynak kodu yeniden derleyin. Yayınlanmış sample paketi güncellenmedi.
+`0.6.6` sürümü platform parent `4.6.3` kullanır. Uygulamayı hizalanmış bağımlılıklarla
+yeniden derleyin. [Sürüm notlarını](docs/RELEASE_NOTES_v0.6.6.tr.md) okuyun. Runtime ayarları ve adresler değişmez.
 
 - `RestSampleDubboConsumerApplication` deklaratif framework başlangıcını kullanır.
 - Tek `DubboClients` tanımı bütün typed client'ları üretir ve tek bounded transport paylaşır.
 - Elle yazılmış client definition ve tekrar eden runtime plan sınıfları kaldırıldı.
 - Handler'lar constructor injection ve generated route invoker kullanır.
 - REST adresleri, Dubbo interface'leri, payload'lar, profile'lar ve Java iş akışı değişmedi.
-- HTTP runtime, koordineli `4.6.2` platform hattındaki REST ABI `29` ve Glowroot ABI `6` değerlerini kullanır.
+- HTTP runtime, koordineli `4.6.3` platform hattındaki REST ABI `29` ve Glowroot ABI `6` değerlerini kullanır.
 
-İsteğe bağlı Glowroot mikro telemetri katmanı REST `4.6.2` ile kullanılabilir. Varsayılan olarak
+İsteğe bağlı Glowroot mikro telemetri katmanı REST `4.6.3` ile kullanılabilir. Varsayılan olarak
 kapalıdır. Açıldığında HTTP route ve native Dubbo süreleri mevcut Glowroot Central deployment'ına
 gönderilir. Handler, service ve Dubbo interface kodu değişmez.
 
@@ -295,7 +295,7 @@ Bu consumer Rust-Java REST üzerinde çalışır. Ayrı bir Spring starter gerek
 olarak kapalıdır. Açıldığında HTTP route süreleri ile native Dubbo çağrı sayısı, süre ve hata
 toplamları aynı Rust çalışma katmanında tutulur. Handler, service ve Dubbo interface kodu değişmez.
 
-Bu sample, Glowroot ABI `6` taşıyan production platform `4.6.2` sürümünü kullanır. İsteğe bağlı
+Bu sample, Glowroot ABI `6` taşıyan production platform `4.6.3` sürümünü kullanır. İsteğe bağlı
 `java-rust-glowroot-agent:0.5.4` JAR'ı yalnız `-javaagent` biçimi gerekiyorsa eklenir. REST içine
 gömülü telemetri runtime'ı için ayrı agent dependency gerekmez:
 
@@ -303,7 +303,7 @@ gömülü telemetri runtime'ı için ayrı agent dependency gerekmez:
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.6.2</version>
+  <version>4.6.3</version>
   <relativePath/>
 </parent>
 ```
@@ -466,4 +466,4 @@ GitHub Packages için `read:packages` yetkili token gerekir. Token'ın private o
 - [Docker image rehberi](docker/images/README.tr.md)
 - [Production ayarları](src/main/resources/config/production.properties)
 - [Advanced tuning ayarları](src/main/resources/config/advanced-tuning.properties)
-- [v0.6.5 sürüm notları](docs/RELEASE_NOTES_v0.6.5.tr.md)
+- [v0.6.6 sürüm notları](docs/RELEASE_NOTES_v0.6.6.tr.md)
