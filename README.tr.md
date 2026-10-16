@@ -296,7 +296,7 @@ olarak kapalıdır. Açıldığında HTTP route süreleri ile native Dubbo çağ
 toplamları aynı Rust çalışma katmanında tutulur. Handler, service ve Dubbo interface kodu değişmez.
 
 Bu sample, Glowroot ABI `6` taşıyan production platform `4.6.3` sürümünü kullanır. İsteğe bağlı
-`java-rust-glowroot-agent:0.5.4` JAR'ı yalnız `-javaagent` biçimi gerekiyorsa eklenir. REST içine
+`java-rust-glowroot-agent:0.6.0` JAR'ı yalnız `-javaagent` biçimi gerekiyorsa eklenir. REST içine
 gömülü telemetri runtime'ı için ayrı agent dependency gerekmez:
 
 ```xml

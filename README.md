@@ -297,7 +297,7 @@ disabled by default. When enabled, HTTP route timings and native Dubbo count, du
 aggregates stay in the same Rust runtime. Handlers, services, and Dubbo interfaces do not change.
 
 This sample already uses production platform `4.6.3` with Glowroot ABI `6`. The optional
-`java-rust-glowroot-agent:0.5.4` JAR is needed only when you want `-javaagent` syntax; the embedded
+`java-rust-glowroot-agent:0.6.0` JAR is needed only when you want `-javaagent` syntax; the embedded
 REST telemetry runtime does not require a separate agent dependency:
 
 ```xml
