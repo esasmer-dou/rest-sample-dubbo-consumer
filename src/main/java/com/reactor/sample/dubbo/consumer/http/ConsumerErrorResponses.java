@@ -14,6 +14,7 @@ import java.util.regex.Pattern;
 public final class ConsumerErrorResponses {
 
     private static final String PUBLIC_UNAVAILABLE = "Upstream service is temporarily unavailable";
+    private static final boolean COMMON_ERRORS = com.reactor.rust.config.PropertiesLoader.getBoolean("sample.errors.common-contract", false);
     private static final long LOG_INTERVAL_MS = 5_000L;
     private static final ConcurrentHashMap<String, AtomicLong> LAST_LOG_BY_CODE = new ConcurrentHashMap<>();
     private static final Pattern SECRET_ASSIGNMENT = Pattern.compile(
@@ -25,6 +26,11 @@ public final class ConsumerErrorResponses {
 
     public static ResponseEntity<RawResponse> unavailable(String code, Throwable error) {
         record(code, error);
+        if (COMMON_ERRORS) {
+            var mapped = com.reactor.rust.exception.HttpErrorMapper.map(error);
+            return com.reactor.rust.http.ErrorResponses.from(mapped.status() == 500
+                    ? new com.reactor.rust.exception.HttpErrorMapper.MappedError(503, "dependency_unavailable", PUBLIC_UNAVAILABLE) : mapped);
+        }
         return ResponseEntity
                 .status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(JsonResponses.error(code, PUBLIC_UNAVAILABLE));
@@ -54,7 +60,8 @@ public final class ConsumerErrorResponses {
             return new IllegalStateException("Unknown upstream failure");
         }
         Throwable current = error;
-        while (current.getCause() != null && current.getCause() != current) {
+        int depth = 0;
+        while (depth++ < 32 && current.getCause() != null && current.getCause() != current) {
             current = current.getCause();
         }
         return current;

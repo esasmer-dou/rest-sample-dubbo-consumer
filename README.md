@@ -2,6 +2,8 @@
 
 [English](README.md) | [Türkçe](README.tr.md)
 
+New usage guide: [New usage examples](docs/functional-operations.md).
+
 A REST application that calls Dubbo providers.
 
 - Rust Hyper accepts HTTP requests.
@@ -10,7 +12,7 @@ A REST application that calls Dubbo providers.
 - Providers can be found by a static address or ZooKeeper.
 - The sample includes GET, POST, PATCH, and DELETE flows.
 
-Current versions: `rust-java-rest:4.6.3`, `java-rust-dubbo:0.7.4`, `rest-sample-utility:0.4.3`, `rust-sample-model:0.4.3`.
+Current versions: `rust-java-rest:4.7.0`, `java-rust-dubbo:0.8.0`, `rest-sample-utility:0.4.4`, `rust-sample-model:0.4.4`.
 
 ## Read This First
 
@@ -33,17 +35,17 @@ generators remain build-only.
 
 ## Current Checkout
 
-Version `0.6.6` uses platform parent `4.6.3`. Rebuild the application with the aligned
-dependencies. See [release notes](docs/RELEASE_NOTES_v0.6.6.md). Runtime settings and URLs are unchanged.
+Version `0.7.0` uses platform parent `4.7.0`. Rebuild the application with the aligned
+dependencies. See [release notes](docs/RELEASE_NOTES_v0.7.0.md). Runtime settings and URLs are unchanged.
 
 - `RestSampleDubboConsumerApplication` uses declarative framework startup.
 - One `DubboClients` declaration generates all typed clients and shares one bounded transport.
 - Handwritten client definitions and duplicate runtime-plan classes are removed.
 - Handlers use constructor injection and generated route invokers.
 - Existing REST URLs, Dubbo interfaces, payloads, profiles, and Java business flow are unchanged.
-- The HTTP runtime uses REST ABI `29` and Glowroot ABI `6` from the coordinated `4.6.3` platform line.
+- The HTTP runtime uses REST ABI `29` and Glowroot ABI `6` from the coordinated `4.7.0` platform line.
 
-The optional Glowroot micro telemetry plane is available through REST `4.6.3`. It is disabled by
+The optional Glowroot micro telemetry plane is available through REST `4.7.0`. It is disabled by
 default. When enabled, HTTP route and native Dubbo timings are exported to the existing Glowroot
 Central deployment without changing handlers, services, or Dubbo interfaces.
 
@@ -220,6 +222,29 @@ measurements show a reason. Move to `balanced-dubbo` only when the downstream ca
 
 Do not solve latency by increasing every queue. A larger queue uses more memory and can slow the worst requests.
 
+## Small Linux/OpenJ9 Pods
+
+For a small Linux/OpenJ9 pod, you can test `-XX:-TransparentHugePage` as an optional
+setting. It is not enabled by default in these sample images. It tells OpenJ9
+not to request transparent huge pages. It can reduce unused resident pages in a
+small heap or JIT workspace. It does not disable JIT, lower the heap limit, or
+change the host's global Linux settings. Some native memory can still use huge pages.
+
+If you set `JAVA_TOOL_OPTIONS` in Kubernetes, it replaces the image's value.
+Keep the complete options, not just the new flag:
+
+```yaml
+env:
+  - name: JAVA_TOOL_OPTIONS
+    value: >-
+      -Xms24m -Xmx96m -Xss192k -Xgc:threads=1
+      -XX:ActiveProcessorCount=1 -Xtune:virtualized -XX:-TransparentHugePage
+```
+
+This is an OpenJ9 recipe, not a HotSpot recipe. Compare RSS, successful requests
+per second, p99 and errors on your payloads before rollout. This change does not
+switch `blocking` to `tokio-demux` or change RPC, Hikari, or route limits.
+
 ## JSON and DTO Choice
 
 | Need | Choose | Cost |
@@ -296,7 +321,7 @@ This consumer runs on Rust-Java REST. It does not need a separate Spring starter
 disabled by default. When enabled, HTTP route timings and native Dubbo count, duration, and error
 aggregates stay in the same Rust runtime. Handlers, services, and Dubbo interfaces do not change.
 
-This sample already uses production platform `4.6.3` with Glowroot ABI `6`. The optional
+This sample already uses production platform `4.7.0` with Glowroot ABI `6`. The optional
 `java-rust-glowroot-agent:0.6.0` JAR is needed only when you want `-javaagent` syntax; the embedded
 REST telemetry runtime does not require a separate agent dependency:
 
@@ -304,7 +329,7 @@ REST telemetry runtime does not require a separate agent dependency:
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.6.3</version>
+  <version>4.7.0</version>
   <relativePath/>
 </parent>
 ```
@@ -466,4 +491,4 @@ The server IDs in `~/.m2/settings.xml` must match the POM:
 - [Docker image guide](docker/images/README.md)
 - [Production settings](src/main/resources/config/production.properties)
 - [Advanced tuning](src/main/resources/config/advanced-tuning.properties)
-- [v0.6.6 release notes](docs/RELEASE_NOTES_v0.6.6.md)
+- [v0.7.0 release notes](docs/RELEASE_NOTES_v0.7.0.md)

@@ -2,6 +2,8 @@
 
 [English](README.md) | [Türkçe](README.tr.md)
 
+Yeni kullanım rehberi: [Yeni kullanım örnekleri](docs/functional-operations.tr.md).
+
 Dubbo provider'larını çağıran bir REST uygulamasıdır.
 
 - HTTP isteklerini Rust Hyper karşılar.
@@ -10,7 +12,7 @@ Dubbo provider'larını çağıran bir REST uygulamasıdır.
 - Provider adresi static olarak veya ZooKeeper üzerinden bulunabilir.
 - GET, POST, PATCH ve DELETE örnekleri vardır.
 
-Kullanılan sürümler: `rust-java-rest:4.6.3`, `java-rust-dubbo:0.7.4`, `rest-sample-utility:0.4.3`, `rust-sample-model:0.4.3`.
+Kullanılan sürümler: `rust-java-rest:4.7.0`, `java-rust-dubbo:0.8.0`, `rest-sample-utility:0.4.4`, `rust-sample-model:0.4.4`.
 
 ## Önce Bu Bölümü Okuyun
 
@@ -33,17 +35,17 @@ sırasında kullanılır.
 
 ## Güncel Kaynak Ayarları
 
-`0.6.6` sürümü platform parent `4.6.3` kullanır. Uygulamayı hizalanmış bağımlılıklarla
-yeniden derleyin. [Sürüm notlarını](docs/RELEASE_NOTES_v0.6.6.tr.md) okuyun. Runtime ayarları ve adresler değişmez.
+`0.7.0` sürümü platform parent `4.7.0` kullanır. Uygulamayı hizalanmış bağımlılıklarla
+yeniden derleyin. [Sürüm notlarını](docs/RELEASE_NOTES_v0.7.0.tr.md) okuyun. Runtime ayarları ve adresler değişmez.
 
 - `RestSampleDubboConsumerApplication` deklaratif framework başlangıcını kullanır.
 - Tek `DubboClients` tanımı bütün typed client'ları üretir ve tek bounded transport paylaşır.
 - Elle yazılmış client definition ve tekrar eden runtime plan sınıfları kaldırıldı.
 - Handler'lar constructor injection ve generated route invoker kullanır.
 - REST adresleri, Dubbo interface'leri, payload'lar, profile'lar ve Java iş akışı değişmedi.
-- HTTP runtime, koordineli `4.6.3` platform hattındaki REST ABI `29` ve Glowroot ABI `6` değerlerini kullanır.
+- HTTP runtime, koordineli `4.7.0` platform hattındaki REST ABI `29` ve Glowroot ABI `6` değerlerini kullanır.
 
-İsteğe bağlı Glowroot mikro telemetri katmanı REST `4.6.3` ile kullanılabilir. Varsayılan olarak
+İsteğe bağlı Glowroot mikro telemetri katmanı REST `4.7.0` ile kullanılabilir. Varsayılan olarak
 kapalıdır. Açıldığında HTTP route ve native Dubbo süreleri mevcut Glowroot Central deployment'ına
 gönderilir. Handler, service ve Dubbo interface kodu değişmez.
 
@@ -219,6 +221,30 @@ değerleri artırmayın. Downstream kapasitesi doğrulanırsa `balanced-dubbo` k
 
 Gecikme sorununu bütün queue değerlerini artırarak çözmeyin. Büyük queue daha fazla memory kullanır ve en yavaş istekleri daha da geciktirebilir.
 
+## Küçük Linux/OpenJ9 Podları
+
+Küçük bir Linux/OpenJ9 podunda `-XX:-TransparentHugePage` seçeneğini deneyebilirsiniz.
+Bu seçenek sample image'larında varsayılan olarak açık değildir.
+Bu ayar OpenJ9'un otomatik büyük bellek sayfaları istemesini kapatır. Küçük heap veya JIT
+çalışma alanında kullanılmadan fiziksel bellekte kalan sayfaları azaltabilir.
+JIT'i kapatmaz. Heap limitini veya Linux sunucusunun genel ayarını değiştirmez.
+Bazı native bellek alanları yine büyük sayfa kullanabilir.
+
+Kubernetes'te `JAVA_TOOL_OPTIONS` verirseniz image'daki değerin yerine geçer.
+Yalnız yeni seçeneği değil, mevcut seçenekleri de birlikte yazın:
+
+```yaml
+env:
+  - name: JAVA_TOOL_OPTIONS
+    value: >-
+      -Xms24m -Xmx96m -Xss192k -Xgc:threads=1
+      -XX:ActiveProcessorCount=1 -Xtune:virtualized -XX:-TransparentHugePage
+```
+
+Bu reçete OpenJ9 içindir. HotSpot'a aynen taşımayın. Yayına almadan önce kendi
+verinizle RSS, saniyedeki başarılı istek sayısı, p99 ve hataları karşılaştırın.
+Bu ayar `blocking` transport'u değiştirmez. RPC, Hikari ve route limitleri aynı kalır.
+
 ## JSON ve DTO Seçimi
 
 | İhtiyaç | Seçim | Maliyeti |
@@ -295,7 +321,7 @@ Bu consumer Rust-Java REST üzerinde çalışır. Ayrı bir Spring starter gerek
 olarak kapalıdır. Açıldığında HTTP route süreleri ile native Dubbo çağrı sayısı, süre ve hata
 toplamları aynı Rust çalışma katmanında tutulur. Handler, service ve Dubbo interface kodu değişmez.
 
-Bu sample, Glowroot ABI `6` taşıyan production platform `4.6.3` sürümünü kullanır. İsteğe bağlı
+Bu sample, Glowroot ABI `6` taşıyan production platform `4.7.0` sürümünü kullanır. İsteğe bağlı
 `java-rust-glowroot-agent:0.6.0` JAR'ı yalnız `-javaagent` biçimi gerekiyorsa eklenir. REST içine
 gömülü telemetri runtime'ı için ayrı agent dependency gerekmez:
 
@@ -303,7 +329,7 @@ gömülü telemetri runtime'ı için ayrı agent dependency gerekmez:
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.6.3</version>
+  <version>4.7.0</version>
   <relativePath/>
 </parent>
 ```
@@ -466,4 +492,4 @@ GitHub Packages için `read:packages` yetkili token gerekir. Token'ın private o
 - [Docker image rehberi](docker/images/README.tr.md)
 - [Production ayarları](src/main/resources/config/production.properties)
 - [Advanced tuning ayarları](src/main/resources/config/advanced-tuning.properties)
-- [v0.6.6 sürüm notları](docs/RELEASE_NOTES_v0.6.6.tr.md)
+- [v0.7.0 sürüm notları](docs/RELEASE_NOTES_v0.7.0.tr.md)

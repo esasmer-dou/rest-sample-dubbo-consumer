@@ -161,7 +161,9 @@ public final class CustomerHandler {
                         () -> customerCommandClient.patchCustomerStatusTypedAsync(customerId, status, requestId))
                 .thenApply(result -> result.success()
                         ? ResponseEntity.ok(JsonResponseSupport.mutation(result))
-                        : ResponseEntity.status(HttpStatus.NOT_FOUND).body(JsonResponseSupport.mutation(result)))
+                        : ResponseEntity.status("idempotency_key_conflict".equals(result.message()) ? HttpStatus.CONFLICT
+                                : "request_id_required".equals(result.message()) ? HttpStatus.BAD_REQUEST : HttpStatus.NOT_FOUND)
+                                .body(JsonResponseSupport.mutation(result)))
                 .exceptionally(error -> unavailable("dubbo_customer_status_typed_unavailable", error));
     }
 

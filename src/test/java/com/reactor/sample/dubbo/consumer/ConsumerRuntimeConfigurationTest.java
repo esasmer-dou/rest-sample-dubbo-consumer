@@ -8,13 +8,27 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ConsumerRuntimeConfigurationTest {
+
+    @Test
+    void fullStaticImagesKeepBoundedJitEnabledDefaults() throws IOException {
+        for (String file : new String[] {
+                "Dockerfile.jlink", "Dockerfile.jlink.workspace", "Dockerfile.jlink.full-static.workspace"}) {
+            String dockerfile = Files.readString(Path.of("docker", "images", file));
+            assertTrue(dockerfile.contains("-Xms24m -Xmx96m"), file);
+            assertTrue(dockerfile.contains("-XX:ActiveProcessorCount=1"), file);
+            assertFalse(dockerfile.contains("-Xnojit"), file);
+        }
+    }
 
     @Test
     void sampleUsesMicroDubboProfileAndStartupIndexes() throws IOException {
