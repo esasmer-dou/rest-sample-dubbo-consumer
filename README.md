@@ -35,8 +35,8 @@ generators remain build-only.
 
 ## Current Checkout
 
-Version `0.7.0` uses platform parent `4.7.0`. Rebuild the application with the aligned
-dependencies. See [release notes](docs/RELEASE_NOTES_v0.7.0.md). Runtime settings and URLs are unchanged.
+Version `0.7.1` uses platform parent `4.7.0`. Rebuild the application with the aligned
+dependencies. See [release notes](docs/RELEASE_NOTES_v0.7.1.md). Runtime settings and URLs are unchanged.
 
 - `RestSampleDubboConsumerApplication` uses declarative framework startup.
 - One `DubboClients` declaration generates all typed clients and shares one bounded transport.
@@ -322,7 +322,7 @@ disabled by default. When enabled, HTTP route timings and native Dubbo count, du
 aggregates stay in the same Rust runtime. Handlers, services, and Dubbo interfaces do not change.
 
 This sample already uses production platform `4.7.0` with Glowroot ABI `6`. The optional
-`java-rust-glowroot-agent:0.6.0` JAR is needed only when you want `-javaagent` syntax; the embedded
+`java-rust-glowroot-agent:0.7.0` JAR is needed only when you want `-javaagent` syntax; the embedded
 REST telemetry runtime does not require a separate agent dependency:
 
 ```xml
@@ -491,4 +491,4 @@ The server IDs in `~/.m2/settings.xml` must match the POM:
 - [Docker image guide](docker/images/README.md)
 - [Production settings](src/main/resources/config/production.properties)
 - [Advanced tuning](src/main/resources/config/advanced-tuning.properties)
-- [v0.7.0 release notes](docs/RELEASE_NOTES_v0.7.0.md)
+- [v0.7.1 release notes](docs/RELEASE_NOTES_v0.7.1.md)

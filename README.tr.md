@@ -35,8 +35,8 @@ sırasında kullanılır.
 
 ## Güncel Kaynak Ayarları
 
-`0.7.0` sürümü platform parent `4.7.0` kullanır. Uygulamayı hizalanmış bağımlılıklarla
-yeniden derleyin. [Sürüm notlarını](docs/RELEASE_NOTES_v0.7.0.tr.md) okuyun. Runtime ayarları ve adresler değişmez.
+`0.7.1` sürümü platform parent `4.7.0` kullanır. Uygulamayı hizalanmış bağımlılıklarla
+yeniden derleyin. [Sürüm notlarını](docs/RELEASE_NOTES_v0.7.1.tr.md) okuyun. Runtime ayarları ve adresler değişmez.
 
 - `RestSampleDubboConsumerApplication` deklaratif framework başlangıcını kullanır.
 - Tek `DubboClients` tanımı bütün typed client'ları üretir ve tek bounded transport paylaşır.
@@ -322,7 +322,7 @@ olarak kapalıdır. Açıldığında HTTP route süreleri ile native Dubbo çağ
 toplamları aynı Rust çalışma katmanında tutulur. Handler, service ve Dubbo interface kodu değişmez.
 
 Bu sample, Glowroot ABI `6` taşıyan production platform `4.7.0` sürümünü kullanır. İsteğe bağlı
-`java-rust-glowroot-agent:0.6.0` JAR'ı yalnız `-javaagent` biçimi gerekiyorsa eklenir. REST içine
+`java-rust-glowroot-agent:0.7.0` JAR'ı yalnız `-javaagent` biçimi gerekiyorsa eklenir. REST içine
 gömülü telemetri runtime'ı için ayrı agent dependency gerekmez:
 
 ```xml
@@ -492,4 +492,4 @@ GitHub Packages için `read:packages` yetkili token gerekir. Token'ın private o
 - [Docker image rehberi](docker/images/README.tr.md)
 - [Production ayarları](src/main/resources/config/production.properties)
 - [Advanced tuning ayarları](src/main/resources/config/advanced-tuning.properties)
-- [v0.7.0 sürüm notları](docs/RELEASE_NOTES_v0.7.0.tr.md)
+- [v0.7.1 sürüm notları](docs/RELEASE_NOTES_v0.7.1.tr.md)
