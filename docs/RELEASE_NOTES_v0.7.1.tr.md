@@ -4,7 +4,8 @@
 
 İsteğe bağlı bootstrap örnekleri agent 0.7.0 ile eşlendi. Normal uygulama REST 4.7.1 içindeki exporter'ı kullanır. Ek agent bağımlılığı gerekmez.
 
-Platform 4.7.1 olur. Cache/Dubbo 0.8.0 ve ortak sözleşmeler 0.4.4 olarak kalır.
+Platform 4.7.1 olur. Dubbo 0.8.0 ve ortak sözleşmeler 0.4.4 olarak kalır.
+Platform, isteğe bağlı cache sürümünü 0.8.1 olarak yönetir. Consumer'a ek cache bağımlılığı gelmez.
 Mevcut endpoint, SQL, payload ve hata sözleşmeleri değişmez. Agent varsayılan olarak kapalıdır.
 İş mantığı Java'da kalır. Agent açıksa sınırlı gönderim ve kaynak yönetimi Rust'tadır.
 
