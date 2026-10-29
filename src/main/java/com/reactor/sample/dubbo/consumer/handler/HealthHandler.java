@@ -14,30 +14,45 @@ import com.reactor.rust.http.HttpStatus;
 import com.reactor.rust.http.JsonResponses;
 import com.reactor.rust.http.RawResponse;
 import com.reactor.rust.http.ResponseEntity;
-import com.reactor.sample.dubbo.consumer.dubbo.CustomerQueryClient;
-import com.reactor.sample.dubbo.consumer.dubbo.NestedCatalogClient;
+import com.reactor.sample.dubbo.consumer.config.ConsumerReadinessContracts;
 
-import java.util.concurrent.CompletableFuture;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Supplier;
 
 import static com.reactor.sample.dubbo.consumer.http.ConsumerErrorResponses.dependencyUnavailable;
 
 @RestController
 public final class HealthHandler {
 
-    private final NestedCatalogClient catalogClient;
-    private final CustomerQueryClient customerQueryClient;
+    private final ConsumerReadinessContracts contracts;
+    private final Supplier<CompletableFuture<byte[]>> catalogProbe;
+    private final Supplier<CompletableFuture<byte[]>> customerProbe;
     private final LongKeyAdmission customerCommandKeyAdmission;
 
+    // AOT may read generated client types before their generation round; keep them qualified.
     @Autowired
     public HealthHandler(
-            NestedCatalogClient catalogClient,
-            Optional<CustomerQueryClient> customerQueryClient,
-            Optional<LongKeyAdmission> customerCommandKeyAdmission) {
-        this.catalogClient = catalogClient;
-        this.customerQueryClient = customerQueryClient.orElse(null);
-        this.customerCommandKeyAdmission = customerCommandKeyAdmission.orElse(null);
+            Optional<com.reactor.sample.dubbo.consumer.dubbo.NestedCatalogClient> catalogClient,
+            Optional<com.reactor.sample.dubbo.consumer.dubbo.CustomerQueryClient> customerQueryClient,
+            Optional<LongKeyAdmission> customerCommandKeyAdmission,
+            ConsumerReadinessContracts contracts) {
+        this(contracts,
+                catalogClient.isPresent() ? catalogClient.get()::getNestedCatalogJsonAsync : null,
+                customerQueryClient.isPresent() ? customerQueryClient.get()::getDatabaseCustomersJsonAsync : null,
+                customerCommandKeyAdmission.orElse(null));
+    }
+
+    HealthHandler(ConsumerReadinessContracts contracts,
+            Supplier<CompletableFuture<byte[]>> catalogProbe,
+            Supplier<CompletableFuture<byte[]>> customerProbe,
+            LongKeyAdmission customerCommandKeyAdmission) {
+        this.contracts = Objects.requireNonNull(contracts, "contracts");
+        this.catalogProbe = catalogProbe;
+        this.customerProbe = customerProbe;
+        this.customerCommandKeyAdmission = customerCommandKeyAdmission;
     }
 
     @GetMapping("/app/health")
@@ -86,25 +101,30 @@ public final class HealthHandler {
     }
 
     private CompletableFuture<DependencyCheckResponse> checkCatalog() {
-        if (catalogClient == null) {
-            return CompletableFuture.completedFuture(skipped("catalog"));
-        }
-        return catalogClient.getNestedCatalogJsonAsync()
-                .thenApply(bytes -> up("catalog", bytes == null ? 0 : bytes.length))
-                .exceptionally(error -> down(
-                        "catalog",
-                        dependencyUnavailable("dubbo_catalog_readiness_unavailable", error)));
+        return check("catalog", contracts.catalogRequired(), catalogProbe,
+                "dubbo_catalog_readiness_unavailable");
     }
 
     private CompletableFuture<DependencyCheckResponse> checkCustomers() {
-        if (customerQueryClient == null) {
-            return CompletableFuture.completedFuture(skipped("customers"));
+        return check("customers", contracts.customersRequired(), customerProbe,
+                "dubbo_customer_readiness_unavailable");
+    }
+
+    private static CompletableFuture<DependencyCheckResponse> check(String name, boolean required,
+            Supplier<CompletableFuture<byte[]>> probe, String failureCode) {
+        if (!required) {
+            return CompletableFuture.completedFuture(skipped(name));
         }
-        return customerQueryClient.getDatabaseCustomersJsonAsync()
-                .thenApply(bytes -> up("customers", bytes == null ? 0 : bytes.length))
-                .exceptionally(error -> down(
-                        "customers",
-                        dependencyUnavailable("dubbo_customer_readiness_unavailable", error)));
+        if (probe == null) {
+            return CompletableFuture.completedFuture(down(name, failureCode));
+        }
+        try {
+            return Objects.requireNonNull(probe.get(), "readiness future")
+                    .thenApply(bytes -> up(name, bytes == null ? 0 : bytes.length))
+                    .exceptionally(error -> down(name, dependencyUnavailable(failureCode, error)));
+        } catch (RuntimeException error) {
+            return CompletableFuture.completedFuture(down(name, dependencyUnavailable(failureCode, error)));
+        }
     }
 
     private static ResponseEntity<RawResponse> readyResponse(

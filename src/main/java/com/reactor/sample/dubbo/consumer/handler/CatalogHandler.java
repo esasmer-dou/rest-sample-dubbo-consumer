@@ -3,6 +3,7 @@ package com.reactor.sample.dubbo.consumer.handler;
 import com.reactor.rust.annotations.GetMapping;
 import com.reactor.rust.annotations.RequestParam;
 import com.reactor.rust.annotations.RestController;
+import com.reactor.rust.annotations.RequiresProperty;
 import com.reactor.rust.annotations.RouteWorkload;
 import com.reactor.rust.http.RawResponse;
 import com.reactor.rust.http.ResponseEntity;
@@ -14,6 +15,7 @@ import static com.reactor.sample.dubbo.consumer.http.ConsumerErrorResponses.unav
 import static com.reactor.sample.dubbo.consumer.config.ConsumerRouteBudgets.CATALOG_READ;
 
 @RestController("/api/v1/catalog")
+@RequiresProperty(name = "sample.consumer.catalog.enabled", value = "true", matchIfMissing = true)
 @RouteWorkload(value = RouteWorkload.Type.RPC_READ, budget = CATALOG_READ)
 public final class CatalogHandler {
 

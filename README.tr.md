@@ -12,6 +12,8 @@ direct-json-consumer profili, uygun tipli native sonuçları consumer satır DTO
 Yalnız DB sorgusu sunacak provider için provider örneğindeki
 [native sorgu profilini](https://github.com/esasmer-dou/rest-sample-dubbo-provider/blob/master/README.tr.md#yalnız-db-sorguları-için-native-taşıma-kaynak-kod)
 inceleyin. Consumer'ın altı sorgu metodu ve static adres ayarı değişmez.
+Aşağıdaki [query-only readiness tarifini](#hazır-olma-sözleşmesi) kullanın;
+varsayılan full readiness, bu provider'ın sunmadığı katalog servisini de zorunlu tutar.
 Güncel kaynak, segment sorgusu için isteğe bağlı bir JSON metodu da ekler.
 Önce provider ve consumer'ın ortak kontratlarını birlikte güncelleyin. Sonra
 `SAMPLE_CONSUMER_SEGMENT_NATIVE_JSON=true` veya
@@ -25,7 +27,7 @@ record'a çevrilip provider'da tekrar açılmaz. Limit ve UTF-8 segment, mevcut 
 kalır. Bozuk UTF-8 veya 4096 byte'tan uzun segment reddedilir; veri kesilmez.
 Ek JNI yeteneği gerekmez. Full profildeki diğer typed metotlar için HessianLite durur.
 
-Bloklamayan taşıma için iki seçeneği birlikte belirtin:
+Native-JSON cevap yolunu bloklamayan taşımayla birlikte kullanmak için iki seçeneği belirtin:
 
 ```yaml
 env:
@@ -38,6 +40,9 @@ env:
 Java metodunun async dönmesi, Rust taşımasını tek başına seçmez. `blocking`,
 sınırlı RPC worker thread'lerinde cevap bekler. `tokio-demux`, ağ cevabını Dubbo'ya
 ayrılmış Tokio runtime üzerinde bekler. REST Hyper executor'ını kullanmaz.
+Native handle, cevap sahipliği/kopyalama yolunu seçer; ağ zamanlamasını seçmez.
+`NativeJsonAsync` tek başına `tokio-demux` açmaz. Taşıma ayarı, segment native-JSON
+seçeneğinden bağımsız olarak typed async çağrılara da uygulanır.
 
 `GET /api/v1/customers/db/by-segment?segment=standard&limit=5` adresi ve cevap
 alanları değişmez. Doğrulama ve SQL işlemi provider'ın Java kodunda kalır.
@@ -339,6 +344,56 @@ ve [THP davranışı](https://eclipse.dev/openj9/docs/xxtransparenthugepage/) ay
 
 İş mantığı için typed record kullanın. Ölçülmüş pass-through endpoint'lerde hazır JSON byte'larını kullanın.
 
+## Hazır Olma Sözleşmesi
+
+**UNRELEASED (yayımlanmadı), 0.8.0 yayını sonrası checkout değişikliği:** `sample.consumer.readiness.contracts`,
+`sample.consumer.catalog.enabled` ve query-only ayar dosyası yayımlanmış `0.8.0`
+sürümünden sonra eklendi. Önceden indirilmiş `0.8.0` jar bu ayarları desteklemez.
+Aşağıdaki tarif için bu checkout'u yeniden derleyin; jar dosya adı yine `0.8.0` içerir.
+Bkz. [yayımlanmamış değişiklik notları](docs/RELEASE_NOTES_UNRELEASED.tr.md).
+
+Normal `full-dubbo-consumer` build'inde seçim başlangıçta bir kez çözülür.
+İstek sırasında ayar ayrıştırılmaz; RPC cevabı senkron beklenmez.
+
+| `sample.consumer.readiness.contracts` | Zorunlu readiness bağımlılıkları |
+|---|---|
+| `auto` (varsayılan) | `surface=full` için katalog ve müşteriler; `surface=catalog-only` için katalog |
+| `full` | Katalog ve müşteriler |
+| `catalog-only` | Katalog |
+| `query-only` | Müşteriler |
+
+Zorunlu client yoksa veya RPC başarısızsa `GET /app/ready`, `503` döndürür.
+Seçilmeyen kontroller RPC yapmaz; `required=false` ile `SKIPPED` döner.
+`GET /app/health` yerel liveness olarak kalır. Readiness hiçbir command çağırmaz.
+Bilinmeyen sözleşme seçimi, kontrolleri sessizce kaldırmak yerine başlangıcı durdurur.
+
+`native-db-query-provider` için normal consumer'ı derleyin. `config/production.properties`
+yerine bağımsız [query-only ayar dosyasını](src/main/resources/config/query-only.properties)
+kullanın. Consumer kaynak dizininden:
+
+```powershell
+mvn -B -ntp clean package -Pfull-dubbo-consumer
+java `
+  "-Dreactor.config.file=src/main/resources/config/query-only.properties" `
+  "-Dreactor.dubbo.providers=127.0.0.1:20880" `
+  -jar target/rest-sample-dubbo-consumer-0.8.0.jar
+```
+
+Bu dosya `sample.consumer.surface=full` değerini korur;
+`sample.consumer.readiness.contracts=query-only` ve
+`sample.consumer.catalog.enabled=false` seçer. Mevcut generated başlangıç koşulu
+katalog client ve route'larını oluşturmaz. Query ve command aynı customer handler'ını
+paylaştığından command client/route'ları API uyumu için kalır.
+Bu provider ile yalnız sorgu rotaları desteklenir; seçim **salt-okunur yetkilendirme
+politikası değildir**. Gerekiyorsa dışarı açılan rotaları ayrıca sınırlayın.
+Desteklenen bir surface değeri olmayan `surface=query-only` kullanmayın.
+
+Kubernetes'te dosyayı mount edip `REACTOR_CONFIG_FILE=/app/config/query-only.properties`
+verin. `REACTOR_DUBBO_PROVIDERS`, query provider'ın Service DNS ve portunu göstermelidir.
+Başlangıç ayarlarını değiştirdikten sonra consumer'ı yeniden başlatın.
+`native-static-consumer` ve `direct-json-consumer` build'lerinin ayrı katalog
+başlangıç sınıfları vardır; customer-query tarifi bu build'lere uygulanmaz.
+
 ## Konfigürasyon
 
 Uygulama ayarları şu sırayla okur:
@@ -351,6 +406,7 @@ Uygulama ayarları şu sırayla okur:
 |---|---|
 | `rust-spring.properties` | Küçük lokal varsayılanlar |
 | `config/production.properties` | Production timeout, pool ve bağlantı limitleri |
+| `config/query-only.properties` | Native DB query provider için production boyutlu bağımsız ayar dosyası |
 | `config/advanced-tuning.properties` | Route bütçeleri ve düşük seviye memory ayarları |
 
 Önemli başlangıç property'leri:
@@ -362,7 +418,35 @@ Uygulama ayarları şu sırayla okur:
 | `reactor.dubbo.timeout-ms` | En uzun RPC bekleme süresidir |
 | `reactor.dubbo.max-inflight` | Toplam eş zamanlı RPC limitidir |
 | `reactor.dubbo.native-connections-per-endpoint` | Her provider adresi için TCP bağlantı sayısıdır |
-| `sample.command.customer-key-admission.max-concurrent-per-key` | Aynı müşteriye eş zamanlı update yapılmasını engeller |
+| `sample.consumer.readiness.contracts` | Başlangıçta bir kez seçilen zorunlu bağımlılıklardır |
+| `sample.consumer.catalog.enabled` | Generated katalog client ve route'ları için başlangıç koşuludur |
+| `sample.command.customer-key-admission.max-concurrent-per-key` | Yalnız bu consumer JVM'indeki müşteri bazlı eşzamanlılık sınırıdır |
+
+Keyed admission, replikalar arası kilit veya idempotency garantisi değildir.
+Provider metot limitleri de süreç yerelidir; farklı metot ve replikalar arasında
+ortak müşteri kilidi oluşturmaz. DB tutarlılığı PostgreSQL transaction, constraint
+ve satır kilitlerine dayanır. İsteğe bağlı ortak-DB idempotency örneği yalnız
+anahtar/müşteri kapsamındaki typed status command içindir; bütün write'ları kapsamaz.
+[Hata ve tekrar deneme sözleşmelerine](docs/functional-operations.tr.md) bakın.
+
+## Timeout Sözleşmeleri
+
+Normal full consumer'ın generated/native client'larında bunlar ayrı bütçelerdir:
+
+```properties
+reactor.dubbo.timeout-ms=1000
+reactor.rust.async.response-timeout-ms=1500
+```
+
+İlki RPC beklemesini, ikincisi REST async cevabını sınırlar. Bu sade kütüphane
+örneğinde gösterilmiş bir metot bazlı timeout annotation/ayar sözleşmesi yoktur.
+Yalnız Spring için desteklenen metot timeout örneklerini bu client'lara taşımayın.
+Direct-JSON profili client'ını, client genelindeki `sample.direct-json.timeout-ms`
+seçeneğiyle oluşturur (varsayılan `3000`); [profil rehberine](docs/DIRECT_JSON.tr.md)
+bakın. Provider request/drain süreleri, DB pool beklemesi ve SQL statement timeout'u
+ayrı sınırlardır; caller metot süresi değildir. Caller timeout'u Java işinin durduğunu
+veya write'ın geri alındığını kanıtlamaz. Zaman aşımındaki write'ı körlemesine
+tekrarlamayın; belgelenmiş idempotency sözleşmesini kullanın.
 
 ## Kubernetes Örneği
 
@@ -489,6 +573,7 @@ dokümanına bakın.
 | `RestSampleDubboConsumerApplication.java` | Tek bir deklaratif `RestApplication.run(...)` çağrısıyla uygulamayı başlatır |
 | `DubboClients.java` | Generated client'ları, başlangıç koşullarını ve ortak transport lifecycle'ını tanımlar |
 | `ConsumerConfiguration.java` | Customer-key admission bean'ini yalnız full yüzey açıkken oluşturur |
+| `ConsumerReadinessContracts.java` / `ConsumerReadinessConfiguration.java` | Değişmez zorunlu readiness sözleşmelerini başlangıçta seçer |
 | `CatalogHandler.java` | Catalog GET örneklerini içerir |
 | `CustomerHandler.java` | Full yüzey için koşullu GET, POST, PATCH ve DELETE örneklerini içerir |
 | `NativeStaticConsumerApplication.java` | Fiziksel olarak daha küçük native-static Maven profile'ını başlatır |

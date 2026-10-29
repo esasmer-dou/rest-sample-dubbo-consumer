@@ -16,6 +16,8 @@ Optional source profile: [Direct provider list to JSON](docs/DIRECT_JSON.md).
 For a query-only DB provider, see the provider sample's
 [native query profile](https://github.com/esasmer-dou/rest-sample-dubbo-provider#read-only-database-with-native-transport-source-checkout).
 The consumer keeps the same six query methods and static provider address.
+Use the [query-only readiness recipe](#readiness-contract-selection) below; the
+default full readiness also requires the catalog service, which that provider does not export.
 The current source also adds an optional JSON method for segment queries. After
 updating both the provider and consumer contracts, set
 `SAMPLE_CONSUMER_SEGMENT_NATIVE_JSON=true` (or
@@ -30,7 +32,7 @@ the same validation, SQL and response mapping. Malformed UTF-8 and segments larg
 than 4096 bytes are rejected, never truncated. No extra JNI capability is needed.
 HessianLite remains available for the other typed methods in this full profile.
 
-For a non-blocking transport, configure both options explicitly:
+To combine the native-JSON response path with non-blocking transport, configure both options:
 
 ```yaml
 env:
@@ -43,6 +45,9 @@ env:
 An async Java return type alone does not select the Rust transport. `blocking`
 still waits on bounded RPC worker threads; `tokio-demux` waits for network replies
 on the dedicated Dubbo Tokio runtime. It does not use the REST Hyper executor.
+The native handle selects response ownership/copying, not network scheduling.
+`NativeJsonAsync` alone does not enable `tokio-demux`; the transport setting also
+applies to typed async calls independently of the segment native-JSON option.
 
 `GET /api/v1/customers/db/by-segment?segment=standard&limit=5` keeps its URL and
 response fields. Java still validates the request and runs the SQL on the provider.
@@ -339,6 +344,57 @@ and [OpenJ9 THP behavior](https://eclipse.dev/openj9/docs/xxtransparenthugepage/
 
 Use typed records for business logic. Use ready JSON bytes for measured pass-through endpoints.
 
+## Readiness Contract Selection
+
+**UNRELEASED, post-0.8.0 checkout change:** `sample.consumer.readiness.contracts`,
+`sample.consumer.catalog.enabled` and the query-only overlay were added after the
+published `0.8.0` release. An existing downloaded `0.8.0` jar does not support them.
+Rebuild this checkout for the recipe below; its jar still has the `0.8.0` filename.
+See the [unreleased change notes](docs/RELEASE_NOTES_UNRELEASED.md).
+
+For the normal `full-dubbo-consumer` build, selection is resolved once at startup.
+It does not parse configuration on requests or wait synchronously for RPC replies.
+
+| `sample.consumer.readiness.contracts` | Required readiness dependencies |
+|---|---|
+| `auto` (default) | Catalog and customers for `surface=full`; catalog for `surface=catalog-only` |
+| `full` | Catalog and customers |
+| `catalog-only` | Catalog |
+| `query-only` | Customers |
+
+`GET /app/ready` returns `503` if a required client is absent or its RPC fails.
+Unselected checks report `SKIPPED` with `required=false` and make no RPC.
+`GET /app/health` remains local liveness; readiness never invokes a command.
+Unknown contract selections fail startup rather than silently dropping checks.
+
+For `native-db-query-provider`, build the normal consumer and use the standalone
+[query-only overlay](src/main/resources/config/query-only.properties) instead of
+`config/production.properties`. From the consumer checkout:
+
+```powershell
+mvn -B -ntp clean package -Pfull-dubbo-consumer
+java `
+  "-Dreactor.config.file=src/main/resources/config/query-only.properties" `
+  "-Dreactor.dubbo.providers=127.0.0.1:20880" `
+  -jar target/rest-sample-dubbo-consumer-0.8.0.jar
+```
+
+The overlay keeps `sample.consumer.surface=full`, selects
+`sample.consumer.readiness.contracts=query-only` and sets
+`sample.consumer.catalog.enabled=false`. The existing generated startup condition
+then omits the catalog client and catalog routes. Query and command share the
+customer handler, so the command client/routes remain for API compatibility.
+Only query routes are supported against this provider: this selection is **not**
+a read-only authorization policy. Restrict exposed routes separately if needed.
+Do not use `surface=query-only`, which is not a supported surface value.
+
+In Kubernetes, mount the overlay and set
+`REACTOR_CONFIG_FILE=/app/config/query-only.properties`; set
+`REACTOR_DUBBO_PROVIDERS` to the query provider's Service DNS and port.
+Change these startup settings by restarting the consumer, not per request.
+The `native-static-consumer` and `direct-json-consumer` builds have separate
+catalog-only entrypoints; this customer-query recipe does not apply to them.
+
 ## Configuration
 
 The application reads configuration in this order:
@@ -351,6 +407,7 @@ The application reads configuration in this order:
 |---|---|
 | `rust-spring.properties` | Small local defaults |
 | `config/production.properties` | Production timeouts, pools, and connection limits |
+| `config/query-only.properties` | Standalone production-sized overlay for the native DB query provider |
 | `config/advanced-tuning.properties` | Route budgets and low-level memory tuning |
 
 Important starting properties:
@@ -362,7 +419,35 @@ Important starting properties:
 | `reactor.dubbo.timeout-ms` | Maximum RPC wait |
 | `reactor.dubbo.max-inflight` | Total concurrent RPC limit |
 | `reactor.dubbo.native-connections-per-endpoint` | TCP connections per provider address |
-| `sample.command.customer-key-admission.max-concurrent-per-key` | Prevents concurrent updates to the same customer |
+| `sample.consumer.readiness.contracts` | Required dependencies, selected once at startup |
+| `sample.consumer.catalog.enabled` | Startup gate for the generated catalog client and routes |
+| `sample.command.customer-key-admission.max-concurrent-per-key` | Per-customer concurrency cap in this consumer JVM only |
+
+Keyed admission is not a replica-wide lock or an idempotency guarantee. Provider
+method caps are also process-local, not a shared per-customer lock across methods
+or replicas. PostgreSQL transactions, constraints and row locks remain responsible
+for database consistency. The optional shared-DB idempotency example applies only
+to the typed status command with its key/customer scope, not every write. See the
+[error and retry contracts](docs/functional-operations.md).
+
+## Timeout Contracts
+
+For generated/native clients in the normal full consumer, these are separate budgets:
+
+```properties
+reactor.dubbo.timeout-ms=1000
+reactor.rust.async.response-timeout-ms=1500
+```
+
+The first bounds RPC waiting; the second bounds the REST async response. This
+plain-library sample has no demonstrated per-method timeout annotation/configuration
+contract. Do not copy Spring-only method timeout examples into these clients.
+The direct-JSON profile instead builds its client with the client-wide
+`sample.direct-json.timeout-ms` option (default `3000`); see its
+[profile guide](docs/DIRECT_JSON.md). Provider request/drain timeouts, DB pool waits
+and SQL statement timeouts are separate limits, not caller method deadlines.
+A caller timeout does not prove that Java business work stopped or a write rolled
+back. Do not blindly retry a timed-out write; use the documented idempotency contract.
 
 ## Kubernetes Example
 
@@ -489,6 +574,7 @@ guide for profile switching, the SQL API, and the full property reference.
 | `RestSampleDubboConsumerApplication.java` | Starts the application with one declarative `RestApplication.run(...)` call |
 | `DubboClients.java` | Declares generated clients, startup conditions, and one shared transport lifecycle |
 | `ConsumerConfiguration.java` | Creates customer-key admission only when the full surface is enabled |
+| `ConsumerReadinessContracts.java` / `ConsumerReadinessConfiguration.java` | Select immutable required readiness contracts at startup |
 | `CatalogHandler.java` | Catalog GET examples |
 | `CustomerHandler.java` | Conditional GET, POST, PATCH, and DELETE examples for the full surface |
 | `NativeStaticConsumerApplication.java` | Entry point for the physically smaller native-static Maven profile |

@@ -13,8 +13,9 @@ GET /api/v1/catalog/rows?count=32
 
 It does not load Spring, Netty or HessianLite in the consumer. Existing profiles
 and their customer/command routes remain unchanged. This profile exposes only
-the catalog examples below. The new modules require a coordinated source build;
-they have not yet been released as new Maven packages.
+the catalog examples below. These examples are present in this `0.8.0` source
+checkout. Build matching modules and native assets together; this guide does not
+establish published package availability.
 
 ## Build And Start
 
@@ -77,6 +78,11 @@ use an explicitly validated parameter contract rather than relying on this annot
 | `reactor.dubbo.direct-json.pool-slots` | runtime default `16` | Concurrent JSON writers. Start with `2` for two JNI workers. |
 | `reactor.json.swar` | `false` at build time | Generates word-sized constant field writes for `/literal`. Clean-rebuild with `-Dreactor.json.swar=true`. |
 
+`sample.direct-json.timeout-ms` is supplied to the explicitly constructed client
+and applies to its calls, not to one annotated method. The handler's `read()` path
+is synchronous; direct conversion avoids row DTOs but does not make this RPC async
+or select `tokio-demux`. REST async response budgets are separate from this option.
+
 The handler still owns authorization and business decisions. Choose normal DTO
 consumption when Java must inspect, validate or change each returned row. Direct
 conversion does not invoke consumer record constructors, so their validation and
@@ -126,8 +132,9 @@ absolute `ByteBuffer.putLong(index, word)` and reverses the word with
 view, and preserves position, limit and byte order. Short output buffers still
 return the negative exact required length for bounded serialization retry.
 
-These additions remain source-only and unreleased. Four fresh EmaTech process
-pairs passed all six control/literal RPS/p99/+3 MiB cells under 1 CPU/128 MiB.
+The recorded EmaTech comparison used four fresh process pairs and passed all six
+control/literal RPS/p99/+3 MiB cells under 1 CPU/128 MiB. These historical results
+do not verify the current deployment or platform packaging.
 Literal RPS changed by -0.48%..+1.59%; steady RSS increased by 0.54..1.38 MiB.
 This is not a memory reduction or a recommendation to enable SWAR everywhere.
 

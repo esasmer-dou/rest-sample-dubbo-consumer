@@ -2,7 +2,9 @@
 
 [English](functional-operations.md) | [Turkish](functional-operations.tr.md)
 
-Development checkout. No published version changes in this work.
+These opt-in examples are present in this `0.8.0` source checkout. Existing defaults
+remain unchanged; use the matching dependencies in the [release notes](RELEASE_NOTES_v0.8.0.md).
+This source guide does not establish published package availability.
 
 Existing error JSON remains the default. Opt in with:
 
@@ -34,6 +36,13 @@ Replay the same `requestId` for this explicitly protected method.
 Do not apply automatic retries to other, unprotected write methods.
 Choose `reactor.dubbo.timeout-ms` together with provider connection-wait and SQL budgets.
 Measure the first cold call too, not only a warmed application.
+
+`sample.command.customer-key-admission.max-concurrent-per-key` limits one consumer
+JVM only. Replicas have independent admission state; provider method caps are also
+process-local and do not coordinate different methods. PostgreSQL locks and
+transactions protect conflicting DB writes. Only the optional typed-status policy
+deduplicates across provider replicas sharing its DB, within its operation/customer
+key scope and retention window. Local admission does not replace that policy.
 
 ## Native Completion Cost
 

@@ -13,8 +13,9 @@ GET /api/v1/catalog/rows?count=32
 
 Consumer içinde Spring, Netty veya HessianLite yüklenmez. Mevcut profiller ve
 müşteri/command endpoint'leri değişmez. Bu ayrı profil yalnız aşağıdaki katalog
-örneklerini açar. Yeni modüller aynı kaynak setinden build edilmelidir. Henüz
-yeni Maven paketi olarak yayımlanmadılar.
+örneklerini açar. Bu örnekler, bu `0.8.0` kaynak kodunda vardır. Eşleşen modülleri
+ve native dosyaları birlikte derleyin; bu rehber yayımlanmış paketin
+bulunabilirliğini doğrulamaz.
 
 ## Build Ve Çalıştırma
 
@@ -78,6 +79,11 @@ bu anotasyona güvenmeyin; açık doğrulama yapan bir parametre sözleşmesi ku
 | `reactor.dubbo.direct-json.pool-slots` | runtime varsayılanı `16` | Aynı anda çalışan JSON yazıcılarını sınırlar. İki JNI worker için `2` ile başlayın. |
 | `reactor.json.swar` | build sırasında `false` | `/literal` için sabit alan adlarını word olarak yazan kodu üretir. `-Dreactor.json.swar=true` ile temiz build alın. |
 
+`sample.direct-json.timeout-ms`, açıkça oluşturulan client'a verilir; tek bir
+anotasyonlu metoda değil, bu client'ın çağrılarına uygulanır. Handler'ın `read()`
+yolu senkrondur. Doğrudan dönüşüm satır DTO'larını kaldırır; RPC'yi async yapmaz,
+`tokio-demux` seçmez. REST async cevap bütçesi bu seçenekten ayrıdır.
+
 Yetki ve iş kararları yine handler'dadır. Java her satırı inceleyecek,
 doğrulayacak veya değiştirecekse normal DTO yolunu seçin. Doğrudan dönüşüm,
 consumer record kurucularını çalıştırmaz; kuruculardaki doğrulama ve normalleştirme
@@ -129,9 +135,9 @@ Daha uzun öneklerde tam word ve 0..7 byte'lık kalan parça kullanılır. Daha 
 kullanmaz; position, limit ve byte order değerlerini korur. Küçük çıktı buffer'ında
 sınırlı yeniden yazma için tam gerekli uzunluk yine negatif döner.
 
-Bu eklemeler yalnız kaynak kodda bulunur; henüz yayımlanmamıştır. EmaTech'te dört
-yeni süreç çiftiyle, 1 CPU/128 MiB altında altı kontrol/literal hücresi de
-RPS/p99/+3 MiB sınırlarını geçti. Literal RPS değişimi -%0,48..+%1,59 oldu;
+Kaydedilmiş EmaTech karşılaştırmasında dört yeni süreç çiftiyle, 1 CPU/128 MiB altında
+altı kontrol/literal hücresi de RPS/p99/+3 MiB sınırlarını geçti. Bu geçmiş sonuçlar
+güncel kurulumu veya platform paketlemesini doğrulamaz. Literal RPS değişimi -%0,48..+%1,59 oldu;
 kararlı RSS 0,54..1,38 MiB arttı. Bu sonuç bellek azalması veya her endpoint'te
 SWAR kullanma önerisi değildir.
 

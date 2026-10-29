@@ -2,7 +2,9 @@
 
 [English](functional-operations.md) | [Turkish](functional-operations.tr.md)
 
-Bu özellikler geliştirme kaynaklarındadır. Yayımlanmış sürümler değişmedi.
+Bu isteğe bağlı örnekler, bu `0.8.0` kaynak kodunda vardır. Mevcut varsayılanlar
+değişmez; [sürüm notlarındaki](RELEASE_NOTES_v0.8.0.md) eşleşen bağımlılıkları kullanın.
+Bu kaynak rehberi yayımlanmış paketin bulunabilirliğini doğrulamaz.
 
 Mevcut hata JSON'u varsayılan olarak kalır. Yeni biçimi şöyle açın:
 
@@ -37,6 +39,13 @@ Koruma açık olan bu metotta aynı `requestId` ile tekrar edin.
 Koruması olmayan başka bir yazma metodunu bu örneğe bakarak otomatik tekrarlamayın.
 `reactor.dubbo.timeout-ms` süresini provider'ın DB bekleme ve SQL süreleriyle birlikte belirleyin.
 İlk soğuk çağrıyı da ölçün; yalnız ısınmış uygulamanın sürelerine bakmayın.
+
+`sample.command.customer-key-admission.max-concurrent-per-key`, yalnız bir consumer
+JVM'ini sınırlar. Replikaların admission durumu bağımsızdır. Provider metot limitleri
+de süreç yerelidir; farklı metotları koordine etmez. Çakışan DB write'larını
+PostgreSQL kilitleri ve transaction'lar korur. Yalnız isteğe bağlı typed-status
+politikası, ortak DB kullanan provider replikaları arasında işlem/müşteri anahtar
+kapsamı ve saklama süresi içinde tekrarları ayıklar. Yerel admission bunun yerine geçmez.
 
 ## Native Cevapların Maliyeti
 
