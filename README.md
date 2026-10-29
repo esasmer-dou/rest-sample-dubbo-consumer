@@ -2,7 +2,60 @@
 
 [English](README.md) | [Türkçe](README.tr.md)
 
+## Start With 0.8.0
+
+The direct-json-consumer profile forwards eligible typed native results without consumer row DTOs. Default handlers and business validation stay in Java. Use normal typed results when rows must be changed.
+
+[Usage guide](docs/functional-operations.md) · [Release notes](docs/RELEASE_NOTES_v0.8.0.md)
+
+
 New usage guide: [New usage examples](docs/functional-operations.md).
+
+Optional source profile: [Direct provider list to JSON](docs/DIRECT_JSON.md).
+
+For a query-only DB provider, see the provider sample's
+[native query profile](https://github.com/esasmer-dou/rest-sample-dubbo-provider#read-only-database-with-native-transport-source-checkout).
+The consumer keeps the same six query methods and static provider address.
+The current source also adds an optional JSON method for segment queries. After
+updating both the provider and consumer contracts, set
+`SAMPLE_CONSUMER_SEGMENT_NATIVE_JSON=true` (or
+`-Dsample.consumer.segment-native-json=true`). The default is `false` for older
+providers. Do not enable it before the matching provider is deployed.
+
+The native-response option now calls `findCustomersBySegmentUtf8(long, byte[])`.
+The old JSON-byte request method remains available. The HTTP query no longer
+becomes a JSON request record just to be parsed again by the provider. The limit
+and UTF-8 segment use the existing Rust `long, byte[]` Hessian encoder. Java keeps
+the same validation, SQL and response mapping. Malformed UTF-8 and segments larger
+than 4096 bytes are rejected, never truncated. No extra JNI capability is needed.
+HessianLite remains available for the other typed methods in this full profile.
+
+For a non-blocking transport, configure both options explicitly:
+
+```yaml
+env:
+  - name: SAMPLE_CONSUMER_SEGMENT_NATIVE_JSON
+    value: "true"
+  - name: REACTOR_DUBBO_NATIVE_ASYNC_TRANSPORT
+    value: "tokio-demux"
+```
+
+An async Java return type alone does not select the Rust transport. `blocking`
+still waits on bounded RPC worker threads; `tokio-demux` waits for network replies
+on the dedicated Dubbo Tokio runtime. It does not use the REST Hyper executor.
+
+`GET /api/v1/customers/db/by-segment?segment=standard&limit=5` keeps its URL and
+response fields. Java still validates the request and runs the SQL on the provider.
+The provider creates JSON once. Rust carries that response to HTTP with a native
+handle. The consumer does not create a second customer list or serialize it again.
+Every request still runs the SQL. This is not a response cache.
+The existing typed RPC remains available. The JSON request is limited to 4096
+bytes; SQL still bounds the result to 1–100 customers. No queue, admission limit,
+retry count or thread pool is increased by this option.
+
+That provider profile does not publish catalog or command services. A faster provider
+can increase consumer work and memory under load. Check the consumer's own peak RSS
+and admission counters; lower provider memory alone is not an end-to-end acceptance.
 
 A REST application that calls Dubbo providers.
 
@@ -12,7 +65,7 @@ A REST application that calls Dubbo providers.
 - Providers can be found by a static address or ZooKeeper.
 - The sample includes GET, POST, PATCH, and DELETE flows.
 
-Current versions: `rust-java-rest:4.7.1`, `java-rust-dubbo:0.8.0`, `rest-sample-utility:0.4.4`, `rust-sample-model:0.4.4`.
+Current source versions: `rust-java-rest:4.8.0`, `java-rust-dubbo:0.9.0`, `rest-sample-utility:0.5.0`, `rust-sample-model:0.5.0`.
 
 ## Read This First
 
@@ -35,22 +88,22 @@ generators remain build-only.
 
 ## Current Checkout
 
-This update aligns the platform with REST `4.7.1` and optional agent `0.7.0`.
+This update aligns the platform with REST `4.8.0` and optional agent `0.7.1`.
 Use the native file packaged with the dependency you selected. Do not mix older SO/DLL files.
 Business code, URLs and configuration keys stay the same. Telemetry remains disabled by default.
 The HTTP micro memory gate does not guarantee the same overhead for a database job or a richer profile.
 
-Version `0.7.1` uses platform parent `4.7.1`. Rebuild the application with the aligned
-dependencies. See [release notes](docs/RELEASE_NOTES_v0.7.1.md). Runtime settings and URLs are unchanged.
+Version `0.8.0` uses platform parent `4.8.0`. Rebuild the application with the aligned
+dependencies. See [release notes](docs/RELEASE_NOTES_v0.8.0.md). Runtime settings and URLs are unchanged.
 
 - `RestSampleDubboConsumerApplication` uses declarative framework startup.
 - One `DubboClients` declaration generates all typed clients and shares one bounded transport.
 - Handwritten client definitions and duplicate runtime-plan classes are removed.
 - Handlers use constructor injection and generated route invokers.
 - Existing REST URLs, Dubbo interfaces, payloads, profiles, and Java business flow are unchanged.
-- The HTTP runtime uses REST ABI `29` and Glowroot ABI `6` from the coordinated `4.7.1` platform line.
+- The HTTP runtime uses REST ABI `29` and Glowroot ABI `6` from the coordinated `4.8.0` platform line.
 
-The optional Glowroot micro telemetry plane is available through REST `4.7.1`. It is disabled by
+The optional Glowroot micro telemetry plane is available through REST `4.8.0`. It is disabled by
 default. When enabled, HTTP route and native Dubbo timings are exported to the existing Glowroot
 Central deployment without changing handlers, services, or Dubbo interfaces.
 
@@ -250,6 +303,31 @@ This is an OpenJ9 recipe, not a HotSpot recipe. Compare RSS, successful requests
 per second, p99 and errors on your payloads before rollout. This change does not
 switch `blocking` to `tokio-demux` or change RPC, Hikari, or route limits.
 
+### When Memory Peaks During JVM Compilation
+
+`-XX:ActiveProcessorCount=1` is not a guarantee that OpenJ9 creates only one JIT
+compiler thread. Inspect a javacore before increasing the heap or reducing RPC
+capacity. The JVM heap and the compiler's native workspace are different budgets.
+
+For a measured, one-CPU OpenJ9 service, these are explicit optional JVM additions:
+
+```text
+-XcompilationThreads1 -Xjit:scratchSpaceLimit=16384
+```
+
+| Option | What It Controls | What To Check |
+|---|---|---|
+| `-XcompilationThreads1` | One JIT compiler worker; JIT remains enabled | Startup, warmup and request p99 |
+| `-Xjit:scratchSpaceLimit=16384` | 16 MiB scratch limit per compilation; not total JVM RSS | Large Java methods and steady useful RPS |
+| `-XX:-TransparentHugePage` | Stops OpenJ9 requesting THP when the host uses `madvise` | Actual `AnonHugePages` in `smaps` |
+
+These flags are not sample-image defaults and do not establish an overall memory
+limit. A smaller compilation workspace can change optimization decisions. Check
+the complete workload before adoption. On hosts configured with THP `always` or
+`never`, the OpenJ9 THP flag is ignored; do not change the shared node to tune one pod.
+See [OpenJ9 compiler threads](https://eclipse.dev/openj9/docs/xcompilationthreads/)
+and [OpenJ9 THP behavior](https://eclipse.dev/openj9/docs/xxtransparenthugepage/).
+
 ## JSON and DTO Choice
 
 | Need | Choose | Cost |
@@ -326,15 +404,15 @@ This consumer runs on Rust-Java REST. It does not need a separate Spring starter
 disabled by default. When enabled, HTTP route timings and native Dubbo count, duration, and error
 aggregates stay in the same Rust runtime. Handlers, services, and Dubbo interfaces do not change.
 
-This sample already uses production platform `4.7.1` with Glowroot ABI `6`. The optional
-`java-rust-glowroot-agent:0.7.0` JAR is needed only when you want `-javaagent` syntax; the embedded
+This sample already uses production platform `4.8.0` with Glowroot ABI `6`. The optional
+`java-rust-glowroot-agent:0.7.1` JAR is needed only when you want `-javaagent` syntax; the embedded
 REST telemetry runtime does not require a separate agent dependency:
 
 ```xml
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.7.1</version>
+  <version>4.8.0</version>
   <relativePath/>
 </parent>
 ```
@@ -496,4 +574,4 @@ The server IDs in `~/.m2/settings.xml` must match the POM:
 - [Docker image guide](docker/images/README.md)
 - [Production settings](src/main/resources/config/production.properties)
 - [Advanced tuning](src/main/resources/config/advanced-tuning.properties)
-- [v0.7.1 release notes](docs/RELEASE_NOTES_v0.7.1.md)
+- [v0.8.0 release notes](docs/RELEASE_NOTES_v0.8.0.md)

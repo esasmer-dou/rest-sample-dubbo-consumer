@@ -1,4 +1,5 @@
 target/
+/target-direct-json/
 .idea/
 .vscode/
 *.iml

@@ -2,6 +2,59 @@
 
 [English](README.md) | [Türkçe](README.tr.md)
 
+## 0.8.0 İle Başlayın
+
+direct-json-consumer profili, uygun tipli native sonuçları consumer satır DTO'ları oluşturmadan aktarır. Varsayılan handler ve iş doğrulaması Java'da kalır. Satırlar değişecekse normal tipli sonuçları kullanın.
+
+[Kullanım rehberi](docs/functional-operations.md) · [Sürüm notları](docs/RELEASE_NOTES_v0.8.0.md)
+
+
+Yalnız DB sorgusu sunacak provider için provider örneğindeki
+[native sorgu profilini](https://github.com/esasmer-dou/rest-sample-dubbo-provider/blob/master/README.tr.md#yalnız-db-sorguları-için-native-taşıma-kaynak-kod)
+inceleyin. Consumer'ın altı sorgu metodu ve static adres ayarı değişmez.
+Güncel kaynak, segment sorgusu için isteğe bağlı bir JSON metodu da ekler.
+Önce provider ve consumer'ın ortak kontratlarını birlikte güncelleyin. Sonra
+`SAMPLE_CONSUMER_SEGMENT_NATIVE_JSON=true` veya
+`-Dsample.consumer.segment-native-json=true` kullanın. Eski provider'larla
+uyum için varsayılan değer `false` olur. Yeni provider kurulmadan açmayın.
+
+Native cevap seçeneği artık `findCustomersBySegmentUtf8(long, byte[])` metodunu
+çağırır. Eski JSON byte isteği alan metot da durur. İki parametre consumer'da JSON
+record'a çevrilip provider'da tekrar açılmaz. Limit ve UTF-8 segment, mevcut Rust
+`long, byte[]` Hessian kodlayıcısından geçer. Doğrulama, SQL ve cevap eşlemesi Java'da
+kalır. Bozuk UTF-8 veya 4096 byte'tan uzun segment reddedilir; veri kesilmez.
+Ek JNI yeteneği gerekmez. Full profildeki diğer typed metotlar için HessianLite durur.
+
+Bloklamayan taşıma için iki seçeneği birlikte belirtin:
+
+```yaml
+env:
+  - name: SAMPLE_CONSUMER_SEGMENT_NATIVE_JSON
+    value: "true"
+  - name: REACTOR_DUBBO_NATIVE_ASYNC_TRANSPORT
+    value: "tokio-demux"
+```
+
+Java metodunun async dönmesi, Rust taşımasını tek başına seçmez. `blocking`,
+sınırlı RPC worker thread'lerinde cevap bekler. `tokio-demux`, ağ cevabını Dubbo'ya
+ayrılmış Tokio runtime üzerinde bekler. REST Hyper executor'ını kullanmaz.
+
+`GET /api/v1/customers/db/by-segment?segment=standard&limit=5` adresi ve cevap
+alanları değişmez. Doğrulama ve SQL işlemi provider'ın Java kodunda kalır.
+Provider JSON'u bir kez üretir. Rust, cevabı native handle ile HTTP'ye taşır.
+Consumer ikinci bir müşteri listesi üretmez ve cevabı yeniden JSON'a çevirmez.
+Her istekte yine SQL çalışır. Burada cevap cache'i kullanılmaz.
+Typed RPC metodu da kullanılabilir. JSON istek sınırı 4096 byte olur. SQL sonucu
+yine 1–100 müşteriyle sınırlıdır. Bu seçenek kuyruk, eşzamanlılık, tekrar deneme
+veya thread sayısını artırmaz.
+
+Bu provider profili katalog ve command servislerini yayınlamaz. Provider hızlanınca
+consumer daha fazla iş yapabilir ve daha çok bellek kullanabilir. Consumer'ın tepe
+RSS değerini ve admission sayaçlarını da ölçün. Provider belleğinin düşmesi tek başına
+uçtan uca kabul anlamına gelmez.
+
+İsteğe bağlı kaynak profili: [Provider listesini doğrudan JSON olarak iletme](docs/DIRECT_JSON.tr.md).
+
 Yeni kullanım rehberi: [Yeni kullanım örnekleri](docs/functional-operations.tr.md).
 
 Dubbo provider'larını çağıran bir REST uygulamasıdır.
@@ -12,7 +65,7 @@ Dubbo provider'larını çağıran bir REST uygulamasıdır.
 - Provider adresi static olarak veya ZooKeeper üzerinden bulunabilir.
 - GET, POST, PATCH ve DELETE örnekleri vardır.
 
-Kullanılan sürümler: `rust-java-rest:4.7.1`, `java-rust-dubbo:0.8.0`, `rest-sample-utility:0.4.4`, `rust-sample-model:0.4.4`.
+Güncel kaynak sürümleri: `rust-java-rest:4.8.0`, `java-rust-dubbo:0.9.0`, `rest-sample-utility:0.5.0`, `rust-sample-model:0.5.0`.
 
 ## Önce Bu Bölümü Okuyun
 
@@ -35,22 +88,22 @@ sırasında kullanılır.
 
 ## Güncel Kaynak Ayarları
 
-Bu güncelleme, platformu REST `4.7.1` ve isteğe bağlı agent `0.7.0` ile eşler.
+Bu güncelleme, platformu REST `4.8.0` ve isteğe bağlı agent `0.7.1` ile eşler.
 Seçtiğiniz bağımlılığın native dosyasını kullanın. Eski SO/DLL dosyalarını karıştırmayın.
 İş kodu, URL'ler ve ayar anahtarları değişmez. Telemetri varsayılan olarak kapalıdır.
 HTTP micro bellek testi, veritabanı işinde veya daha ayrıntılı profilde aynı maliyeti garanti etmez.
 
-`0.7.1` sürümü platform parent `4.7.1` kullanır. Uygulamayı hizalanmış bağımlılıklarla
-yeniden derleyin. [Sürüm notlarını](docs/RELEASE_NOTES_v0.7.1.tr.md) okuyun. Runtime ayarları ve adresler değişmez.
+`0.8.0` sürümü platform parent `4.8.0` kullanır. Uygulamayı hizalanmış bağımlılıklarla
+yeniden derleyin. [Sürüm notlarını](docs/RELEASE_NOTES_v0.8.0.tr.md) okuyun. Runtime ayarları ve adresler değişmez.
 
 - `RestSampleDubboConsumerApplication` deklaratif framework başlangıcını kullanır.
 - Tek `DubboClients` tanımı bütün typed client'ları üretir ve tek bounded transport paylaşır.
 - Elle yazılmış client definition ve tekrar eden runtime plan sınıfları kaldırıldı.
 - Handler'lar constructor injection ve generated route invoker kullanır.
 - REST adresleri, Dubbo interface'leri, payload'lar, profile'lar ve Java iş akışı değişmedi.
-- HTTP runtime, koordineli `4.7.1` platform hattındaki REST ABI `29` ve Glowroot ABI `6` değerlerini kullanır.
+- HTTP runtime, koordineli `4.8.0` platform hattındaki REST ABI `29` ve Glowroot ABI `6` değerlerini kullanır.
 
-İsteğe bağlı Glowroot mikro telemetri katmanı REST `4.7.1` ile kullanılabilir. Varsayılan olarak
+İsteğe bağlı Glowroot mikro telemetri katmanı REST `4.8.0` ile kullanılabilir. Varsayılan olarak
 kapalıdır. Açıldığında HTTP route ve native Dubbo süreleri mevcut Glowroot Central deployment'ına
 gönderilir. Handler, service ve Dubbo interface kodu değişmez.
 
@@ -250,6 +303,31 @@ Bu reçete OpenJ9 içindir. HotSpot'a aynen taşımayın. Yayına almadan önce 
 verinizle RSS, saniyedeki başarılı istek sayısı, p99 ve hataları karşılaştırın.
 Bu ayar `blocking` transport'u değiştirmez. RPC, Hikari ve route limitleri aynı kalır.
 
+### JVM Derlemesi Sırasında Bellek Yükseliyorsa
+
+`-XX:ActiveProcessorCount=1`, OpenJ9'un yalnız bir JIT derleme thread'i oluşturacağını
+garanti etmez. Heap'i artırmadan veya RPC kapasitesini kısmadan önce javacore'u
+inceleyin. Java heap ve derleyicinin native çalışma alanı farklı bellek alanlarıdır.
+
+Ölçtüğünüz bir CPU'lu OpenJ9 servisi için şu seçenekleri ayrıca deneyebilirsiniz:
+
+```text
+-XcompilationThreads1 -Xjit:scratchSpaceLimit=16384
+```
+
+| Seçenek | Neyi Sınırlar? | Neyi Ölçmelisiniz? |
+|---|---|---|
+| `-XcompilationThreads1` | Bir JIT derleme işçisi; JIT açık kalır | Başlangıç, ısınma ve istek p99 |
+| `-Xjit:scratchSpaceLimit=16384` | Derleme başına 16 MiB çalışma alanı; toplam JVM RSS değil | Büyük Java metotları ve başarılı RPS |
+| `-XX:-TransparentHugePage` | Sunucu `madvise` kullanıyorsa OpenJ9'un THP istemesini durdurur | `smaps` içindeki gerçek `AnonHugePages` |
+
+Bu seçenekler sample image'larının varsayılanı değildir. Toplam bellek sınırı da
+koymaz. Daha küçük derleme alanı, JIT'in optimizasyon kararını değiştirebilir.
+Kullanmadan önce bütün iş yükünüzü ölçün. Sunucuda THP `always` veya `never` ise
+OpenJ9'un THP seçeneği dikkate alınmaz. Tek pod için ortak node ayarını değiştirmeyin.
+[OpenJ9 derleme thread'leri](https://eclipse.dev/openj9/docs/xcompilationthreads/)
+ve [THP davranışı](https://eclipse.dev/openj9/docs/xxtransparenthugepage/) ayrıntıları açıklar.
+
 ## JSON ve DTO Seçimi
 
 | İhtiyaç | Seçim | Maliyeti |
@@ -326,15 +404,15 @@ Bu consumer Rust-Java REST üzerinde çalışır. Ayrı bir Spring starter gerek
 olarak kapalıdır. Açıldığında HTTP route süreleri ile native Dubbo çağrı sayısı, süre ve hata
 toplamları aynı Rust çalışma katmanında tutulur. Handler, service ve Dubbo interface kodu değişmez.
 
-Bu sample, Glowroot ABI `6` taşıyan production platform `4.7.1` sürümünü kullanır. İsteğe bağlı
-`java-rust-glowroot-agent:0.7.0` JAR'ı yalnız `-javaagent` biçimi gerekiyorsa eklenir. REST içine
+Bu sample, Glowroot ABI `6` taşıyan production platform `4.8.0` sürümünü kullanır. İsteğe bağlı
+`java-rust-glowroot-agent:0.7.1` JAR'ı yalnız `-javaagent` biçimi gerekiyorsa eklenir. REST içine
 gömülü telemetri runtime'ı için ayrı agent dependency gerekmez:
 
 ```xml
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.7.1</version>
+  <version>4.8.0</version>
   <relativePath/>
 </parent>
 ```
@@ -497,4 +575,4 @@ GitHub Packages için `read:packages` yetkili token gerekir. Token'ın private o
 - [Docker image rehberi](docker/images/README.tr.md)
 - [Production ayarları](src/main/resources/config/production.properties)
 - [Advanced tuning ayarları](src/main/resources/config/advanced-tuning.properties)
-- [v0.7.1 sürüm notları](docs/RELEASE_NOTES_v0.7.1.tr.md)
+- [v0.8.0 sürüm notları](docs/RELEASE_NOTES_v0.8.0.tr.md)

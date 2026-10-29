@@ -17,6 +17,7 @@ import com.reactor.rust.http.HttpStatus;
 import com.reactor.rust.http.RawResponse;
 import com.reactor.rust.http.ResponseEntity;
 import com.reactor.rust.dubbo.sample.dto.CreateCustomerCommand;
+import com.reactor.rust.config.PropertiesLoader;
 import com.reactor.sample.dubbo.consumer.dubbo.CustomerCommandClient;
 import com.reactor.sample.dubbo.consumer.dubbo.CustomerQueryClient;
 
@@ -37,6 +38,7 @@ public final class CustomerHandler {
     private final CustomerQueryClient customerQueryClient;
     private final CustomerCommandClient customerCommandClient;
     private final LongKeyAdmission customerCommandKeyAdmission;
+    private final boolean segmentNativeJson = PropertiesLoader.getBoolean("sample.consumer.segment-native-json", false);
 
     public CustomerHandler(
             CustomerQueryClient customerQueryClient,
@@ -68,6 +70,12 @@ public final class CustomerHandler {
     public CompletableFuture<ResponseEntity<RawResponse>> customersBySegment(
             @RequestParam(value = "segment", defaultValue = "standard") String segment,
             @RequestParam(value = "limit", defaultValue = "10") int limit) {
+        if (segmentNativeJson) {
+            return customerQueryClient.findCustomersBySegmentUtf8NativeJsonAsync(
+                            limit, segment.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                    .thenApply(handle -> ResponseEntity.ok(RawResponse.nativeResponse(handle.nativeId())))
+                    .exceptionally(error -> unavailable("dubbo_customer_segment_query_unavailable", error));
+        }
         return customerQueryClient.findCustomersBySegmentAsync(segment, limit)
                 .thenApply(customers -> ResponseEntity.ok(JsonResponseSupport.customerList(customers)))
                 .exceptionally(error -> unavailable("dubbo_customer_segment_query_unavailable", error));
