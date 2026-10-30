@@ -95,6 +95,30 @@ class HealthHandlerTest {
     }
 
     @Test
+    void requiredProviderFailureRecoversAndLaterFailureReturnsDownWithoutRestart() {
+        for (ConsumerReadinessContracts contracts : ConsumerReadinessContracts.values()) {
+            var available = new java.util.concurrent.atomic.AtomicBoolean();
+            var calls = new AtomicInteger();
+            Supplier<CompletableFuture<byte[]>> provider = () -> {
+                calls.incrementAndGet();
+                return available.get()
+                        ? CompletableFuture.completedFuture(new byte[1])
+                        : CompletableFuture.failedFuture(new IllegalStateException("provider unavailable"));
+            };
+            var handler = new HealthHandler(contracts, provider, provider, null);
+
+            assertDown(handler);
+            available.set(true);
+            var recovered = handler.ready().join();
+            assertEquals(200, recovered.getStatus().getCode());
+            assertTrue(body(recovered).contains("\"status\":\"UP\""));
+            available.set(false);
+            assertDown(handler);
+            assertEquals(contracts == ConsumerReadinessContracts.FULL ? 6 : 3, calls.get());
+        }
+    }
+
+    @Test
     void livenessNeverCallsDependencies() {
         var handler = new HealthHandler(ConsumerReadinessContracts.FULL,
                 () -> fail("liveness must stay local"), () -> fail("liveness must stay local"), null);
