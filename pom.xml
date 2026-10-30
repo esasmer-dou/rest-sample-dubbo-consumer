@@ -112,10 +112,10 @@
             </properties>
             <dependencies>
                 <dependency>
-                    <groupId>com.reactor</groupId><artifactId>java-rust-dubbo-rest-adapter</artifactId><version>0.8.0</version>
+                    <groupId>com.reactor</groupId><artifactId>java-rust-dubbo-rest-adapter</artifactId><version>0.8.1</version>
                 </dependency>
                 <dependency>
-                    <groupId>com.reactor</groupId><artifactId>java-rust-dubbo-annotations</artifactId><version>0.8.0</version>
+                    <groupId>com.reactor</groupId><artifactId>java-rust-dubbo-annotations</artifactId><version>0.8.1</version>
                     <scope>provided</scope>
                 </dependency>
             </dependencies>
@@ -135,7 +135,7 @@
                             <includes><include>com/reactor/sample/dubbo/consumer/directjson/**</include></includes>
                             <testIncludes><testInclude>com/reactor/sample/dubbo/consumer/directjson/**</testInclude></testIncludes>
                             <annotationProcessorPaths combine.children="append">
-                                <path><groupId>com.reactor</groupId><artifactId>java-rust-dubbo-codegen</artifactId><version>0.8.0</version></path>
+                                <path><groupId>com.reactor</groupId><artifactId>java-rust-dubbo-codegen</artifactId><version>0.8.1</version></path>
                             </annotationProcessorPaths>
                             <compilerArgs combine.children="append"><arg>-Areactor.dubbo.framework=plain</arg></compilerArgs>
                         </configuration>

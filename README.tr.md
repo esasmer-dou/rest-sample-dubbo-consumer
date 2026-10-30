@@ -1,19 +1,19 @@
 # rest-sample-dubbo-consumer
 
-## Hazırlanan Düzeltme 0.8.1
+## 0.8.1 Sürümü
 
-Bu kaynak ağacı REST/platform 4.8.1 kullanır. ARM manifesti
-düzeltmesini içerir. İş kodu ve native ABI'ler değişmez. Yayım onayı bekleniyor;
-yayımlanmış sample sürümü hâlâ 0.8.0'dır.
+Bu kaynak ağacı REST/platform 4.8.1, Dubbo 0.9.1 ve model 0.5.1 kullanır. ARM manifesti
+düzeltmesini içerir. İş kodu ve native ABI'ler değişmez.
+Önceki 0.8.0 sürüm notları tarihsel kayıttır.
 [Düzeltme notları](docs/RELEASE_NOTES_v0.8.1.tr.md).
 
 [English](README.md) | [Türkçe](README.tr.md)
 
-## 0.8.0 İle Başlayın
+## 0.8.1 İle Başlayın
 
 direct-json-consumer profili, uygun tipli native sonuçları consumer satır DTO'ları oluşturmadan aktarır. Varsayılan handler ve iş doğrulaması Java'da kalır. Satırlar değişecekse normal tipli sonuçları kullanın.
 
-[Kullanım rehberi](docs/functional-operations.md) · [Sürüm notları](docs/RELEASE_NOTES_v0.8.0.md)
+[Kullanım rehberi](docs/functional-operations.md) · [Sürüm notları](docs/RELEASE_NOTES_v0.8.1.tr.md)
 
 
 Yalnız DB sorgusu sunacak provider için provider örneğindeki
@@ -100,22 +100,22 @@ sırasında kullanılır.
 
 ## Güncel Kaynak Ayarları
 
-Bu güncelleme, platformu REST `4.8.0` ve isteğe bağlı agent `0.7.1` ile eşler.
+Bu güncelleme, platformu REST `4.8.1` ve isteğe bağlı agent `0.7.1` ile eşler.
 Seçtiğiniz bağımlılığın native dosyasını kullanın. Eski SO/DLL dosyalarını karıştırmayın.
 İş kodu, URL'ler ve ayar anahtarları değişmez. Telemetri varsayılan olarak kapalıdır.
 HTTP micro bellek testi, veritabanı işinde veya daha ayrıntılı profilde aynı maliyeti garanti etmez.
 
-`0.8.0` sürümü platform parent `4.8.0` kullanır. Uygulamayı hizalanmış bağımlılıklarla
-yeniden derleyin. [Sürüm notlarını](docs/RELEASE_NOTES_v0.8.0.tr.md) okuyun. Runtime ayarları ve adresler değişmez.
+`0.8.1` sürümü platform parent `4.8.1` kullanır. Uygulamayı hizalanmış bağımlılıklarla
+yeniden derleyin. [Sürüm notlarını](docs/RELEASE_NOTES_v0.8.1.tr.md) okuyun. Runtime ayarları ve adresler değişmez.
 
 - `RestSampleDubboConsumerApplication` deklaratif framework başlangıcını kullanır.
 - Tek `DubboClients` tanımı bütün typed client'ları üretir ve tek bounded transport paylaşır.
 - Elle yazılmış client definition ve tekrar eden runtime plan sınıfları kaldırıldı.
 - Handler'lar constructor injection ve generated route invoker kullanır.
 - REST adresleri, Dubbo interface'leri, payload'lar, profile'lar ve Java iş akışı değişmedi.
-- HTTP runtime, koordineli `4.8.0` platform hattındaki REST ABI `29` ve Glowroot ABI `6` değerlerini kullanır.
+- HTTP runtime, koordineli `4.8.1` platform hattındaki REST ABI `29` ve Glowroot ABI `6` değerlerini kullanır.
 
-İsteğe bağlı Glowroot mikro telemetri katmanı REST `4.8.0` ile kullanılabilir. Varsayılan olarak
+İsteğe bağlı Glowroot mikro telemetri katmanı REST `4.8.1` ile kullanılabilir. Varsayılan olarak
 kapalıdır. Açıldığında HTTP route ve native Dubbo süreleri mevcut Glowroot Central deployment'ına
 gönderilir. Handler, service ve Dubbo interface kodu değişmez.
 
@@ -353,11 +353,11 @@ ve [THP davranışı](https://eclipse.dev/openj9/docs/xxtransparenthugepage/) ay
 
 ## Hazır Olma Sözleşmesi
 
-**UNRELEASED (yayımlanmadı), 0.8.0 yayını sonrası checkout değişikliği:** `sample.consumer.readiness.contracts`,
+**0.8.1 yeniliği:** `sample.consumer.readiness.contracts`,
 `sample.consumer.catalog.enabled` ve query-only ayar dosyası yayımlanmış `0.8.0`
 sürümünden sonra eklendi. Önceden indirilmiş `0.8.0` jar bu ayarları desteklemez.
-Aşağıdaki tarif için bu checkout'u yeniden derleyin; jar dosya adı yine `0.8.0` içerir.
-Bkz. [yayımlanmamış değişiklik notları](docs/RELEASE_NOTES_UNRELEASED.tr.md).
+Aşağıdaki tarif için `0.8.1` build'ini kullanın; eski `0.8.0` JAR'ını kullanmayın.
+Bkz. [0.8.1 sürüm notları](docs/RELEASE_NOTES_v0.8.1.tr.md).
 
 Normal `full-dubbo-consumer` build'inde seçim başlangıçta bir kez çözülür.
 İstek sırasında ayar ayrıştırılmaz; RPC cevabı senkron beklenmez.
@@ -383,7 +383,7 @@ mvn -B -ntp clean package -Pfull-dubbo-consumer
 java `
   "-Dreactor.config.file=src/main/resources/config/query-only.properties" `
   "-Dreactor.dubbo.providers=127.0.0.1:20880" `
-  -jar target/rest-sample-dubbo-consumer-0.8.0.jar
+  -jar target/rest-sample-dubbo-consumer-0.8.1.jar
 ```
 
 Bu dosya `sample.consumer.surface=full` değerini korur;
@@ -495,7 +495,7 @@ Bu consumer Rust-Java REST üzerinde çalışır. Ayrı bir Spring starter gerek
 olarak kapalıdır. Açıldığında HTTP route süreleri ile native Dubbo çağrı sayısı, süre ve hata
 toplamları aynı Rust çalışma katmanında tutulur. Handler, service ve Dubbo interface kodu değişmez.
 
-Bu sample, Glowroot ABI `6` taşıyan production platform `4.8.0` sürümünü kullanır. İsteğe bağlı
+Bu sample, Glowroot ABI `6` taşıyan platform `4.8.1` sürümünü kullanır. İsteğe bağlı
 `java-rust-glowroot-agent:0.7.1` JAR'ı yalnız `-javaagent` biçimi gerekiyorsa eklenir. REST içine
 gömülü telemetri runtime'ı için ayrı agent dependency gerekmez:
 
@@ -503,7 +503,7 @@ gömülü telemetri runtime'ı için ayrı agent dependency gerekmez:
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.8.0</version>
+  <version>4.8.1</version>
   <relativePath/>
 </parent>
 ```

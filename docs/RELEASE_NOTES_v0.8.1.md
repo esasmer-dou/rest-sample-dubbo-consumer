@@ -1,12 +1,22 @@
-# 0.8.1 — Prepared Patch
+# 0.8.1
 
 [English](RELEASE_NOTES_v0.8.1.md) | [Türkçe](RELEASE_NOTES_v0.8.1.tr.md)
 
-Not published yet. Align the platform parent to REST 4.8.1.
-The patch corrects ARM64 native provenance metadata. Existing business code,
-properties and native binaries remain unchanged. ARM runtime testing is not
-claimed. Shared model/utility stay at 0.5.0; Dubbo stays at 0.9.0.
+Release date: October 30, 2026.
 
-After publication, rebuild the application with the aligned dependencies. Do not
-copy native files from older packages. Published 0.8.0 examples below remain
-historical until the prepared patch is approved.
+## What Changed?
+
+Align REST/platform `4.8.1`, plain Dubbo `0.9.1`, shared model `0.5.1` and the `direct-json-consumer` Spring Dubbo dependencies/processor `0.8.1`. Include selected-contract readiness/recovery coverage and the query-only configuration overlay.
+
+## Aligned Versions And Upgrade
+
+REST/platform `4.8.1`; cache `0.9.1`; plain Dubbo `0.9.1`; Spring Dubbo `0.8.1`;
+model/utility `0.5.1`; four application samples `0.8.1`. Agent `0.7.1` is unchanged.
+Align producer and consumer dependencies together and rebuild.
+Do not copy older DLL/SO files into new packages. Earlier release notes remain historical records.
+Required readiness failures return `503`; unselected checks remain `SKIPPED`. Query-only selection is not access control. Existing defaults are unchanged.
+
+## Qualification Scope
+
+No ARM hardware qualification, new performance guarantee or F18 closure is claimed.
+Validation evidence is recorded with the corresponding change/release.
