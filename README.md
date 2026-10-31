@@ -2,12 +2,61 @@
 
 ## Version 0.8.1
 
-This checkout uses REST/platform 4.8.1, Dubbo 0.9.1 and model 0.5.1. It includes
+Published sample 0.8.1 uses REST/platform 4.8.1, Dubbo 0.9.1 and model 0.5.1. It includes
 the ARM provenance packaging fix without changing business logic or native ABIs.
 Use the aligned 0.8.1 artifacts; earlier 0.8.0 release notes remain historical.
 [Patch notes](docs/RELEASE_NOTES_v0.8.1.md).
 
 [English](README.md) | [Türkçe](README.tr.md)
+
+## Compose
+
+**Unpublished source workflow.** This topology and the new helper-based examples
+below require coordinated checkout changes, not the published sample `0.8.1` alone.
+Matching REST/platform, cache and Dubbo source dependencies must already be installed
+or resolvable. `--prepare` / `-Prepare` packages the samples; it does not build those
+framework dependencies. New JNI exports also need matching REST native resources;
+existing ABI numbers are unchanged. Kubernetes validation is not Compose-engine
+execution proof, and this recipe does not establish ARM hardware qualification.
+
+The shared topology is in sibling `rest-sample-cache-reader/docker/compose/`;
+see the [complete guide](https://github.com/esasmer-dou/rest-sample-cache-reader/blob/master/README.md#compose).
+Keep all four sample checkouts under one parent with their repository names.
+Use Linux/amd64 Docker Engine, Compose v2 with `--wait`, JDK 21/Maven and resolvable
+aligned dependencies. Bash needs `curl`, `jq`, `timeout`; PowerShell needs version 7.
+From this repository's root:
+
+```bash
+bash ../rest-sample-cache-reader/scripts/verify-compose-topology.sh --prepare
+# Alternative: native catalog provider + native-static-consumer
+bash ../rest-sample-cache-reader/scripts/verify-compose-topology.sh --prepare --native-provider
+```
+
+PowerShell: `pwsh -File ../rest-sample-cache-reader/scripts/verify-compose-topology.ps1 -Prepare`
+(add `-NativeProvider` for the alternative). Preparation packages all four samples
+with tests skipped and copies runtime dependencies. The default pair is
+`full-dubbo-consumer` / `full-provider`: POST/PATCH persists through provider RPC to
+PostgreSQL, then writer publishes fenced Redis snapshots for reader HTTP. Smoke
+also verifies consumer DB queries. Consumer HTTP is `127.0.0.1:18082`, reader HTTP
+`127.0.0.1:18081`. Consumer uses `/app/health` and real RPC readiness `/app/ready`;
+reader uses `/app/readiness`. PostgreSQL/Redis have no host ports. Each of the six
+containers has 1 CPU / 128 MiB limits; apps run on OpenJ9 Java 21/JNI.
+
+**Native mode is catalog-only** and builds `native-static-consumer`, whose
+`CatalogJsonService` version `0.0.0` matches `native-provider`. A full consumer with
+only `surface=catalog-only` still targets `NestedCatalogService` and is not this
+pair. The native library/resources prerequisite is in the guide. Native smoke
+checks `/api/v1/catalog/nested` and the changing DB-to-writer-to-fenced-Redis-to-reader
+path using direct SQL mutations. Customer HTTP/RPC, provider DB calls and streaming
+are not covered by that native pair.
+
+Both modes collect five bounded RSS samples in the shared parent's `.tmp/wp3-*`.
+Default cleanup removes only the unique smoke stack/volume; `--keep` / `-Keep`
+retains it. Inspect `containers.log` and `result.properties` on nonzero exit.
+Idiomatic handlers retain application validation and generated client wiring;
+minimal benchmark handlers or the narrower native profile are not equivalent loads.
+This single-DB/Redis demo is not HA. Configured limits and smoke instructions are
+not runtime proof or sustained RSS/throughput/p99 acceptance.
 
 ## Start With 0.8.1
 
@@ -30,6 +79,42 @@ updating both the provider and consumer contracts, set
 `SAMPLE_CONSUMER_SEGMENT_NATIVE_JSON=true` (or
 `-Dsample.consumer.segment-native-json=true`). The default is `false` for older
 providers. Do not enable it before the matching provider is deployed.
+
+The checkout refactor keeps one HTTP route owner, `CustomerHandler`, and puts the
+opt-in native segment implementation in `NativeSegmentTutorialHandler`. Generated
+DI registers that helper only for the full surface with the segment flag enabled;
+otherwise the existing typed query remains selected. Rebuild matching source
+artifacts rather than assuming these changes exist in an older downloaded JAR.
+
+Full-profile native customer/catalog replies use `DubboResponses.ok`/`created` and
+`DubboResponses.replyAsync`; handlers no longer extract native identifiers.
+The existing error response is mapped **before** the final `replyAsync` boundary,
+so cancellation of the returned HTTP future still observes and closes late native
+responses. Native success remains HTTP 200 (create: 201); public error codes and
+the opt-in common error contract remain unchanged.
+
+The four keyed mutations (segment PATCH, raw/typed status PATCH and DELETE) now
+use `@KeyAdmission` instead of repeating an admission wrapper in each method.
+The existing bounded `customerCommandKeyAdmission` bean still owns the limits.
+For example, segment PATCH declares:
+
+```java
+@KeyAdmission(bean = "customerCommandKeyAdmission", key = "customerId", onRejected = "segmentRejected")
+```
+
+The key names the Java parameter bound by `@PathVariable("id")`; it is not a new
+HTTP parameter. `segmentRejected(Throwable)` returns a completed future with the
+existing `dubbo_customer_segment_unavailable` response. The other three methods
+keep their own error codes in the same way. APT validates these methods and
+generates direct calls. There is one guard, no reflection and no extra queue.
+The permit lasts until the underlying work completes, including after HTTP cancellation.
+These source changes require the next aligned REST/platform package; they are not
+available by downloading the published `4.8.1` package alone.
+
+The separate `native-static-consumer` profile keeps
+its existing handlers: its current native-static dependency does not include
+`DubboResponses`. Migrating it also requires an aligned REST adapter dependency;
+this Java-only refactor does not silently add the full Dubbo runtime.
 
 The native-response option now calls `findCustomersBySegmentUtf8(long, byte[])`.
 The old JSON-byte request method remains available. The HTTP query no longer
@@ -584,6 +669,7 @@ guide for profile switching, the SQL API, and the full property reference.
 | `ConsumerReadinessContracts.java` / `ConsumerReadinessConfiguration.java` | Select immutable required readiness contracts at startup |
 | `CatalogHandler.java` | Catalog GET examples |
 | `CustomerHandler.java` | Conditional GET, POST, PATCH, and DELETE examples for the full surface |
+| `NativeSegmentTutorialHandler.java` | Property-gated native segment tutorial; no duplicate HTTP route |
 | `NativeStaticConsumerApplication.java` | Entry point for the physically smaller native-static Maven profile |
 | `rust-spring.properties` | Local settings |
 

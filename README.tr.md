@@ -2,12 +2,63 @@
 
 ## 0.8.1 Sürümü
 
-Bu kaynak ağacı REST/platform 4.8.1, Dubbo 0.9.1 ve model 0.5.1 kullanır. ARM manifesti
+Yayımlanmış sample 0.8.1, REST/platform 4.8.1, Dubbo 0.9.1 ve model 0.5.1 kullanır. ARM manifesti
 düzeltmesini içerir. İş kodu ve native ABI'ler değişmez.
 Önceki 0.8.0 sürüm notları tarihsel kayıttır.
 [Düzeltme notları](docs/RELEASE_NOTES_v0.8.1.tr.md).
 
 [English](README.md) | [Türkçe](README.tr.md)
+
+## Compose
+
+**Henüz yayımlanmamış kaynak akışı.** Bu topoloji ve aşağıdaki yeni yardımcı API
+örnekleri birlikte güncellenmiş kaynakları gerektirir; yayımlanmış sample `0.8.1`
+tek başına yeterli değildir. Uyumlu REST/platform, cache ve Dubbo kaynak bağımlılıkları
+önceden kurulmuş veya çözülebilir olmalıdır. `--prepare` / `-Prepare` sample'ları
+paketler; bu framework bağımlılıklarını derlemez. Yeni JNI export'ları için eşleşen
+REST native kaynakları da gerekir; mevcut ABI numaraları değişmez. Kubernetes
+doğrulaması Compose motorunun çalıştırıldığına kanıt değildir; bu tarif ARM
+donanımının doğrulandığı anlamına da gelmez.
+
+Ortak topoloji, yan yana alınmış `rest-sample-cache-reader/docker/compose/` içindedir;
+[tam rehberi](https://github.com/esasmer-dou/rest-sample-cache-reader/blob/master/README.tr.md#compose)
+inceleyin. Dört sample deposunu kendi adlarıyla aynı üst dizinde tutun.
+Linux/amd64 Docker Engine, `--wait` destekli Compose v2, JDK 21/Maven ve çözülebilen
+uyumlu bağımlılıklar gerekir. Bash için `curl`, `jq`, `timeout`; PowerShell için
+sürüm 7 kullanın. Bu deponun kök dizininden:
+
+```bash
+bash ../rest-sample-cache-reader/scripts/verify-compose-topology.sh --prepare
+# Alternatif: native katalog provider + native-static-consumer
+bash ../rest-sample-cache-reader/scripts/verify-compose-topology.sh --prepare --native-provider
+```
+
+PowerShell: `pwsh -File ../rest-sample-cache-reader/scripts/verify-compose-topology.ps1 -Prepare`
+(alternatif için `-NativeProvider` ekleyin). Hazırlık, dört sample'ı testleri
+çalıştırmadan paketler ve runtime bağımlılıklarını kopyalar. Varsayılan eşleşme
+`full-dubbo-consumer` / `full-provider` olur. POST/PATCH provider RPC üzerinden
+PostgreSQL'e yazılır; writer fenced Redis snapshot'ı yayınlar, reader HTTP ile okur.
+Smoke ayrıca consumer DB sorgularını denetler. Consumer HTTP `127.0.0.1:18082`,
+reader HTTP `127.0.0.1:18081` adresindedir. Consumer `/app/health` ve gerçek RPC
+readiness kontrolü `/app/ready` kullanır; reader readiness adresi `/app/readiness`
+olur. PostgreSQL/Redis host portu açmaz. Altı container'ın her biri 1 CPU / 128 MiB
+ile sınırlıdır; uygulamalar OpenJ9 Java 21/JNI üzerinde çalışır.
+
+**Native mod yalnız katalog içindir** ve `native-static-consumer` derler.
+`CatalogJsonService`, sürüm `0.0.0` sözleşmesi `native-provider` ile eşleşir.
+Full consumer'da yalnız `surface=catalog-only` seçmek hâlâ `NestedCatalogService`
+hedefler; bu eşleşmenin yerine geçmez. Native kaynak/library gereksinimi rehberdedir.
+Native smoke `/api/v1/catalog/nested` ve doğrudan SQL değişikliğiyle aynı değişen
+DB-writer-fenced Redis-reader hattını denetler. Bu native eşleşmede müşteri HTTP/RPC,
+provider DB çağrısı veya streaming kapsamı yoktur.
+
+İki mod da ortak üst dizinin `.tmp/wp3-*` alanına beş sınırlı RSS örneği yazar.
+Varsayılan cleanup yalnız benzersiz smoke stack/volume'ünü siler; `--keep` / `-Keep`
+korur. Sıfırdan farklı exit durumunda `containers.log` ve `result.properties`
+dosyalarını inceleyin. Doğal handler örneği uygulama doğrulamasını ve üretilmiş
+client bağlantısını korur. Minimal benchmark handler'ları veya daha dar native
+profil eşdeğer yük değildir. Tek DB/Redis kullanan demo HA değildir. Tanımlı
+limitler ve smoke tarifi runtime kanıtı veya sürekli RSS/throughput/p99 kabulü sayılmaz.
 
 ## 0.8.1 İle Başlayın
 
@@ -26,6 +77,41 @@ Güncel kaynak, segment sorgusu için isteğe bağlı bir JSON metodu da ekler.
 `SAMPLE_CONSUMER_SEGMENT_NATIVE_JSON=true` veya
 `-Dsample.consumer.segment-native-json=true` kullanın. Eski provider'larla
 uyum için varsayılan değer `false` olur. Yeni provider kurulmadan açmayın.
+
+Bu checkout refactor'u tek HTTP route sahibi olarak `CustomerHandler` sınıfını
+korur; isteğe bağlı native segment uygulaması `NativeSegmentTutorialHandler`
+içindedir. Generated DI bu helper'ı yalnız full yüzey ve segment bayrağı açıkken
+kaydeder; aksi halde mevcut typed sorgu seçilir. Bu değişikliklerin eski indirilen
+JAR'da bulunduğunu varsaymayın; uyumlu kaynak artifact'larını yeniden derleyin.
+
+Full profildeki native customer/catalog cevapları `DubboResponses.ok`/`created` ve
+`DubboResponses.replyAsync` kullanır; handler native kimliğini elle çıkarmaz.
+Mevcut hata cevabı **son** `replyAsync` sınırından önce eşlenir. Böylece dönen HTTP
+future'ı iptal edilse de geç gelen native cevap izlenir ve kapatılır. Başarı HTTP
+200 (create: 201), dışarı verilen hata kodları ve opt-in ortak hata sözleşmesi değişmez.
+
+Dört anahtar bazlı yazma metodu (segment PATCH, raw/typed status PATCH ve DELETE)
+artık her metotta aynı sarmalayıcıyı yazmak yerine `@KeyAdmission` kullanır.
+Sınırları yine mevcut `customerCommandKeyAdmission` bean'i yönetir.
+Örneğin segment PATCH şu tanımı kullanır:
+
+```java
+@KeyAdmission(bean = "customerCommandKeyAdmission", key = "customerId", onRejected = "segmentRejected")
+```
+
+Anahtar, `@PathVariable("id")` ile bağlanan Java parametresinin adıdır.
+HTTP isteğine yeni bir parametre eklenmez. `segmentRejected(Throwable)` metodu,
+mevcut `dubbo_customer_segment_unavailable` yanıtını tamamlanmış bir future içinde döndürür.
+Diğer üç metot da kendi hata kodunu aynı şekilde korur. APT bu metotları kontrol eder
+ve doğrudan çağrı üretir. Tek kabul kontrolü vardır; reflection ve ek kuyruk yoktur.
+HTTP isteği iptal edilse bile alttaki iş bitene kadar izin tutulur.
+Bu kaynak değişiklikleri sonraki uyumlu REST/platform paketini gerektirir.
+Yalnız yayımlanmış `4.8.1` paketini indirmek bu özelliği sağlamaz.
+
+Ayrı `native-static-consumer` profili
+mevcut handler'larını korur: güncel native-static bağımlılığı `DubboResponses`
+içermez. Onun geçişi uyumlu REST adapter bağımlılığı da gerektirir; yalnız Java
+kapsamındaki bu refactor full Dubbo runtime'ını sessizce eklemez.
 
 Native cevap seçeneği artık `findCustomersBySegmentUtf8(long, byte[])` metodunu
 çağırır. Eski JSON byte isteği alan metot da durur. İki parametre consumer'da JSON
@@ -583,6 +669,7 @@ dokümanına bakın.
 | `ConsumerReadinessContracts.java` / `ConsumerReadinessConfiguration.java` | Değişmez zorunlu readiness sözleşmelerini başlangıçta seçer |
 | `CatalogHandler.java` | Catalog GET örneklerini içerir |
 | `CustomerHandler.java` | Full yüzey için koşullu GET, POST, PATCH ve DELETE örneklerini içerir |
+| `NativeSegmentTutorialHandler.java` | Property-gated native segment örneği; ikinci HTTP route kaydetmez |
 | `NativeStaticConsumerApplication.java` | Fiziksel olarak daha küçük native-static Maven profile'ını başlatır |
 | `rust-spring.properties` | Lokal ayarları taşır |
 

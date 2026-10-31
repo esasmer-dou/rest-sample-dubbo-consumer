@@ -5,6 +5,7 @@ import com.reactor.rust.annotations.RequestParam;
 import com.reactor.rust.annotations.RestController;
 import com.reactor.rust.annotations.RequiresProperty;
 import com.reactor.rust.annotations.RouteWorkload;
+import com.reactor.rust.dubbo.http.DubboResponses;
 import com.reactor.rust.http.RawResponse;
 import com.reactor.rust.http.ResponseEntity;
 import com.reactor.sample.dubbo.consumer.dubbo.NestedCatalogClient;
@@ -27,9 +28,11 @@ public final class CatalogHandler {
 
     @GetMapping("/nested")
     public CompletableFuture<ResponseEntity<RawResponse>> nestedCatalog() {
-        return catalogClient.getNestedCatalogJsonNativeJsonAsync()
-                .thenApply(handle -> ResponseEntity.ok(RawResponse.nativeResponse(handle.nativeId())))
-                .exceptionally(error -> unavailable("dubbo_provider_unavailable", error));
+        return DubboResponses.replyAsync(
+                catalogClient.getNestedCatalogJsonNativeJsonAsync()
+                        .thenApply(DubboResponses::ok)
+                        .exceptionally(error -> unavailable("dubbo_provider_unavailable", error)),
+                response -> response);
     }
 
     @GetMapping("/title")

@@ -169,6 +169,22 @@ class ConsumerRuntimeConfigurationTest {
                 "com.reactor.sample.dubbo.consumer.config.ConsumerReadinessConfiguration"));
     }
 
+    @Test
+    void generatedSegmentTutorialIsOptInAndInjectedWithoutDuplicateRoutes() throws IOException {
+        Path handlerSources = Path.of("target", "generated-sources", "annotations",
+                "com", "reactor", "sample", "dubbo", "consumer", "handler");
+        String tutorial = Files.readString(handlerSources.resolve("NativeSegmentTutorialHandler__ReactorFactory.java"));
+        assertTrue(tutorial.contains("ConfigurationBinder.matches(\"sample.consumer.surface\", \"full\", true)"));
+        assertTrue(tutorial.contains("ConfigurationBinder.matches(\"sample.consumer.segment-native-json\", \"true\", false)"));
+        String customer = Files.readString(handlerSources.resolve("CustomerHandler__ReactorFactory.java"));
+        String type = "com.reactor.sample.dubbo.consumer.handler.NativeSegmentTutorialHandler.class";
+        assertTrue(customer.contains("hasBean(" + type + ")"));
+        assertTrue(customer.contains("getBean(" + type + ")"));
+        String routes = resourceText("META-INF/reactor/routes.idx");
+        assertEquals(1L, routes.lines().filter(line ->
+                line.startsWith("GET /api/v1/customers/db/by-segment ")).count());
+    }
+
     private static Properties loadProperties(String... resources) throws IOException {
         String[] names = resources.length == 0 ? new String[] {"rust-spring.properties"} : resources;
         Properties properties = new Properties();

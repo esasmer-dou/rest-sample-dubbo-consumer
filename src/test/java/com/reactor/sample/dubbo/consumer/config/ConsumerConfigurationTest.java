@@ -2,12 +2,19 @@ package com.reactor.sample.dubbo.consumer.config;
 
 import com.reactor.rust.config.PropertiesLoader;
 import com.reactor.rust.concurrent.LongKeyAdmission;
+import com.reactor.rust.di.annotation.Bean;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ConsumerConfigurationTest {
+
+    @Test
+    void admissionHasTheExplicitNameRequiredByGeneratedKeyAdmission() throws Exception {
+        assertEquals("customerCommandKeyAdmission", ConsumerConfiguration.class
+                .getDeclaredMethod("customerCommandAdmission").getAnnotation(Bean.class).value());
+    }
 
     @Test
     void localDefaultsDeclareBoundedDubboAndRouteCapacity() {
