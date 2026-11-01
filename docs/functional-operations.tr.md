@@ -2,8 +2,8 @@
 
 [English](functional-operations.md) | [Turkish](functional-operations.tr.md)
 
-Bu isteğe bağlı örnekler, bu `0.8.0` kaynak kodunda vardır. Mevcut varsayılanlar
-değişmez; [sürüm notlarındaki](RELEASE_NOTES_v0.8.0.md) eşleşen bağımlılıkları kullanın.
+Bu isteğe bağlı örnekler, bu `0.8.2` kaynak kodunda vardır. Mevcut varsayılanlar
+değişmez; [POM'daki](../pom.xml) eşleşen bağımlılıkları kullanın.
 Bu kaynak rehberi yayımlanmış paketin bulunabilirliğini doğrulamaz.
 
 Mevcut hata JSON'u varsayılan olarak kalır. Yeni biçimi şöyle açın:

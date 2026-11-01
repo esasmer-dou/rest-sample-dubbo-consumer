@@ -1,23 +1,16 @@
 # rest-sample-dubbo-consumer
 
-## Version 0.8.1
+## Version 0.8.2
 
-Published sample 0.8.1 uses REST/platform 4.8.1, Dubbo 0.9.1 and model 0.5.1. It includes
-the ARM provenance packaging fix without changing business logic or native ABIs.
-Use the aligned 0.8.1 artifacts; earlier 0.8.0 release notes remain historical.
-[Patch notes](docs/RELEASE_NOTES_v0.8.1.md).
+Sample `0.8.2` uses REST/platform `4.8.2`, Dubbo `0.9.2` and model `0.5.2`.
+Java business code and native ABIs are unchanged. Upgrade the aligned dependencies together.
+[Upgrade and usage notes](docs/RELEASE_NOTES_v0.8.2.md).
 
 [English](README.md) | [Türkçe](README.tr.md)
 
 ## Compose
 
-**Unpublished source workflow.** This topology and the new helper-based examples
-below require coordinated checkout changes, not the published sample `0.8.1` alone.
-Matching REST/platform, cache and Dubbo source dependencies must already be installed
-or resolvable. `--prepare` / `-Prepare` packages the samples; it does not build those
-framework dependencies. New JNI exports also need matching REST native resources;
-existing ABI numbers are unchanged. Kubernetes validation is not Compose-engine
-execution proof, and this recipe does not establish ARM hardware qualification.
+This 0.8.2 sample uses REST/platform 4.8.2 and the relevant cache or Dubbo 0.9.2 package. The Compose commands below are for local development. Release qualification runs on EmaTech; Windows and ARM execution checks are separate compatibility tests. A compiled platform artifact does not imply load-test qualification on that platform.
 
 The shared topology is in sibling `rest-sample-cache-reader/docker/compose/`;
 see the [complete guide](https://github.com/esasmer-dou/rest-sample-cache-reader/blob/master/README.md#compose).
@@ -58,11 +51,11 @@ minimal benchmark handlers or the narrower native profile are not equivalent loa
 This single-DB/Redis demo is not HA. Configured limits and smoke instructions are
 not runtime proof or sustained RSS/throughput/p99 acceptance.
 
-## Start With 0.8.1
+## Start With 0.8.2
 
 The direct-json-consumer profile forwards eligible typed native results without consumer row DTOs. Default handlers and business validation stay in Java. Use normal typed results when rows must be changed.
 
-[Usage guide](docs/functional-operations.md) · [Release notes](docs/RELEASE_NOTES_v0.8.1.md)
+[Usage guide](docs/functional-operations.md) · [Release notes](docs/RELEASE_NOTES_v0.8.2.md)
 
 
 New usage guide: [New usage examples](docs/functional-operations.md).
@@ -80,7 +73,7 @@ updating both the provider and consumer contracts, set
 `-Dsample.consumer.segment-native-json=true`). The default is `false` for older
 providers. Do not enable it before the matching provider is deployed.
 
-The checkout refactor keeps one HTTP route owner, `CustomerHandler`, and puts the
+The `0.8.2` refactor keeps one HTTP route owner, `CustomerHandler`, and puts the
 opt-in native segment implementation in `NativeSegmentTutorialHandler`. Generated
 DI registers that helper only for the full surface with the segment flag enabled;
 otherwise the existing typed query remains selected. Rebuild matching source
@@ -96,6 +89,9 @@ the opt-in common error contract remain unchanged.
 The four keyed mutations (segment PATCH, raw/typed status PATCH and DELETE) now
 use `@KeyAdmission` instead of repeating an admission wrapper in each method.
 The existing bounded `customerCommandKeyAdmission` bean still owns the limits.
+See [CustomerHandler](src/main/java/com/reactor/sample/dubbo/consumer/handler/CustomerHandler.java)
+and [ConsumerConfiguration](src/main/java/com/reactor/sample/dubbo/consumer/config/ConsumerConfiguration.java)
+for the existing DB-command example; the provider keeps its DB pool and service limits.
 For example, segment PATCH declares:
 
 ```java
@@ -108,8 +104,7 @@ existing `dubbo_customer_segment_unavailable` response. The other three methods
 keep their own error codes in the same way. APT validates these methods and
 generates direct calls. There is one guard, no reflection and no extra queue.
 The permit lasts until the underlying work completes, including after HTTP cancellation.
-These source changes require the next aligned REST/platform package; they are not
-available by downloading the published `4.8.1` package alone.
+Use the aligned REST/platform `4.8.2` and Dubbo `0.9.2` packages for these generated adapters.
 
 The separate `native-static-consumer` profile keeps
 its existing handlers: its current native-static dependency does not include
@@ -162,7 +157,7 @@ A REST application that calls Dubbo providers.
 - Providers can be found by a static address or ZooKeeper.
 - The sample includes GET, POST, PATCH, and DELETE flows.
 
-Current source versions: `rust-java-rest:4.8.1`, `java-rust-dubbo:0.9.1`, `rest-sample-utility:0.5.1`, `rust-sample-model:0.5.1`.
+Current source versions: `rust-java-rest:4.8.2`, `java-rust-dubbo:0.9.2`, `rest-sample-utility:0.5.2`, `rust-sample-model:0.5.2`.
 
 ## Read This First
 
@@ -185,22 +180,22 @@ generators remain build-only.
 
 ## Current Checkout
 
-This update aligns the platform with REST `4.8.1` and optional agent `0.7.1`.
+This update aligns the platform with REST `4.8.2` and optional agent `0.7.1`.
 Use the native file packaged with the dependency you selected. Do not mix older SO/DLL files.
 Business code, URLs and configuration keys stay the same. Telemetry remains disabled by default.
 The HTTP micro memory gate does not guarantee the same overhead for a database job or a richer profile.
 
-Version `0.8.1` uses platform parent `4.8.1`. Rebuild the application with the aligned
-dependencies. See [release notes](docs/RELEASE_NOTES_v0.8.1.md). Runtime settings and URLs are unchanged.
+Version `0.8.2` uses platform parent `4.8.2`. Rebuild the application with the aligned
+dependencies. See [release notes](docs/RELEASE_NOTES_v0.8.2.md). Runtime settings and URLs are unchanged.
 
 - `RestSampleDubboConsumerApplication` uses declarative framework startup.
 - One `DubboClients` declaration generates all typed clients and shares one bounded transport.
 - Handwritten client definitions and duplicate runtime-plan classes are removed.
 - Handlers use constructor injection and generated route invokers.
 - Existing REST URLs, Dubbo interfaces, payloads, profiles, and Java business flow are unchanged.
-- The HTTP runtime uses REST ABI `29` and Glowroot ABI `6` from the coordinated `4.8.1` platform line.
+- The HTTP runtime uses REST ABI `29` and Glowroot ABI `6` from the coordinated `4.8.2` platform line.
 
-The optional Glowroot micro telemetry plane is available through REST `4.8.1`. It is disabled by
+The optional Glowroot micro telemetry plane is available through REST `4.8.2`. It is disabled by
 default. When enabled, HTTP route and native Dubbo timings are exported to the existing Glowroot
 Central deployment without changing handlers, services, or Dubbo interfaces.
 
@@ -375,6 +370,14 @@ reactor.dubbo.max-inflight=64
 These are the sample defaults. Change them only after provider, database pool, p99, `503`, and RSS
 measurements show a reason. Move to `balanced-dubbo` only when the downstream capacity can use it.
 
+The limits apply at different places. `reactor.dubbo.max-inflight` limits one native
+client. `reactor.dubbo.native-async-queue-capacity` bounds the shared dispatcher,
+not each HTTP route. A route budget limits only requests entering that route.
+`/app/ready` also calls the catalog and customer providers, so leave capacity for
+these checks. For example, a shared queue of `16` can fill with `16` catalog
+requests before the readiness calls arrive. A rejection then means the local
+capacity is full; it does not prove that the provider has stopped.
+
 Do not solve latency by increasing every queue. A larger queue uses more memory and can slow the worst requests.
 
 ## Small Linux/OpenJ9 Pods
@@ -441,7 +444,7 @@ Use typed records for business logic. Use ready JSON bytes for measured pass-thr
 **New in 0.8.1:** `sample.consumer.readiness.contracts`,
 `sample.consumer.catalog.enabled` and the query-only overlay were added after the
 published `0.8.0` release. An existing downloaded `0.8.0` jar does not support them.
-Use the `0.8.1` build for the recipe below; do not use an old `0.8.0` JAR.
+Use the current `0.8.2` build for the recipe below; do not use an old `0.8.0` JAR.
 See the [0.8.1 release notes](docs/RELEASE_NOTES_v0.8.1.md).
 
 For the normal `full-dubbo-consumer` build, selection is resolved once at startup.
@@ -468,7 +471,7 @@ mvn -B -ntp clean package -Pfull-dubbo-consumer
 java `
   "-Dreactor.config.file=src/main/resources/config/query-only.properties" `
   "-Dreactor.dubbo.providers=127.0.0.1:20880" `
-  -jar target/rest-sample-dubbo-consumer-0.8.1.jar
+  -jar target/rest-sample-dubbo-consumer-0.8.2.jar
 ```
 
 The overlay keeps `sample.consumer.surface=full`, selects
@@ -509,7 +512,7 @@ Important starting properties:
 | `sample.dubbo.discovery` | Selects `static` or `zookeeper` |
 | `reactor.dubbo.providers` | Static provider addresses |
 | `reactor.dubbo.timeout-ms` | Maximum RPC wait |
-| `reactor.dubbo.max-inflight` | Total concurrent RPC limit |
+| `reactor.dubbo.max-inflight` | Concurrent RPC limit per native client |
 | `reactor.dubbo.native-connections-per-endpoint` | TCP connections per provider address |
 | `sample.consumer.readiness.contracts` | Required dependencies, selected once at startup |
 | `sample.consumer.catalog.enabled` | Startup gate for the generated catalog client and routes |
@@ -581,7 +584,7 @@ This consumer runs on Rust-Java REST. It does not need a separate Spring starter
 disabled by default. When enabled, HTTP route timings and native Dubbo count, duration, and error
 aggregates stay in the same Rust runtime. Handlers, services, and Dubbo interfaces do not change.
 
-This sample already uses platform `4.8.1` with Glowroot ABI `6`. The optional
+This sample already uses platform `4.8.2` with Glowroot ABI `6`. The optional
 `java-rust-glowroot-agent:0.7.1` JAR is needed only when you want `-javaagent` syntax; the embedded
 REST telemetry runtime does not require a separate agent dependency:
 
@@ -589,7 +592,7 @@ REST telemetry runtime does not require a separate agent dependency:
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.8.1</version>
+  <version>4.8.2</version>
   <relativePath/>
 </parent>
 ```

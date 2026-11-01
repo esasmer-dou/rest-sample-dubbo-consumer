@@ -13,7 +13,7 @@ GET /api/v1/catalog/rows?count=32
 
 It does not load Spring, Netty or HessianLite in the consumer. Existing profiles
 and their customer/command routes remain unchanged. This profile exposes only
-the catalog examples below. These examples are present in this `0.8.0` source
+the catalog examples below. These examples are present in this `0.8.2` source
 checkout. Build matching modules and native assets together; this guide does not
 establish published package availability.
 
@@ -30,7 +30,7 @@ java -Drust.lib.path=/opt/native/librust_hyper.so \
   -Dsample.direct-json.providers=provider:20880 \
   -Dreactor.runtime.profile=micro-rest \
   -Dreactor.dubbo.direct-json.pool-slots=2 \
-  -cp 'target-direct-json/rest-sample-dubbo-consumer-0.8.0.jar:lib/*' \
+  -cp 'target-direct-json/rest-sample-dubbo-consumer-0.8.2.jar:lib/*' \
   com.reactor.sample.dubbo.consumer.directjson.DirectJsonConsumerApplication
 ```
 

@@ -13,7 +13,7 @@ GET /api/v1/catalog/rows?count=32
 
 Consumer içinde Spring, Netty veya HessianLite yüklenmez. Mevcut profiller ve
 müşteri/command endpoint'leri değişmez. Bu ayrı profil yalnız aşağıdaki katalog
-örneklerini açar. Bu örnekler, bu `0.8.0` kaynak kodunda vardır. Eşleşen modülleri
+örneklerini açar. Bu örnekler, bu `0.8.2` kaynak kodunda vardır. Eşleşen modülleri
 ve native dosyaları birlikte derleyin; bu rehber yayımlanmış paketin
 bulunabilirliğini doğrulamaz.
 
@@ -31,7 +31,7 @@ java -Drust.lib.path=/opt/native/librust_hyper.so \
   -Dsample.direct-json.providers=provider:20880 \
   -Dreactor.runtime.profile=micro-rest \
   -Dreactor.dubbo.direct-json.pool-slots=2 \
-  -cp 'target-direct-json/rest-sample-dubbo-consumer-0.8.0.jar:lib/*' \
+  -cp 'target-direct-json/rest-sample-dubbo-consumer-0.8.2.jar:lib/*' \
   com.reactor.sample.dubbo.consumer.directjson.DirectJsonConsumerApplication
 ```
 

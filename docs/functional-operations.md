@@ -2,8 +2,8 @@
 
 [English](functional-operations.md) | [Turkish](functional-operations.tr.md)
 
-These opt-in examples are present in this `0.8.0` source checkout. Existing defaults
-remain unchanged; use the matching dependencies in the [release notes](RELEASE_NOTES_v0.8.0.md).
+These opt-in examples are present in this `0.8.2` source checkout. Existing defaults
+remain unchanged; use the matching dependencies in the [POM](../pom.xml).
 This source guide does not establish published package availability.
 
 Existing error JSON remains the default. Opt in with:
