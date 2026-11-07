@@ -23,7 +23,9 @@ existing `full-dubbo-consumer` profile/POM; keep its REST starter and compiler s
 ```
 
 Utility brings model `0.5.2`; update the provider contracts together. The independent
-Spring adapter/annotations/codegen used by `direct-json-consumer` stay at `0.8.1`.
+Spring adapter/annotations/codegen used by `direct-json-consumer` now use `0.8.2`;
+its adapter brings matching runtime `0.8.2`. Use matching native artifacts and the
+[direct JSON guide](DIRECT_JSON.md) for lifetime rules and the open P05 HTTP risk.
 See [Maven access](../README.md#maven-package-access). Rebuild the normal profile with
 `mvn -B -ntp -DskipTests -Pfull-dubbo-consumer clean package`; this is not qualification.
 

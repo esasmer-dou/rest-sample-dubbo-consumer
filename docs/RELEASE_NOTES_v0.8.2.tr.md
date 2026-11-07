@@ -24,7 +24,10 @@ profili/POM'u için tanımlar; REST starter ve compiler ayarlarını koruyun:
 
 Utility, model `0.5.2` getirir; provider kontratlarını birlikte güncelleyin.
 `direct-json-consumer` profilinin bağımsız Spring adapter/annotations/codegen hattı
-`0.8.1` olarak kalır. [Maven erişimine](../README.tr.md#maven-package-erişimi) bakın.
+artık `0.8.2` kullanır; adapter eşleşen runtime `0.8.2` getirir. Eşleşen native
+dosyalarını kullanın. Sahiplik kuralları ve açık P05 HTTP riski için
+[direct JSON rehberine](DIRECT_JSON.tr.md), paket erişimi için
+[Maven erişimine](../README.tr.md#maven-package-erişimi) bakın.
 Normal profili `mvn -B -ntp -DskipTests -Pfull-dubbo-consumer clean package` ile
 yeniden paketleyin; bu kabul kanıtı değildir.
 

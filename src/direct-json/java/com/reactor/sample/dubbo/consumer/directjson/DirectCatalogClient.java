@@ -2,6 +2,7 @@ package com.reactor.sample.dubbo.consumer.directjson;
 
 import com.reactor.rust.config.PropertiesLoader;
 import com.reactor.rust.di.annotation.Component;
+import com.reactor.rust.di.annotation.PreDestroy;
 import com.reactor.rust.dubbo.annotation.DubboReference;
 import com.reactor.rust.dubbo.runtime.DubboClientOptions;
 import com.reactor.rust.dubbo.runtime.DubboRuntimeOptions;
@@ -25,5 +26,6 @@ public final class DirectCatalogClient implements AutoCloseable {
     }
 
     public StreamCatalogService catalog() { return catalog; }
+    @PreDestroy
     @Override public void close() { clients.close(); }
 }

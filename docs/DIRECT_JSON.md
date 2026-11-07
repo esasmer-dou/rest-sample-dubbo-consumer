@@ -14,13 +14,30 @@ GET /api/v1/catalog/rows?count=32
 It does not load Spring, Netty or HessianLite in the consumer. Existing profiles
 and their customer/command routes remain unchanged. This profile exposes only
 the catalog examples below. These examples are present in this `0.8.2` source
-checkout. Build matching modules and native assets together; this guide does not
-establish published package availability.
+checkout. Use matching modules and native assets; the published-package functional
+check below records the tested Linux configuration.
 
 ## Build And Start
 
-Build/install the shared model, utility, runtime and optional REST adapter first.
-The adapter guide is in `java-rust-dubbo-spring-boot/java-rust-dubbo-rest-adapter`.
+Use matching Spring Dubbo `0.8.2` adapter, annotations, codegen, runtime and native
+artifacts. This profile pins the adapter, annotations and codegen; the adapter
+brings runtime `0.8.2` transitively. Use the public Spring Dubbo distribution's
+optional REST adapter documentation. Shared model, utility and REST/platform
+versions are unchanged by this profile update; no utility version cascade is needed.
+
+JNI remains the primary bridge (K-001), with Spring Dubbo ABI `3` unchanged.
+An older ABI-3 native can lack additive exports: use the matching `0.8.2` native
+artifact for the target platform, not an arbitrary library with the same ABI.
+Linux x64 correctness passed on EmaTech; Windows x64 and macOS ARM64 were only
+compiled, not runtime-verified for this release. The sample check below is
+functional evidence, not a new performance gate.
+
+Native request encoding is separate from direct JSON response conversion.
+`reactor.dubbo.nativeArguments` is an annotation-processor option, opt-in and
+default `false`; this profile leaves it unset and keeps generated Java request
+encoding. To opt in, pass `-Areactor.dubbo.nativeArguments=true` in this profile's
+compiler arguments and clean-rebuild with matching artifacts. It is not a JVM
+`-D` runtime switch. Turning it off alone does not reproduce a measured P05 configuration.
 
 ```sh
 mvn -B -ntp -Pdirect-json-consumer clean package
@@ -49,6 +66,23 @@ curl 'http://localhost:8080/api/v1/catalog/health'
 Rows include nested records, Turkish text, emoji, nullable fields and finite
 floating-point values. Payload/response byte limits can reject a large response
 before the row-count limit is reached. Data is never silently truncated.
+
+### Published-Package Functional Check
+
+On November 7, 2026, the Linux x64 EmaTech smoke passed with freshly downloaded
+public `0.8.2` packages and the matching fresh native library. Both default Java
+argument encoding and opt-in `native-arguments` reported PASS; `run.exit` was `0`.
+The actual sample direct-JSON classes and generated indexes were used. The 16-row
+and 100-row payload lengths and SHA-256 hashes matched the provider oracles; row
+and detail constructor counters stayed at zero. Generated `@PreDestroy` cleanup
+closed the client; native clients, connections, response handles and bytes were
+zero after close.
+
+Workspace-local evidence, not shipped in the sample:
+`.tmp/release-20261107/execution-release-sample-20261107/sample-evidence/`
+(`results.txt`, `run.exit` and per-mode oracle, diagnostic and cleanup records).
+This functional check adds no benchmark claim and does not extend P05 acceptance
+or close the small Java HTTP risk described below.
 
 ### How `count` Is Bound
 
@@ -90,6 +124,19 @@ normalization do not run. Use the ordinary DTO path when those rules are require
 Direct conversion also does not cache the provider response: every `/rows` request
 calls the provider.
 
+## Single-Pass Ownership
+
+`DubboJsonResponses.body(rows)` transfers the direct result to a single-pass
+`ManagedJsonBodyProducer`. Return it to REST to transfer cleanup responsibility;
+do not iterate the result, submit the body twice or retain it for another request.
+Close the body if it is never submitted. REST closes a submitted managed body on
+completion or cancellation; if cancellation happens before submission, the caller
+must close it. If a result is abandoned before wrapping, close the result itself.
+
+One capacity retry can reuse the same retained response; it is not a second RPC.
+After successful output or close, the body cannot be reused. Java business logic
+and configured request guards remain in place; no native business bypass is added.
+
 ## Memory And Formatting Limits
 
 Avoiding row DTOs does not mean that no response data is retained. One complete,
@@ -114,6 +161,15 @@ projection reduced consumer RSS by about 7.5–8.5 MiB and increased useful RPS 
 about 26–30% against materializing the same rows. Each call still reached the
 provider. These are measured sample results, not a guarantee for every schema or
 deployment. Larger exports still need a separate streaming design.
+
+### P05 Acceptance Scope
+
+The earlier focused sample result above is not the P05 full HTTP gate. P05 is
+accepted only for its measured Dubbo workloads. The full HTTP matrix remains
+**13/15, not PASS**. **R-P05-HTTP-001** remains open for small Java HTTP control-route
+RPS/p99 regressions without an established product root cause. There is no
+whole-plan, all-default, all-endpoint or all-platform performance claim, and this
+dependency update does not close that risk.
 
 ## Optional SWAR Literal Writes
 
