@@ -50,12 +50,17 @@
         </repository>
     </repositories>
 
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>com.reactor.sample</groupId>
+                <artifactId>rust-sample-model</artifactId>
+                <version>0.5.3</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
-        <dependency>
-            <groupId>com.reactor.sample</groupId>
-            <artifactId>rust-sample-model</artifactId>
-            <version>0.5.3</version>
-        </dependency>
         <dependency>
             <groupId>com.reactor.sample</groupId>
             <artifactId>rest-sample-utility</artifactId>
