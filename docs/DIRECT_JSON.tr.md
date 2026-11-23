@@ -13,15 +13,17 @@ GET /api/v1/catalog/rows?count=32
 
 Consumer içinde Spring, Netty veya HessianLite yüklenmez. Mevcut profiller ve
 müşteri/command endpoint'leri değişmez. Bu ayrı profil yalnız aşağıdaki katalog
-örneklerini açar. Bu örnekler, bu `0.8.2` kaynak kodunda vardır. Eşleşen modülleri
-ve native dosyaları birlikte derleyin; bu rehber yayımlanmış paketin
-bulunabilirliğini doğrulamaz.
+örneklerini açar. Örnek `0.8.3`, REST `4.9.0` ve Spring Dubbo adapter, annotation
+ve kod üreticisi `0.8.3` (ABI `3`) kullanır. Varsayılan consumer, temel Dubbo
+`0.9.2` ile çalışmaya devam eder.
 
 ## Build Ve Çalıştırma
 
-Önce ortak model, utility, runtime ve isteğe bağlı REST adapter modülünü yerel
-depoya kurun. Adapter rehberi şu dizindedir:
-`java-rust-dubbo-spring-boot/java-rust-dubbo-rest-adapter`.
+Java 21 kullanın. `github-java-rust-dubbo-spring-boot` ve
+[ortak paketler](../README.tr.md#maven-package-erişimi) için Maven erişimini ayarlayın.
+[Streaming katalog provider'ını](https://github.com/esasmer-dou/rest-sample-dubbo-provider/blob/v0.8.3/docs/NATIVE_PROVIDER.tr.md)
+başlatın. Native dosyalar için [REST 4.9.0](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.9.0)
+ve [Spring Dubbo 0.8.3](https://github.com/esasmer-dou/java-rust-dubbo-spring-boot/releases/tag/v0.8.3) yayınlarını kullanın.
 
 ```sh
 mvn -B -ntp -Pdirect-json-consumer clean package
@@ -31,7 +33,7 @@ java -Drust.lib.path=/opt/native/librust_hyper.so \
   -Dsample.direct-json.providers=provider:20880 \
   -Dreactor.runtime.profile=micro-rest \
   -Dreactor.dubbo.direct-json.pool-slots=2 \
-  -cp 'target-direct-json/rest-sample-dubbo-consumer-0.8.2.jar:lib/*' \
+  -cp 'target-direct-json/rest-sample-dubbo-consumer-0.8.3.jar:lib/*' \
   com.reactor.sample.dubbo.consumer.directjson.DirectJsonConsumerApplication
 ```
 

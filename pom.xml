@@ -7,13 +7,13 @@
     <parent>
         <groupId>com.reactor</groupId>
         <artifactId>rust-java-platform-parent</artifactId>
-        <version>4.8.2</version>
+        <version>4.9.0</version>
         <relativePath/>
     </parent>
 
     <groupId>com.reactor.sample</groupId>
     <artifactId>rest-sample-dubbo-consumer</artifactId>
-    <version>0.8.2</version>
+    <version>0.8.3</version>
     <packaging>jar</packaging>
 
     <name>rest-sample-dubbo-consumer</name>
@@ -54,6 +54,7 @@
         <dependency>
             <groupId>com.reactor.sample</groupId>
             <artifactId>rest-sample-utility</artifactId>
+            <version>0.5.3</version>
         </dependency>
         <dependency>
             <groupId>com.reactor</groupId>
@@ -107,15 +108,22 @@
         <profile>
             <id>direct-json-consumer</id>
             <properties>
+                <spring-dubbo.version>0.8.3</spring-dubbo.version>
                 <exec.mainClass>com.reactor.sample.dubbo.consumer.directjson.DirectJsonConsumerApplication</exec.mainClass>
                 <startup.index.exclude-packages>__none__</startup.index.exclude-packages>
             </properties>
+            <repositories>
+                <repository>
+                    <id>github-java-rust-dubbo-spring-boot</id>
+                    <url>https://maven.pkg.github.com/esasmer-dou/java-rust-dubbo-spring-boot</url>
+                </repository>
+            </repositories>
             <dependencies>
                 <dependency>
-                    <groupId>com.reactor</groupId><artifactId>java-rust-dubbo-rest-adapter</artifactId><version>0.8.1</version>
+                    <groupId>com.reactor</groupId><artifactId>java-rust-dubbo-rest-adapter</artifactId><version>${spring-dubbo.version}</version>
                 </dependency>
                 <dependency>
-                    <groupId>com.reactor</groupId><artifactId>java-rust-dubbo-annotations</artifactId><version>0.8.1</version>
+                    <groupId>com.reactor</groupId><artifactId>java-rust-dubbo-annotations</artifactId><version>${spring-dubbo.version}</version>
                     <scope>provided</scope>
                 </dependency>
             </dependencies>
@@ -135,7 +143,7 @@
                             <includes><include>com/reactor/sample/dubbo/consumer/directjson/**</include></includes>
                             <testIncludes><testInclude>com/reactor/sample/dubbo/consumer/directjson/**</testInclude></testIncludes>
                             <annotationProcessorPaths combine.children="append">
-                                <path><groupId>com.reactor</groupId><artifactId>java-rust-dubbo-codegen</artifactId><version>0.8.1</version></path>
+                                <path><groupId>com.reactor</groupId><artifactId>java-rust-dubbo-codegen</artifactId><version>${spring-dubbo.version}</version></path>
                             </annotationProcessorPaths>
                             <compilerArgs combine.children="append"><arg>-Areactor.dubbo.framework=plain</arg></compilerArgs>
                         </configuration>

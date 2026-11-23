@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.3 - 2026-11-23
+
+Aligned with REST/platform `4.9.0`. The optional direct JSON profile uses Spring Dubbo `0.8.3`.
+
+[Release notes](docs/RELEASE_NOTES_v0.8.3.md) | [Türkçe sürüm notları](docs/RELEASE_NOTES_v0.8.3.tr.md)
+
 ## 0.8.1 - 2026-10-30
 
 Align REST/platform `4.8.1`, plain Dubbo `0.9.1`, shared model `0.5.1` and the `direct-json-consumer` Spring Dubbo dependencies/processor `0.8.1`. Include selected-contract readiness/recovery coverage and the query-only configuration overlay.

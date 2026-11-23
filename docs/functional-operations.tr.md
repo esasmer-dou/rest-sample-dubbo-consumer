@@ -2,7 +2,7 @@
 
 [English](functional-operations.md) | [Turkish](functional-operations.tr.md)
 
-Bu isteğe bağlı örnekler, bu `0.8.2` kaynak kodunda vardır. Mevcut varsayılanlar
+Bu isteğe bağlı örnekler, bu `0.8.3` kaynak kodunda vardır. Mevcut varsayılanlar
 değişmez; [POM'daki](../pom.xml) eşleşen bağımlılıkları kullanın.
 Bu kaynak rehberi yayımlanmış paketin bulunabilirliğini doğrulamaz.
 

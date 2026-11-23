@@ -13,14 +13,17 @@ GET /api/v1/catalog/rows?count=32
 
 It does not load Spring, Netty or HessianLite in the consumer. Existing profiles
 and their customer/command routes remain unchanged. This profile exposes only
-the catalog examples below. These examples are present in this `0.8.2` source
-checkout. Build matching modules and native assets together; this guide does not
-establish published package availability.
+the catalog examples below. Sample `0.8.3` uses REST `4.9.0` and Spring Dubbo
+adapter, annotations and codegen `0.8.3` (ABI `3`). The default consumer still
+uses core Dubbo `0.9.2`.
 
 ## Build And Start
 
-Build/install the shared model, utility, runtime and optional REST adapter first.
-The adapter guide is in `java-rust-dubbo-spring-boot/java-rust-dubbo-rest-adapter`.
+Use Java 21 and configure Maven credentials for `github-java-rust-dubbo-spring-boot`
+and the [shared packages](../README.md#maven-package-access). Start the
+[streaming catalog provider](https://github.com/esasmer-dou/rest-sample-dubbo-provider/blob/v0.8.3/docs/NATIVE_PROVIDER.md).
+Use the matching native release files: [REST 4.9.0](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.9.0)
+and [Spring Dubbo 0.8.3](https://github.com/esasmer-dou/java-rust-dubbo-spring-boot/releases/tag/v0.8.3).
 
 ```sh
 mvn -B -ntp -Pdirect-json-consumer clean package
@@ -30,7 +33,7 @@ java -Drust.lib.path=/opt/native/librust_hyper.so \
   -Dsample.direct-json.providers=provider:20880 \
   -Dreactor.runtime.profile=micro-rest \
   -Dreactor.dubbo.direct-json.pool-slots=2 \
-  -cp 'target-direct-json/rest-sample-dubbo-consumer-0.8.2.jar:lib/*' \
+  -cp 'target-direct-json/rest-sample-dubbo-consumer-0.8.3.jar:lib/*' \
   com.reactor.sample.dubbo.consumer.directjson.DirectJsonConsumerApplication
 ```
 

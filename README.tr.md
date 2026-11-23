@@ -1,16 +1,16 @@
 # rest-sample-dubbo-consumer
 
-## 0.8.2 Sürümü
+## 0.8.3 Sürümü
 
-Sample `0.8.2`, REST/platform `4.8.2`, Dubbo `0.9.2` ve model `0.5.2` kullanır.
+Sample `0.8.3`, REST/platform `4.9.0`, Dubbo `0.9.2` ve model `0.5.3` kullanır.
 Java iş kodu ve native ABI'ler değişmez. Eşleşen bağımlılıkları birlikte güncelleyin.
-[Geçiş ve kullanım notları](docs/RELEASE_NOTES_v0.8.2.tr.md).
+[Geçiş ve kullanım notları](docs/RELEASE_NOTES_v0.8.3.tr.md).
 
 [English](README.md) | [Türkçe](README.tr.md)
 
 ## Compose
 
-Bu örnek 0.8.2 sürümünde REST/platform 4.8.2 ve ilgili cache veya Dubbo 0.9.2 paketiyle çalışır. Aşağıdaki Compose komutları yerel geliştirme içindir. Yayın doğrulaması EmaTech üzerinde yapılır; Windows ve ARM çalıştırma kontrolleri ayrı uyumluluk testleridir. Bir platformun derlenmiş olması, o platformda yük testi yapıldığı anlamına gelmez.
+Bu örnek 0.8.3 sürümünde REST/platform 4.9.0 ve ilgili cache veya Dubbo 0.9.2 paketiyle çalışır. Aşağıdaki Compose komutları yerel geliştirme içindir. Yayın doğrulaması EmaTech üzerinde yapılır; Windows ve ARM çalıştırma kontrolleri ayrı uyumluluk testleridir. Bir platformun derlenmiş olması, o platformda yük testi yapıldığı anlamına gelmez.
 
 Ortak topoloji, yan yana alınmış `rest-sample-cache-reader/docker/compose/` içindedir;
 [tam rehberi](https://github.com/esasmer-dou/rest-sample-cache-reader/blob/master/README.tr.md#compose)
@@ -52,11 +52,11 @@ client bağlantısını korur. Minimal benchmark handler'ları veya daha dar nat
 profil eşdeğer yük değildir. Tek DB/Redis kullanan demo HA değildir. Tanımlı
 limitler ve smoke tarifi runtime kanıtı veya sürekli RSS/throughput/p99 kabulü sayılmaz.
 
-## 0.8.2 İle Başlayın
+## 0.8.3 İle Başlayın
 
 direct-json-consumer profili, uygun tipli native sonuçları consumer satır DTO'ları oluşturmadan aktarır. Varsayılan handler ve iş doğrulaması Java'da kalır. Satırlar değişecekse normal tipli sonuçları kullanın.
 
-[Kullanım rehberi](docs/functional-operations.md) · [Sürüm notları](docs/RELEASE_NOTES_v0.8.2.tr.md)
+[Kullanım rehberi](docs/functional-operations.md) · [Sürüm notları](docs/RELEASE_NOTES_v0.8.3.tr.md)
 
 
 Yalnız DB sorgusu sunacak provider için provider örneğindeki
@@ -70,7 +70,7 @@ Güncel kaynak, segment sorgusu için isteğe bağlı bir JSON metodu da ekler.
 `-Dsample.consumer.segment-native-json=true` kullanın. Eski provider'larla
 uyum için varsayılan değer `false` olur. Yeni provider kurulmadan açmayın.
 
-`0.8.2` refactor'u tek HTTP route sahibi olarak `CustomerHandler` sınıfını
+Tek HTTP rota sahibi `CustomerHandler` sınıfıdır. Bu sınıf
 korur; isteğe bağlı native segment uygulaması `NativeSegmentTutorialHandler`
 içindedir. Generated DI bu helper'ı yalnız full yüzey ve segment bayrağı açıkken
 kaydeder; aksi halde mevcut typed sorgu seçilir. Bu değişikliklerin eski indirilen
@@ -100,7 +100,7 @@ mevcut `dubbo_customer_segment_unavailable` yanıtını tamamlanmış bir future
 Diğer üç metot da kendi hata kodunu aynı şekilde korur. APT bu metotları kontrol eder
 ve doğrudan çağrı üretir. Tek kabul kontrolü vardır; reflection ve ek kuyruk yoktur.
 HTTP isteği iptal edilse bile alttaki iş bitene kadar izin tutulur.
-Bu üretilmiş adaptörler için uyumlu REST/platform `4.8.2` ve Dubbo `0.9.2` paketlerini kullanın.
+Bu üretilmiş adaptörler için uyumlu REST/platform `4.9.0` ve Dubbo `0.9.2` paketlerini kullanın.
 
 Ayrı `native-static-consumer` profili
 mevcut handler'larını korur: güncel native-static bağımlılığı `DubboResponses`
@@ -157,7 +157,7 @@ Dubbo provider'larını çağıran bir REST uygulamasıdır.
 - Provider adresi static olarak veya ZooKeeper üzerinden bulunabilir.
 - GET, POST, PATCH ve DELETE örnekleri vardır.
 
-Güncel kaynak sürümleri: `rust-java-rest:4.8.2`, `java-rust-dubbo:0.9.2`, `rest-sample-utility:0.5.2`, `rust-sample-model:0.5.2`.
+Güncel kaynak sürümleri: `rust-java-rest:4.9.0`, `java-rust-dubbo:0.9.2`, `rest-sample-utility:0.5.3`, `rust-sample-model:0.5.3`.
 
 ## Önce Bu Bölümü Okuyun
 
@@ -180,22 +180,22 @@ sırasında kullanılır.
 
 ## Güncel Kaynak Ayarları
 
-Bu güncelleme, platformu REST `4.8.2` ve isteğe bağlı agent `0.7.1` ile eşler.
+Bu güncelleme, platformu REST `4.9.0` ve isteğe bağlı agent `0.7.1` ile eşler.
 Seçtiğiniz bağımlılığın native dosyasını kullanın. Eski SO/DLL dosyalarını karıştırmayın.
 İş kodu, URL'ler ve ayar anahtarları değişmez. Telemetri varsayılan olarak kapalıdır.
 HTTP micro bellek testi, veritabanı işinde veya daha ayrıntılı profilde aynı maliyeti garanti etmez.
 
-`0.8.2` sürümü platform parent `4.8.2` kullanır. Uygulamayı hizalanmış bağımlılıklarla
-yeniden derleyin. [Sürüm notlarını](docs/RELEASE_NOTES_v0.8.2.tr.md) okuyun. Runtime ayarları ve adresler değişmez.
+`0.8.3` sürümü platform parent `4.9.0` kullanır. Uygulamayı hizalanmış bağımlılıklarla
+yeniden derleyin. [Sürüm notlarını](docs/RELEASE_NOTES_v0.8.3.tr.md) okuyun. Runtime ayarları ve adresler değişmez.
 
 - `RestSampleDubboConsumerApplication` deklaratif framework başlangıcını kullanır.
 - Tek `DubboClients` tanımı bütün typed client'ları üretir ve tek bounded transport paylaşır.
 - Elle yazılmış client definition ve tekrar eden runtime plan sınıfları kaldırıldı.
 - Handler'lar constructor injection ve generated route invoker kullanır.
 - REST adresleri, Dubbo interface'leri, payload'lar, profile'lar ve Java iş akışı değişmedi.
-- HTTP runtime, koordineli `4.8.2` platform hattındaki REST ABI `29` ve Glowroot ABI `6` değerlerini kullanır.
+- HTTP runtime, koordineli `4.9.0` platform hattındaki REST ABI `29` ve Glowroot ABI `6` değerlerini kullanır.
 
-İsteğe bağlı Glowroot mikro telemetri katmanı REST `4.8.2` ile kullanılabilir. Varsayılan olarak
+İsteğe bağlı Glowroot mikro telemetri katmanı REST `4.9.0` ile kullanılabilir. Varsayılan olarak
 kapalıdır. Açıldığında HTTP route ve native Dubbo süreleri mevcut Glowroot Central deployment'ına
 gönderilir. Handler, service ve Dubbo interface kodu değişmez.
 
@@ -445,7 +445,7 @@ ve [THP davranışı](https://eclipse.dev/openj9/docs/xxtransparenthugepage/) ay
 **0.8.1 yeniliği:** `sample.consumer.readiness.contracts`,
 `sample.consumer.catalog.enabled` ve query-only ayar dosyası yayımlanmış `0.8.0`
 sürümünden sonra eklendi. Önceden indirilmiş `0.8.0` jar bu ayarları desteklemez.
-Aşağıdaki tarif için güncel `0.8.2` build'ini kullanın; eski `0.8.0` JAR'ını kullanmayın.
+Aşağıdaki tarif için güncel `0.8.3` build'ini kullanın; eski `0.8.0` JAR'ını kullanmayın.
 Bkz. [0.8.1 sürüm notları](docs/RELEASE_NOTES_v0.8.1.tr.md).
 
 Normal `full-dubbo-consumer` build'inde seçim başlangıçta bir kez çözülür.
@@ -468,11 +468,10 @@ yerine bağımsız [query-only ayar dosyasını](src/main/resources/config/query
 kullanın. Consumer kaynak dizininden:
 
 ```powershell
-mvn -B -ntp clean package -Pfull-dubbo-consumer
-java `
+mvn -B -ntp -Pfull-dubbo-consumer `
   "-Dreactor.config.file=src/main/resources/config/query-only.properties" `
   "-Dreactor.dubbo.providers=127.0.0.1:20880" `
-  -jar target/rest-sample-dubbo-consumer-0.8.2.jar
+  clean compile exec:java
 ```
 
 Bu dosya `sample.consumer.surface=full` değerini korur;
@@ -584,7 +583,7 @@ Bu consumer Rust-Java REST üzerinde çalışır. Ayrı bir Spring starter gerek
 olarak kapalıdır. Açıldığında HTTP route süreleri ile native Dubbo çağrı sayısı, süre ve hata
 toplamları aynı Rust çalışma katmanında tutulur. Handler, service ve Dubbo interface kodu değişmez.
 
-Bu sample, Glowroot ABI `6` taşıyan platform `4.8.2` sürümünü kullanır. İsteğe bağlı
+Bu sample, Glowroot ABI `6` taşıyan platform `4.9.0` sürümünü kullanır. İsteğe bağlı
 `java-rust-glowroot-agent:0.7.1` JAR'ı yalnız `-javaagent` biçimi gerekiyorsa eklenir. REST içine
 gömülü telemetri runtime'ı için ayrı agent dependency gerekmez:
 
@@ -592,7 +591,7 @@ gömülü telemetri runtime'ı için ayrı agent dependency gerekmez:
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.8.2</version>
+  <version>4.9.0</version>
   <relativePath/>
 </parent>
 ```
@@ -711,6 +710,11 @@ GitHub Packages için `read:packages` yetkili token gerekir. Token'ın private o
     <username>GITHUB_KULLANICI_ADI</username>
     <password>${env.GITHUB_PACKAGES_TOKEN}</password>
   </server>
+  <server>
+    <id>github-java-rust-dubbo-spring-boot</id>
+    <username>GITHUB_KULLANICI_ADI</username>
+    <password>${env.GITHUB_PACKAGES_TOKEN}</password>
+  </server>
 </servers>
 ```
 
@@ -718,7 +722,7 @@ GitHub Packages için `read:packages` yetkili token gerekir. Token'ın private o
 
 | Belirti | Kontrol edin |
 |---|---|
-| Maven `401` dönüyor | Token, private repo erişimi ve dört server kimliği |
+| Maven `401` dönüyor | Token, depo erişimi ve eşleşen Maven sunucu kimlikleri |
 | `/app/health` `UP`, `/app/ready` `DOWN` | Provider adresi, provider process, registry ve network |
 | Connection refused | Provider host, `20880` portu ve container/Kubernetes DNS |
 | Typed DTO class bilinmiyor | Ortak model sürümü ve Hessian allowlist |

@@ -1,16 +1,16 @@
 # rest-sample-dubbo-consumer
 
-## Version 0.8.2
+## Version 0.8.3
 
-Sample `0.8.2` uses REST/platform `4.8.2`, Dubbo `0.9.2` and model `0.5.2`.
+Sample `0.8.3` uses REST/platform `4.9.0`, Dubbo `0.9.2` and model `0.5.3`.
 Java business code and native ABIs are unchanged. Upgrade the aligned dependencies together.
-[Upgrade and usage notes](docs/RELEASE_NOTES_v0.8.2.md).
+[Upgrade and usage notes](docs/RELEASE_NOTES_v0.8.3.md).
 
 [English](README.md) | [Türkçe](README.tr.md)
 
 ## Compose
 
-This 0.8.2 sample uses REST/platform 4.8.2 and the relevant cache or Dubbo 0.9.2 package. The Compose commands below are for local development. Release qualification runs on EmaTech; Windows and ARM execution checks are separate compatibility tests. A compiled platform artifact does not imply load-test qualification on that platform.
+This 0.8.3 sample uses REST/platform 4.9.0 and the relevant cache or Dubbo 0.9.2 package. The Compose commands below are for local development. Release qualification runs on EmaTech; Windows and ARM execution checks are separate compatibility tests. A compiled platform artifact does not imply load-test qualification on that platform.
 
 The shared topology is in sibling `rest-sample-cache-reader/docker/compose/`;
 see the [complete guide](https://github.com/esasmer-dou/rest-sample-cache-reader/blob/master/README.md#compose).
@@ -51,11 +51,11 @@ minimal benchmark handlers or the narrower native profile are not equivalent loa
 This single-DB/Redis demo is not HA. Configured limits and smoke instructions are
 not runtime proof or sustained RSS/throughput/p99 acceptance.
 
-## Start With 0.8.2
+## Start With 0.8.3
 
 The direct-json-consumer profile forwards eligible typed native results without consumer row DTOs. Default handlers and business validation stay in Java. Use normal typed results when rows must be changed.
 
-[Usage guide](docs/functional-operations.md) · [Release notes](docs/RELEASE_NOTES_v0.8.2.md)
+[Usage guide](docs/functional-operations.md) · [Release notes](docs/RELEASE_NOTES_v0.8.3.md)
 
 
 New usage guide: [New usage examples](docs/functional-operations.md).
@@ -73,7 +73,7 @@ updating both the provider and consumer contracts, set
 `-Dsample.consumer.segment-native-json=true`). The default is `false` for older
 providers. Do not enable it before the matching provider is deployed.
 
-The `0.8.2` refactor keeps one HTTP route owner, `CustomerHandler`, and puts the
+`CustomerHandler` is the only HTTP route owner. It puts the
 opt-in native segment implementation in `NativeSegmentTutorialHandler`. Generated
 DI registers that helper only for the full surface with the segment flag enabled;
 otherwise the existing typed query remains selected. Rebuild matching source
@@ -104,7 +104,7 @@ existing `dubbo_customer_segment_unavailable` response. The other three methods
 keep their own error codes in the same way. APT validates these methods and
 generates direct calls. There is one guard, no reflection and no extra queue.
 The permit lasts until the underlying work completes, including after HTTP cancellation.
-Use the aligned REST/platform `4.8.2` and Dubbo `0.9.2` packages for these generated adapters.
+Use the aligned REST/platform `4.9.0` and Dubbo `0.9.2` packages for these generated adapters.
 
 The separate `native-static-consumer` profile keeps
 its existing handlers: its current native-static dependency does not include
@@ -157,7 +157,7 @@ A REST application that calls Dubbo providers.
 - Providers can be found by a static address or ZooKeeper.
 - The sample includes GET, POST, PATCH, and DELETE flows.
 
-Current source versions: `rust-java-rest:4.8.2`, `java-rust-dubbo:0.9.2`, `rest-sample-utility:0.5.2`, `rust-sample-model:0.5.2`.
+Current source versions: `rust-java-rest:4.9.0`, `java-rust-dubbo:0.9.2`, `rest-sample-utility:0.5.3`, `rust-sample-model:0.5.3`.
 
 ## Read This First
 
@@ -180,22 +180,22 @@ generators remain build-only.
 
 ## Current Checkout
 
-This update aligns the platform with REST `4.8.2` and optional agent `0.7.1`.
+This update aligns the platform with REST `4.9.0` and optional agent `0.7.1`.
 Use the native file packaged with the dependency you selected. Do not mix older SO/DLL files.
 Business code, URLs and configuration keys stay the same. Telemetry remains disabled by default.
 The HTTP micro memory gate does not guarantee the same overhead for a database job or a richer profile.
 
-Version `0.8.2` uses platform parent `4.8.2`. Rebuild the application with the aligned
-dependencies. See [release notes](docs/RELEASE_NOTES_v0.8.2.md). Runtime settings and URLs are unchanged.
+Version `0.8.3` uses platform parent `4.9.0`. Rebuild the application with the aligned
+dependencies. See [release notes](docs/RELEASE_NOTES_v0.8.3.md). Runtime settings and URLs are unchanged.
 
 - `RestSampleDubboConsumerApplication` uses declarative framework startup.
 - One `DubboClients` declaration generates all typed clients and shares one bounded transport.
 - Handwritten client definitions and duplicate runtime-plan classes are removed.
 - Handlers use constructor injection and generated route invokers.
 - Existing REST URLs, Dubbo interfaces, payloads, profiles, and Java business flow are unchanged.
-- The HTTP runtime uses REST ABI `29` and Glowroot ABI `6` from the coordinated `4.8.2` platform line.
+- The HTTP runtime uses REST ABI `29` and Glowroot ABI `6` from the coordinated `4.9.0` platform line.
 
-The optional Glowroot micro telemetry plane is available through REST `4.8.2`. It is disabled by
+The optional Glowroot micro telemetry plane is available through REST `4.9.0`. It is disabled by
 default. When enabled, HTTP route and native Dubbo timings are exported to the existing Glowroot
 Central deployment without changing handlers, services, or Dubbo interfaces.
 
@@ -444,7 +444,7 @@ Use typed records for business logic. Use ready JSON bytes for measured pass-thr
 **New in 0.8.1:** `sample.consumer.readiness.contracts`,
 `sample.consumer.catalog.enabled` and the query-only overlay were added after the
 published `0.8.0` release. An existing downloaded `0.8.0` jar does not support them.
-Use the current `0.8.2` build for the recipe below; do not use an old `0.8.0` JAR.
+Use the current `0.8.3` build for the recipe below; do not use an old `0.8.0` JAR.
 See the [0.8.1 release notes](docs/RELEASE_NOTES_v0.8.1.md).
 
 For the normal `full-dubbo-consumer` build, selection is resolved once at startup.
@@ -467,11 +467,10 @@ For `native-db-query-provider`, build the normal consumer and use the standalone
 `config/production.properties`. From the consumer checkout:
 
 ```powershell
-mvn -B -ntp clean package -Pfull-dubbo-consumer
-java `
+mvn -B -ntp -Pfull-dubbo-consumer `
   "-Dreactor.config.file=src/main/resources/config/query-only.properties" `
   "-Dreactor.dubbo.providers=127.0.0.1:20880" `
-  -jar target/rest-sample-dubbo-consumer-0.8.2.jar
+  clean compile exec:java
 ```
 
 The overlay keeps `sample.consumer.surface=full`, selects
@@ -584,7 +583,7 @@ This consumer runs on Rust-Java REST. It does not need a separate Spring starter
 disabled by default. When enabled, HTTP route timings and native Dubbo count, duration, and error
 aggregates stay in the same Rust runtime. Handlers, services, and Dubbo interfaces do not change.
 
-This sample already uses platform `4.8.2` with Glowroot ABI `6`. The optional
+This sample already uses platform `4.9.0` with Glowroot ABI `6`. The optional
 `java-rust-glowroot-agent:0.7.1` JAR is needed only when you want `-javaagent` syntax; the embedded
 REST telemetry runtime does not require a separate agent dependency:
 
@@ -592,7 +591,7 @@ REST telemetry runtime does not require a separate agent dependency:
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.8.2</version>
+  <version>4.9.0</version>
   <relativePath/>
 </parent>
 ```
@@ -710,6 +709,11 @@ The server IDs in `~/.m2/settings.xml` must match the POM:
     <username>YOUR_GITHUB_USERNAME</username>
     <password>${env.GITHUB_PACKAGES_TOKEN}</password>
   </server>
+  <server>
+    <id>github-java-rust-dubbo-spring-boot</id>
+    <username>YOUR_GITHUB_USERNAME</username>
+    <password>${env.GITHUB_PACKAGES_TOKEN}</password>
+  </server>
 </servers>
 ```
 
@@ -717,7 +721,7 @@ The server IDs in `~/.m2/settings.xml` must match the POM:
 
 | Symptom | Check |
 |---|---|
-| Maven returns `401` | Token, private repo access, and all four server IDs |
+| Maven returns `401` | Token, repository access and matching server IDs |
 | `/app/health` is `UP`, but `/app/ready` is `DOWN` | Provider address, provider process, registry, and network |
 | Connection refused | Provider host, port `20880`, and container/Kubernetes DNS |
 | Typed DTO class is unknown | Shared model version and Hessian allowlist |
