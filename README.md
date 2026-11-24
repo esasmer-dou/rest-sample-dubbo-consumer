@@ -10,46 +10,9 @@ Java business code and native ABIs are unchanged. Upgrade the aligned dependenci
 
 ## Compose
 
-This 0.8.3 sample uses REST/platform 4.9.0 and the relevant cache or Dubbo 0.9.2 package. The Compose commands below are for local development. Release qualification runs on EmaTech; Windows and ARM execution checks are separate compatibility tests. A compiled platform artifact does not imply load-test qualification on that platform.
+Use [Quick Start](#quick-start-static-provider) to run this sample on its own.
 
-The shared topology is in sibling `rest-sample-cache-reader/docker/compose/`;
-see the [complete guide](https://github.com/esasmer-dou/rest-sample-cache-reader/blob/master/README.md#compose).
-Keep all four sample checkouts under one parent with their repository names.
-Use Linux/amd64 Docker Engine, Compose v2 with `--wait`, JDK 21/Maven and resolvable
-aligned dependencies. Bash needs `curl`, `jq`, `timeout`; PowerShell needs version 7.
-From this repository's root:
-
-```bash
-bash ../rest-sample-cache-reader/scripts/verify-compose-topology.sh --prepare
-# Alternative: native catalog provider + native-static-consumer
-bash ../rest-sample-cache-reader/scripts/verify-compose-topology.sh --prepare --native-provider
-```
-
-PowerShell: `pwsh -File ../rest-sample-cache-reader/scripts/verify-compose-topology.ps1 -Prepare`
-(add `-NativeProvider` for the alternative). Preparation packages all four samples
-with tests skipped and copies runtime dependencies. The default pair is
-`full-dubbo-consumer` / `full-provider`: POST/PATCH persists through provider RPC to
-PostgreSQL, then writer publishes fenced Redis snapshots for reader HTTP. Smoke
-also verifies consumer DB queries. Consumer HTTP is `127.0.0.1:18082`, reader HTTP
-`127.0.0.1:18081`. Consumer uses `/app/health` and real RPC readiness `/app/ready`;
-reader uses `/app/readiness`. PostgreSQL/Redis have no host ports. Each of the six
-containers has 1 CPU / 128 MiB limits; apps run on OpenJ9 Java 21/JNI.
-
-**Native mode is catalog-only** and builds `native-static-consumer`, whose
-`CatalogJsonService` version `0.0.0` matches `native-provider`. A full consumer with
-only `surface=catalog-only` still targets `NestedCatalogService` and is not this
-pair. The native library/resources prerequisite is in the guide. Native smoke
-checks `/api/v1/catalog/nested` and the changing DB-to-writer-to-fenced-Redis-to-reader
-path using direct SQL mutations. Customer HTTP/RPC, provider DB calls and streaming
-are not covered by that native pair.
-
-Both modes collect five bounded RSS samples in the shared parent's `.tmp/wp3-*`.
-Default cleanup removes only the unique smoke stack/volume; `--keep` / `-Keep`
-retains it. Inspect `containers.log` and `result.properties` on nonzero exit.
-Idiomatic handlers retain application validation and generated client wiring;
-minimal benchmark handlers or the narrower native profile are not equivalent loads.
-This single-DB/Redis demo is not HA. Configured limits and smoke instructions are
-not runtime proof or sustained RSS/throughput/p99 acceptance.
+To run all four samples with PostgreSQL and Redis, follow the [shared Compose setup](https://github.com/esasmer-dou/rest-sample-cache-reader/blob/master/README.md#compose).
 
 ## Start With 0.8.3
 
